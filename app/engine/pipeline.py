@@ -34,6 +34,7 @@ class InformeTarjeta:
     celdas_cambiadas: int = 0
     error: str | None = None
     avisos: list[str] = field(default_factory=list)
+    columnas: list[str] = field(default_factory=list)  # las que quedan después de esta tarjeta
 
 
 @dataclass
@@ -49,6 +50,7 @@ def aplicar(tabla: pd.DataFrame, tarjetas: list[m.Tarjeta]) -> Resultado:
     for t in tarjetas:
         informe = InformeTarjeta(t.id)
         informes.append(informe)
+        informe.columnas = list(df.columns)
         if not t.activa:
             continue
         try:
@@ -59,6 +61,7 @@ def aplicar(tabla: pd.DataFrame, tarjetas: list[m.Tarjeta]) -> Resultado:
         if isinstance(nuevo, tuple):  # algunas tarjetas devuelven (tabla, avisos)
             nuevo, informe.avisos = nuevo
         informe.celdas_cambiadas = _contar_cambios(df, nuevo)
+        informe.columnas = list(nuevo.columns)
         df = nuevo
     return Resultado(df, informes)
 
@@ -83,7 +86,12 @@ def _contar_cambios(antes: pd.DataFrame, despues: pd.DataFrame) -> int:
 
 
 def armar_salida(df: pd.DataFrame, salida: m.Salida) -> pd.DataFrame:
-    """Deja solo las columnas de salida, en ese orden. Las que no existen salen vacías."""
+    """Deja solo las columnas de salida, en ese orden. Las que no existen salen vacías.
+
+    Sin columnas de salida definidas (señal nueva) se ven todas.
+    """
+    if not salida.columnas:
+        return df
     return pd.DataFrame({c: df[c] if c in df.columns else None for c in salida.columnas}, index=df.index)
 
 

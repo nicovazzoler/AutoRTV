@@ -1,0 +1,230 @@
+import datetime as dt
+import os
+from dataclasses import asdict
+
+import pandas as pd
+from fastapi import APIRouter, Cookie, Depends, File, Form, HTTPException, Response, UploadFile
+from pydantic import BaseModel, TypeAdapter
+
+from app import almacen, auth, export, tablas
+from app.engine import model as m
+from app.engine.comparar import diferencias, porcentaje_igual, sugerir_correcciones
+from app.engine.pipeline import DE_ESTRUCTURA, correr
+from app.inputs import excel
+
+publico = APIRouter(prefix="/api")
+api = APIRouter(prefix="/api", dependencies=[Depends(auth.usuario_actual)])
+
+MAX_ARCHIVO = 20 * 1024 * 1024
+
+
+# --- Sesión ---
+
+class Login(BaseModel):
+    usuario: str
+    clave: str
+
+
+@publico.post("/login")
+def login(datos: Login, response: Response):
+    token = auth.iniciar_sesion(datos.usuario, datos.clave)
+    if not token:
+        raise HTTPException(401, "Usuario o clave incorrectos")
+    response.set_cookie(auth.COOKIE, token, max_age=auth.DURACION_SESION, httponly=True, samesite="lax",
+                        secure=_es_produccion())
+    return {"ok": True}
+
+
+def _es_produccion() -> bool:
+    return bool(os.environ.get("RAILWAY_ENVIRONMENT"))
+
+
+@publico.post("/logout")
+def logout(response: Response, autortv_sesion: str | None = Cookie(default=None)):
+    if autortv_sesion:
+        auth.cerrar_sesion(autortv_sesion)
+    response.delete_cookie(auth.COOKIE)
+    return {"ok": True}
+
+
+@api.get("/yo")
+def yo(u: auth.Usuario = Depends(auth.usuario_actual)):
+    return asdict(u)
+
+
+# --- Usuarios (admin) ---
+
+class NuevoUsuario(BaseModel):
+    usuario: str
+    clave: str
+    admin: bool = False
+
+
+@api.get("/usuarios", dependencies=[Depends(auth.solo_admin)])
+def usuarios():
+    return [asdict(u) for u in auth.listar_usuarios()]
+
+
+@api.post("/usuarios", dependencies=[Depends(auth.solo_admin)])
+def crear_usuario(datos: NuevoUsuario):
+    try:
+        auth.crear_usuario(datos.usuario, datos.clave, datos.admin)
+    except ValueError as e:
+        raise HTTPException(422, str(e))
+    return {"ok": True}
+
+
+@api.delete("/usuarios/{usuario_id}")
+def borrar_usuario(usuario_id: int, yo: auth.Usuario = Depends(auth.solo_admin)):
+    if usuario_id == yo.id:
+        raise HTTPException(422, "No podés borrar tu propio usuario")
+    auth.borrar_usuario(usuario_id)
+    return {"ok": True}
+
+
+# --- Tarjetas y señales ---
+
+@api.get("/tipos-tarjeta")
+def tipos_tarjeta():
+    """JSON Schema de las tarjetas: la web arma los formularios a partir de esto."""
+    return {"schema": TypeAdapter(m.Tarjeta).json_schema(), "sin_condicion": sorted(DE_ESTRUCTURA)}
+
+
+@api.get("/senales")
+def senales():
+    return almacen.listar()
+
+
+@api.get("/senales/{senal_id}")
+def senal(senal_id: str):
+    try:
+        return almacen.leer(senal_id).model_dump(exclude_none=True)
+    except (almacen.NoExiste, ValueError):
+        raise HTTPException(404, "No existe la señal")
+
+
+@api.put("/senales/{senal_id}")
+def guardar_senal(senal_id: str, receta: m.Senal, u: auth.Usuario = Depends(auth.usuario_actual)):
+    if receta.id != senal_id:
+        raise HTTPException(422, "El id de la receta no coincide con la ruta")
+    try:
+        almacen.guardar(receta, u.usuario)
+    except ValueError as e:
+        raise HTTPException(422, str(e))
+    return {"ok": True}
+
+
+# --- Tablas, vista previa y export ---
+
+async def _leer_archivo(archivo: UploadFile) -> bytes:
+    contenido = await archivo.read()
+    if len(contenido) > MAX_ARCHIVO:
+        raise HTTPException(413, "El archivo pasa los 20 MB")
+    return contenido
+
+
+@api.post("/tablas")
+async def subir_tabla(archivo: UploadFile = File(...)):
+    return {"tabla_id": tablas.subir(await _leer_archivo(archivo)), "nombre": archivo.filename}
+
+
+class Pedido(BaseModel):
+    tabla_id: str
+    senal: m.Senal
+    filas: int = 200
+
+
+def _correr(p: Pedido):
+    try:
+        tabla = tablas.tabla(p.tabla_id, p.senal.entrada)
+    except KeyError:
+        raise HTTPException(410, "El archivo ya no está en memoria: volvé a subirlo")
+    except Exception as e:  # Excel roto o config de entrada que no corresponde
+        raise HTTPException(422, f"No se pudo leer el Excel: {e}")
+    return correr(p.senal, tabla)
+
+
+@api.post("/preview")
+def preview(p: Pedido):
+    salida, informes = _correr(p)
+    return {
+        "columnas": [str(c) for c in salida.columns],
+        "filas": export.a_filas(salida, p.filas),
+        "total_filas": len(salida),
+        "tarjetas": [asdict(i) for i in informes],
+    }
+
+
+class PedidoExport(Pedido):
+    formato: str = "xlsx"
+
+
+@api.post("/export")
+def exportar(p: PedidoExport):
+    salida, _ = _correr(p)
+    fecha = dt.date.today().isoformat()
+    if p.formato == "csv":
+        return Response(export.a_csv(salida), media_type="text/csv",
+                        headers={"Content-Disposition": f'attachment; filename="{p.senal.id}_{fecha}.csv"'})
+    return Response(export.a_xlsx(salida),
+                    media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    headers={"Content-Disposition": f'attachment; filename="{p.senal.id}_{fecha}.xlsx"'})
+
+
+# --- Ejemplos antes/después ---
+
+@api.get("/senales/{senal_id}/ejemplos")
+def ejemplos(senal_id: str):
+    try:
+        return almacen.listar_ejemplos(senal_id)
+    except ValueError as e:
+        raise HTTPException(422, str(e))
+
+
+@api.post("/senales/{senal_id}/ejemplos")
+async def subir_ejemplo(senal_id: str, nombre: str = Form(...),
+                        entrada: UploadFile = File(...), esperado: UploadFile = File(...)):
+    try:
+        almacen.guardar_ejemplo(senal_id, nombre, await _leer_archivo(entrada), await _leer_archivo(esperado))
+    except ValueError as e:
+        raise HTTPException(422, str(e))
+    return {"ok": True}
+
+
+@api.delete("/senales/{senal_id}/ejemplos/{nombre}")
+def borrar_ejemplo(senal_id: str, nombre: str):
+    try:
+        almacen.borrar_ejemplo(senal_id, nombre)
+    except ValueError as e:
+        raise HTTPException(422, str(e))
+    return {"ok": True}
+
+
+@api.post("/senales/{senal_id}/ejemplos/evaluar")
+def evaluar_ejemplos(senal_id: str, receta: m.Senal):
+    """Corre la receta (aunque no esté guardada) contra cada ejemplo de la señal."""
+    try:
+        nombres = almacen.listar_ejemplos(senal_id)
+    except ValueError as e:
+        raise HTTPException(422, str(e))
+    resultados = []
+    for nombre in nombres:
+        ruta_entrada, ruta_esperado = almacen.rutas_ejemplo(senal_id, nombre)
+        try:
+            salida, _ = correr(receta, excel.leer(ruta_entrada, receta.entrada))
+            esperado = pd.read_excel(ruta_esperado, dtype=object)
+        except Exception as e:
+            resultados.append({"nombre": nombre, "error": f"No se pudo correr: {e}"})
+            continue
+        difs = diferencias(salida, esperado)
+        texto = [c for c in esperado.columns if esperado[c].map(lambda v: isinstance(v, str)).any()]
+        resultados.append({
+            "nombre": nombre,
+            "porcentaje": round(porcentaje_igual(salida, esperado), 2),
+            "filas": [len(salida), len(esperado)],
+            "total_diferencias": len(difs),
+            "diferencias": [{**d, "obtenido": export.celda_json(d["obtenido"]),
+                             "esperado": export.celda_json(d["esperado"])} for d in difs[:100]],
+            "correcciones": sugerir_correcciones(salida, esperado, texto),
+        })
+    return resultados

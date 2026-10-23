@@ -1,13 +1,25 @@
-import json
+from contextlib import asynccontextmanager
+from pathlib import Path
 
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
-from pydantic import ValidationError
+from fastapi import FastAPI
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 
-from app.engine import model as m
-from app.engine.pipeline import correr
-from app.inputs import excel
+from app import auth
+from app.api.rutas import api, publico
 
-app = FastAPI(title="AutoRTV")
+WEB = Path(__file__).resolve().parents[1] / "web"
+
+
+@asynccontextmanager
+async def arranque(_app):
+    auth.asegurar_admin_inicial()
+    yield
+
+
+app = FastAPI(title="AutoRTV", lifespan=arranque)
+app.include_router(publico)
+app.include_router(api)
 
 
 @app.get("/health")
@@ -15,18 +27,15 @@ def health():
     return {"ok": True}
 
 
-@app.post("/api/preview")
-async def preview(archivo: UploadFile = File(...), senal: str = Form(...), filas: int = Form(200)):
-    """Corre la receta sobre el Excel subido y devuelve las primeras filas y el informe por tarjeta."""
-    try:
-        receta = m.Senal.model_validate(json.loads(senal))
-    except (json.JSONDecodeError, ValidationError) as e:
-        raise HTTPException(422, str(e))
-    tabla = excel.leer(archivo.file, receta.entrada)
-    salida, informes = correr(receta, tabla)
-    return {
-        "columnas": list(salida.columns),
-        "filas": json.loads(salida.head(filas).to_json(orient="records", date_format="iso")),
-        "total_filas": len(salida),
-        "tarjetas": [vars(i) for i in informes],
-    }
+# La web es estática; los datos los protege /api con la sesión.
+@app.get("/")
+def inicio():
+    return FileResponse(WEB / "index.html")
+
+
+@app.get("/login")
+def pagina_login():
+    return FileResponse(WEB / "login.html")
+
+
+app.mount("/web", StaticFiles(directory=WEB), name="web")

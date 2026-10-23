@@ -5,3 +5,4 @@ __pycache__/
 # Señales y grillas del laburo: nunca al repo público
 privado/
 senales/
+datos/

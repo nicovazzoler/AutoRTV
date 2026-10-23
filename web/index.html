@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AutoRTV</title>
+  <link rel="stylesheet" href="/web/estilos.css">
+</head>
+<body>
+  <header class="barra">
+    <strong class="marca">AutoRTV</strong>
+    <select id="sel-senal" title="Señal"></select>
+    <button id="btn-nueva">Nueva señal</button>
+    <label class="boton">Subir grilla<input id="in-archivo" type="file" accept=".xlsx,.xls" hidden></label>
+    <span id="nombre-archivo" class="tenue"></span>
+    <span class="espacio"></span>
+    <span id="estado" class="tenue"></span>
+    <button id="btn-guardar" class="primario" disabled>Guardar</button>
+    <button id="btn-xlsx" disabled>Exportar xlsx</button>
+    <button id="btn-csv" disabled>csv</button>
+    <span id="usuario" class="tenue"></span>
+    <button id="btn-salir">Salir</button>
+  </header>
+
+  <main id="principal" hidden>
+    <aside class="panel">
+      <section class="bloque">
+        <h2>Entrada</h2>
+        <div class="fila">
+          <label>Hoja <input id="in-hoja" class="corto"></label>
+          <label>Fila de encabezado <input id="in-fila" type="number" min="1" class="corto"></label>
+        </div>
+      </section>
+      <section class="bloque">
+        <h2>Tarjetas <span class="tenue">(arrastrá para ordenar)</span></h2>
+        <ol id="lista-tarjetas" class="tarjetas"></ol>
+        <div class="fila">
+          <select id="sel-tipo"></select>
+          <button id="btn-agregar">+ Tarjeta</button>
+        </div>
+      </section>
+      <section class="bloque">
+        <h2>Columnas de salida <span class="tenue">(una por línea, vacío = todas)</span></h2>
+        <textarea id="in-salida" rows="8"></textarea>
+      </section>
+    </aside>
+
+    <section class="contenido">
+      <nav class="pestanas">
+        <button data-pestana="tabla" class="activa">Tabla</button>
+        <button data-pestana="ejemplos">Ejemplos</button>
+        <button data-pestana="usuarios" id="pestana-usuarios" hidden>Usuarios</button>
+      </nav>
+
+      <div id="vista-tabla" class="vista">
+        <p id="resumen" class="tenue">Subí una grilla para ver la vista previa.</p>
+        <div class="contenedor-tabla"><table id="tabla"></table></div>
+      </div>
+
+      <div id="vista-ejemplos" class="vista" hidden>
+        <p class="tenue">Un ejemplo es un par <b>grilla como vino → EPG como quedó</b>. La receta se prueba contra todos
+          los ejemplos de la señal y se ve qué tan parecido sale.</p>
+        <form id="form-ejemplo" class="fila">
+          <label>Nombre <input name="nombre" placeholder="semana-2026-10-01" pattern="[a-z0-9][a-z0-9_\-]*" required></label>
+          <label>Como vino <input name="entrada" type="file" accept=".xlsx,.xls" required></label>
+          <label>Como quedó <input name="esperado" type="file" accept=".xlsx,.xls" required></label>
+          <button type="submit">Agregar ejemplo</button>
+        </form>
+        <div class="fila"><button id="btn-evaluar" class="primario">Probar receta contra los ejemplos</button></div>
+        <div id="resultados-ejemplos"></div>
+      </div>
+
+      <div id="vista-usuarios" class="vista" hidden>
+        <form id="form-usuario" class="fila">
+          <label>Usuario <input name="usuario" required></label>
+          <label>Clave <input name="clave" type="password" minlength="8" required></label>
+          <label class="check"><input name="admin" type="checkbox"> admin</label>
+          <button type="submit">Crear usuario</button>
+        </form>
+        <ul id="lista-usuarios" class="lista-simple"></ul>
+      </div>
+    </section>
+  </main>
+
+  <datalist id="columnas-conocidas"></datalist>
+  <script src="/web/app.js"></script>
+</body>
+</html>
