@@ -105,3 +105,38 @@ def a_hora(v) -> dt.time | None:
             except ValueError:
                 pass
     return None
+
+
+def clasificar_sinopsis(df, t: m.ClasificarSinopsis):
+    """Misma sinopsis en casi todos los capítulos = argumento de programa; distintas = de capítulo.
+
+    Los programas que quedan como "programa" pero tienen alguna sinopsis distinta se avisan:
+    puede ser un argumento puntual de un capítulo o dos argumentos del mismo programa,
+    y eso lo decide una persona.
+    """
+    columnas_de(df, [t.programa, t.capitulo, t.sinopsis])
+    sinopsis = df[t.sinopsis].map(_texto_o_none)
+    a_programa = sinopsis.copy()  # filas sin programa conservan su sinopsis
+    a_capitulo = pd.Series(None, index=df.index, dtype=object)
+    avisos = []
+    for programa, grupo in df.groupby(df[t.programa].map(_texto_o_none), dropna=True, sort=False):
+        textos = sinopsis[grupo.index].dropna()
+        capitulos = grupo[t.capitulo].map(lambda v: _texto_o_none(v) or "").nunique()
+        if capitulos >= 2 and textos.nunique() / capitulos > t.umbral:
+            a_capitulo[grupo.index] = sinopsis[grupo.index]
+            a_programa[grupo.index] = None
+            continue
+        if textos.nunique() > 1:
+            mayoritaria = textos.mode()[0]
+            filas = [str(i + 1) for i in textos.index if textos[i] != mayoritaria]
+            avisos.append(f"{programa}: sinopsis distinta en fila(s) {', '.join(filas)}")
+    df[t.destino_programa] = a_programa
+    df[t.destino_capitulo] = a_capitulo
+    return df, avisos
+
+
+def _texto_o_none(v):
+    if v is None or (isinstance(v, float) and pd.isna(v)):
+        return None
+    s = str(v).strip()
+    return s or None

@@ -165,3 +165,7 @@ def extraer(df, t: m.Extraer, mascara):
         if t.quitar_del_origen:
             df.at[i, col] = re.sub(r"\s+", " ", s[: r.start()] + s[r.end():]).strip()
     return df
+
+
+def correcciones(df, t: m.Correcciones, mascara):
+    return _transformar(df, t.columnas, mascara, lambda s: t.mapa.get(s, s))

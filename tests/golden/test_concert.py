@@ -6,7 +6,7 @@ import pandas as pd
 import pytest
 
 from app.engine import model as m
-from app.engine.comparar import diferencias, porcentaje_igual
+from app.engine.comparar import diferencias
 from app.engine.pipeline import correr
 from app.inputs import excel
 
@@ -21,7 +21,4 @@ def test_concert_coincide_con_el_esperado():
 
     assert [i for i in informes if i.error] == []
     assert len(salida) == len(esperado)
-    difs = diferencias(salida, esperado)
-    # Solo quedan correcciones editoriales de títulos (AC/DC, "Cure; the", "Ep 1"...).
-    assert {d["columna"] for d in difs} <= {"TIT ING", "TIT CAP ING"}
-    assert porcentaje_igual(salida, esperado) >= 99.4
+    assert diferencias(salida, esperado) == []

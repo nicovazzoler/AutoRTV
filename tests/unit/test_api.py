@@ -23,8 +23,8 @@ def test_preview_devuelve_tabla_e_informe():
     assert r.status_code == 200, r.text
     cuerpo = r.json()
     assert cuerpo["total_filas"] == 2
-    assert cuerpo["filas"][0]["TIT ING"] == "Joseph Prince" and cuerpo["filas"][0]["DUR"] == 90
-    assert cuerpo["filas"][0]["HORA"] == "00:00:00" and cuerpo["filas"][1]["DIA"] == "VIERNES"
+    assert cuerpo["filas"][0]["Programa"] == "Joseph Prince" and cuerpo["filas"][0]["Duracion"] == 90
+    assert cuerpo["filas"][0]["HoraEPG"] == "00:00:00" and cuerpo["filas"][1]["Dia"] == "VIERNES"
     assert all(t["error"] is None for t in cuerpo["tarjetas"])
 
 

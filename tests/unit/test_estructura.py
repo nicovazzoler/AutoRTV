@@ -18,7 +18,7 @@ def test_redondear_y_duracion_hasta_siguiente():
         tarjeta({"id": "b", "tipo": "duracion", "modo": "hasta_siguiente", "fecha": "f", "hora": "h", "ultimo_hasta": "06:00"}),
     ])
     assert r.tabla["h"].tolist()[1] == dt.time(20, 27)
-    assert r.tabla["DUR"].tolist() == [57, 453, 120]
+    assert r.tabla["Duracion"].tolist() == [57, 453, 120]
 
 
 def test_redondeo_no_pasa_de_medianoche():
@@ -28,7 +28,7 @@ def test_redondeo_no_pasa_de_medianoche():
 
 def test_dia_semana_con_tilde():
     r = aplicar(pd.DataFrame({"f": [D]}), [tarjeta({"id": "a", "tipo": "dia_semana", "columna": "f"})])
-    assert r.tabla["DIA"][0] == "SÁBADO"
+    assert r.tabla["Dia"][0] == "SÁBADO"
 
 
 def test_numerar_con_paso():

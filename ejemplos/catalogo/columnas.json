@@ -1,0 +1,19 @@
+{
+  "nota": "Catálogo sintético de ejemplo. El real vive en privado/catalogo_columnas.json.",
+  "columnas": [
+    { "codigo": "N", "descripcion": "Número de fila" },
+    { "codigo": "Dia", "descripcion": "Día de la semana" },
+    { "codigo": "FechaEPG", "descripcion": "Fecha" },
+    { "codigo": "HoraEPG", "descripcion": "Hora de inicio" },
+    { "codigo": "Duracion", "descripcion": "Minutos hasta el programa siguiente" },
+    { "codigo": "Programa", "descripcion": "Título del programa" },
+    { "codigo": "Capitulo", "descripcion": "Título del capítulo" },
+    { "codigo": "Temporada", "descripcion": "Número de temporada" },
+    { "codigo": "NroCapitulo", "descripcion": "Número de capítulo" },
+    { "codigo": "SinopsisCapitulo", "descripcion": "Argumento del capítulo" },
+    { "codigo": "SinopsisPrograma", "descripcion": "Argumento del programa" },
+    { "codigo": "Conductor1", "descripcion": "Conductor (hasta 3)" },
+    { "codigo": "Conductor2", "descripcion": "Conductor (hasta 3)" },
+    { "codigo": "Conductor3", "descripcion": "Conductor (hasta 3)" }
+  ]
+}

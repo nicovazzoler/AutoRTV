@@ -16,6 +16,7 @@ DE_TEXTO = {
     "mayus_minus": texto.mayus_minus,
     "asignar": texto.asignar,
     "a_numero": texto.a_numero,
+    "correcciones": texto.correcciones,
 }
 DE_ESTRUCTURA = {
     "renombrar": estructura.renombrar,
@@ -23,6 +24,7 @@ DE_ESTRUCTURA = {
     "redondear_hora": estructura.redondear_hora,
     "dia_semana": estructura.dia_semana,
     "duracion": estructura.duracion,
+    "clasificar_sinopsis": estructura.clasificar_sinopsis,
 }
 
 
@@ -31,6 +33,7 @@ class InformeTarjeta:
     id: str
     celdas_cambiadas: int = 0
     error: str | None = None
+    avisos: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -53,6 +56,8 @@ def aplicar(tabla: pd.DataFrame, tarjetas: list[m.Tarjeta]) -> Resultado:
         except ErrorTarjeta as e:
             informe.error = str(e)
             continue
+        if isinstance(nuevo, tuple):  # algunas tarjetas devuelven (tabla, avisos)
+            nuevo, informe.avisos = nuevo
         informe.celdas_cambiadas = _contar_cambios(df, nuevo)
         df = nuevo
     return Resultado(df, informes)

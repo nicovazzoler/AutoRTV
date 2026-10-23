@@ -80,6 +80,13 @@ class Asignar(TarjetaBase):
     valor: str  # fijo o con "{Otra}"
 
 
+class Correcciones(TarjetaBase):
+    tipo: Literal["correcciones"]
+    columnas: list[str] | Literal["*"]
+    # Celda entera tal como queda después de la limpieza -> texto corregido a mano.
+    mapa: dict[str, str]
+
+
 class ANumero(TarjetaBase):
     tipo: Literal["a_numero"]
     columnas: list[str]
@@ -108,7 +115,7 @@ class RedondearHora(TarjetaBase):
 class DiaSemana(TarjetaBase):
     tipo: Literal["dia_semana"]
     columna: str  # columna con fecha
-    destino: str = "DIA"
+    destino: str = "Dia"
     idioma: Literal["es", "en"] = "es"
     mayusculas: bool = True
 
@@ -118,20 +125,31 @@ class Duracion(TarjetaBase):
     modo: Literal["hasta_siguiente"]
     fecha: str
     hora: str
-    destino: str = "DUR"
+    destino: str = "Duracion"
     # Hora en que arranca la grilla del día siguiente; cierra la duración del último programa.
     ultimo_hasta: str | None = None
 
 
+class ClasificarSinopsis(TarjetaBase):
+    """Decide si la sinopsis es argumento del programa o del capítulo."""
+    tipo: Literal["clasificar_sinopsis"]
+    programa: str
+    capitulo: str
+    sinopsis: str
+    destino_programa: str
+    destino_capitulo: str
+    # Va a capítulo si (sinopsis distintas / capítulos distintos) supera este valor.
+    umbral: float = 0.5
+
+
 Tarjeta = Annotated[
     Union[
-        LimpiarEspacios, Reemplazar, Quitar, Separar, Extraer, MayusMinus, Asignar, ANumero,
-        Renombrar, Numerar, RedondearHora, DiaSemana, Duracion,
+        LimpiarEspacios, Reemplazar, Quitar, Separar, Extraer, MayusMinus, Asignar, ANumero, Correcciones,
+        Renombrar, Numerar, RedondearHora, DiaSemana, Duracion, ClasificarSinopsis,
     ],
     Field(discriminator="tipo"),
 ]
 
-ESTRUCTURALES = (Renombrar, Numerar, RedondearHora, DiaSemana, Duracion)
 
 
 class EntradaExcel(Base):
