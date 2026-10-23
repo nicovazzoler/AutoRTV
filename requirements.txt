@@ -1,0 +1,6 @@
+fastapi==0.161.1
+uvicorn[standard]
+pandas==3.1.0
+openpyxl
+pydantic==2.14.1
+python-multipart

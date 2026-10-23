@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "id": "sintetica",
+  "nombre": "Señal sintética de ejemplo",
+  "entrada": { "tipo": "excel", "hoja": 0, "fila_encabezado": 1 },
+  "tarjetas": [
+    { "id": "t1", "tipo": "limpiar_espacios", "columnas": "*" },
+    { "id": "t2", "tipo": "separar", "columna": "Titulo", "modo": "min_mayus", "destinos": ["TIT ING", "TIT CAP ING"],
+      "nota": "programa y episodio vienen pegados" },
+    { "id": "t3", "tipo": "duracion", "modo": "hasta_siguiente", "fecha": "Fecha", "hora": "Hora", "destino": "DUR", "ultimo_hasta": "00:00" },
+    { "id": "t4", "tipo": "dia_semana", "columna": "Fecha", "destino": "DIA" },
+    { "id": "t5", "tipo": "renombrar", "mapa": { "Fecha": "FECHA", "Hora": "HORA" } },
+    { "id": "t6", "tipo": "numerar", "columna": "N" }
+  ],
+  "salida": { "columnas": ["N", "DIA", "FECHA", "HORA", "DUR", "TIT ING", "TIT CAP ING"] }
+}
