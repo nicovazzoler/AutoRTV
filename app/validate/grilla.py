@@ -7,6 +7,7 @@ import pandas as pd
 
 from app.engine import model as m
 from app.engine.tarjetas.estructura import a_fecha, a_hora
+from app.engine.titulos import detectar_columna
 
 MAX_POR_REGLA = 200
 
@@ -34,8 +35,10 @@ def detectar_columnas(columnas: list[str], v: m.Validaciones) -> dict[str, str |
     return elegidas
 
 
-def validar(salida: pd.DataFrame, v: m.Validaciones) -> list[Aviso]:
+def validar(salida: pd.DataFrame, v: m.Validaciones, titulos: list[str] = ()) -> list[Aviso]:
     avisos: list[Aviso] = []
+    if v.avisar_titulos_nuevos:
+        avisos += _titulos_nuevos(salida, v, set(titulos))
     if v.filas_esperadas is not None and len(salida) != v.filas_esperadas:
         avisos.append(Aviso("aviso", "filas", f"Hay {len(salida)} filas y se esperaban {v.filas_esperadas}"))
     avisos += _obligatorias(salida, v.obligatorias)
@@ -49,6 +52,19 @@ def validar(salida: pd.DataFrame, v: m.Validaciones) -> list[Aviso]:
         return _topear(avisos)
     avisos += _horarios(salida, cols, v)
     return _topear(avisos)
+
+
+def _titulos_nuevos(df: pd.DataFrame, v: m.Validaciones, conocidos: set[str]) -> list[Aviso]:
+    col = v.programa or detectar_columna(list(df.columns))
+    if not col or col not in df.columns:
+        return [Aviso("aviso", "config", "No se buscan títulos nuevos: elegí la columna de programa en Validaciones.")]
+    primera: dict[str, int] = {}
+    veces: dict[str, int] = defaultdict(int)
+    for i, x in enumerate(df[col]):
+        if isinstance(x, str) and x.strip() and x.strip() not in conocidos:
+            primera.setdefault(x.strip(), i + 1)
+            veces[x.strip()] += 1
+    return [Aviso("info", "titulo_nuevo", f"Título nuevo: {t} ({veces[t]} veces)", fila) for t, fila in primera.items()]
 
 
 def _obligatorias(df: pd.DataFrame, columnas: list[str]) -> list[Aviso]:

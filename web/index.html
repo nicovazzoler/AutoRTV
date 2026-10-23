@@ -39,6 +39,28 @@
           <button id="btn-agregar">+ Tarjeta</button>
         </div>
       </section>
+      <details class="bloque" id="bloque-titulos">
+        <summary><h2>Títulos conocidos</h2> <span id="cant-titulos" class="tenue"></span></summary>
+        <p class="tenue">Programas que esta señal ya emitió. La tarjeta <b>Separar</b> en modo
+          <i>titulos_conocidos</i> los usa para cortar programa y capítulo exacto.</p>
+        <div class="fila">
+          <label>Columna de programa <input id="tit-columna" list="columnas-conocidas" placeholder="automática"></label>
+          <button id="btn-tit-ejemplos" type="button">Aprender de los ejemplos</button>
+          <label class="boton">Aprender de archivos…<input id="tit-archivos" type="file" accept=".xlsx,.xls" multiple hidden></label>
+        </div>
+        <div id="tit-resultado" hidden>
+          <p id="tit-resumen" class="tenue"></p>
+          <div class="fila">
+            <button id="btn-tit-nuevos" type="button" class="chico">Marcar solo nuevos</button>
+            <button id="btn-tit-ninguno" type="button" class="chico">Desmarcar todos</button>
+            <span class="espacio"></span>
+            <button id="btn-tit-agregar" type="button" class="primario">Agregar seleccionados</button>
+          </div>
+          <ul id="tit-lista" class="lista-titulos"></ul>
+        </div>
+        <label>Lista (uno por línea) <input id="tit-buscar" type="search" placeholder="buscar…"></label>
+        <textarea id="tit-texto" rows="8"></textarea>
+      </details>
       <details class="bloque" id="bloque-validaciones">
         <summary><h2>Validaciones</h2> <span id="cols-validadas" class="tenue"></span></summary>
         <p class="tenue">Las columnas de fecha, hora y duración se detectan solas. Completá solo si esta señal las llama distinto.</p>
@@ -58,6 +80,10 @@
           <label class="check"><input id="val-super" type="checkbox"> avisar superposiciones</label>
         </div>
         <label>Columnas obligatorias (una por línea) <textarea id="val-obligatorias" rows="3"></textarea></label>
+        <div class="fila">
+          <label class="check"><input id="val-titulos" type="checkbox"> avisar títulos que no están en la lista</label>
+          <label>Columna de programa <input id="val-programa" list="columnas-conocidas" placeholder="automática"></label>
+        </div>
       </details>
       <section class="bloque">
         <h2>Columnas de salida <span class="tenue">(una por línea, vacío = todas)</span></h2>

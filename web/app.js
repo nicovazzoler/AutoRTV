@@ -25,7 +25,15 @@ const CAMPOS_DE_COLUMNA = new Set(["columna", "destino", "fecha", "hora", "progr
   "destino_programa", "destino_capitulo"]);
 
 const VALIDACIONES_DEFAULT = { fecha: null, hora: null, duracion: null, dia_minutos: 1440, max_duracion_min: 720,
-  tolerancia_min: 0, huecos: true, superposiciones: true, filas_esperadas: null, obligatorias: [] };
+  tolerancia_min: 0, huecos: true, superposiciones: true, filas_esperadas: null, obligatorias: [],
+  avisar_titulos_nuevos: false, programa: null };
+
+// Completa los campos opcionales para que "receta abierta" y "receta guardada" se comparen igual.
+function normalizar(receta) {
+  receta.validaciones = { ...VALIDACIONES_DEFAULT, ...(receta.validaciones || {}) };
+  receta.titulos_conocidos = receta.titulos_conocidos || [];
+  return receta;
+}
 const ICONOS = { error: "✕", aviso: "⚠", info: "ℹ" };
 
 const estado = {
@@ -307,16 +315,16 @@ function cambioReceta() {
   temporizador = setTimeout(previsualizar, 300);
 }
 
-function cargarReceta(receta, guardada) {
-  estado.receta = receta;
-  estado.guardada = guardada;
+function cargarReceta(receta, guardada, version = null) {
+  estado.receta = normalizar(receta);
+  estado.guardada = guardada ? JSON.stringify(normalizar(structuredClone(guardada))) : null;
+  estado.version = version;
   estado.informes = [];
   estado.abierta = null;
   $("#principal").hidden = false;
   $("#in-hoja").value = receta.entrada.hoja;
   $("#in-fila").value = receta.entrada.fila_encabezado;
   $("#in-salida").value = receta.salida.columnas.join("\n");
-  receta.validaciones = { ...VALIDACIONES_DEFAULT, ...(receta.validaciones || {}) };
   const v = receta.validaciones;
   $("#val-fecha").value = v.fecha || "";
   $("#val-hora").value = v.hora || "";
@@ -328,6 +336,11 @@ function cargarReceta(receta, guardada) {
   $("#val-huecos").checked = v.huecos;
   $("#val-super").checked = v.superposiciones;
   $("#val-obligatorias").value = v.obligatorias.join("\n");
+  $("#val-titulos").checked = v.avisar_titulos_nuevos;
+  $("#val-programa").value = v.programa || "";
+  $("#tit-resultado").hidden = true;
+  $("#tit-buscar").value = "";
+  dibujarTitulos();
   $("#panel-validaciones").hidden = true;
   dibujarTarjetas();
   cambioReceta();
@@ -349,8 +362,74 @@ function enlazarValidaciones() {
   numero("#val-filas", "filas_esperadas", null);
   tilde("#val-huecos", "huecos");
   tilde("#val-super", "superposiciones");
+  tilde("#val-titulos", "avisar_titulos_nuevos");
+  texto("#val-programa", "programa");
   $("#val-obligatorias").oninput = (e) => {
     v().obligatorias = e.target.value.split("\n").map((x) => x.trim()).filter(Boolean);
+    cambioReceta();
+  };
+}
+
+// --- Títulos conocidos ---
+
+let titulosAprendidos = [];
+
+function dibujarTitulos() {
+  const lista = estado.receta.titulos_conocidos;
+  $("#cant-titulos").textContent = `(${lista.length})`;
+  const filtro = $("#tit-buscar").value.trim().toLowerCase();
+  const ta = $("#tit-texto");
+  ta.value = (filtro ? lista.filter((t) => t.toLowerCase().includes(filtro)) : lista).join("\n");
+  ta.readOnly = !!filtro;  // con filtro se ve una parte: editar ahí borraría lo que no se ve
+  ta.title = filtro ? "Borrá la búsqueda para editar la lista" : "";
+}
+
+async function aprenderTitulos(archivos) {
+  const datos = new FormData();
+  datos.append("columna", $("#tit-columna").value.trim());
+  datos.append("usar_ejemplos", archivos ? "false" : "true");
+  datos.append("conocidos", JSON.stringify(estado.receta.titulos_conocidos));
+  for (const a of archivos || []) datos.append("archivos", a);
+  avisar("Leyendo títulos…");
+  try {
+    const r = await api(`/api/senales/${estado.receta.id}/titulos/aprender`, { method: "POST", body: datos }).then((x) => x.json());
+    titulosAprendidos = r.titulos.map((t) => ({ ...t, elegido: t.nuevo }));
+    const nuevos = r.titulos.filter((t) => t.nuevo).length;
+    $("#tit-resumen").textContent = `${r.titulos.length} títulos en la columna ${r.columna_usada}, ${nuevos} nuevos.`;
+    $("#tit-resultado").hidden = false;
+    dibujarAprendidos();
+    avisar("");
+  } catch (e) { avisar(e.message, true); }
+}
+
+function dibujarAprendidos() {
+  $("#tit-lista").replaceChildren(...titulosAprendidos.map((t) => {
+    const c = el("input", { type: "checkbox", checked: t.elegido, onchange: () => { t.elegido = c.checked; } });
+    return el("li", {}, el("label", { className: "check" }, c, t.nuevo ? el("b", { textContent: t.titulo }) : t.titulo,
+      el("span", { className: "veces", textContent: ` ×${t.apariciones}` + (t.nuevo ? " · nuevo" : "") })));
+  }));
+}
+
+function enlazarTitulos() {
+  $("#btn-tit-ejemplos").onclick = () => aprenderTitulos(null);
+  $("#tit-archivos").onchange = (e) => { if (e.target.files.length) aprenderTitulos([...e.target.files]); e.target.value = ""; };
+  $("#btn-tit-nuevos").onclick = () => { titulosAprendidos.forEach((t) => { t.elegido = t.nuevo; }); dibujarAprendidos(); };
+  $("#btn-tit-ninguno").onclick = () => { titulosAprendidos.forEach((t) => { t.elegido = false; }); dibujarAprendidos(); };
+  $("#btn-tit-agregar").onclick = () => {
+    const lista = estado.receta.titulos_conocidos;
+    const ya = new Set(lista);
+    const agregar = titulosAprendidos.filter((t) => t.elegido && !ya.has(t.titulo)).map((t) => t.titulo);
+    lista.push(...agregar);
+    lista.sort((a, b) => a.localeCompare(b));
+    $("#tit-resultado").hidden = true;
+    avisar(`${agregar.length} títulos agregados. Tocá Guardar para que queden en la señal.`);
+    dibujarTitulos();
+    cambioReceta();
+  };
+  $("#tit-buscar").oninput = dibujarTitulos;
+  $("#tit-texto").oninput = (e) => {
+    estado.receta.titulos_conocidos = [...new Set(e.target.value.split("\n").map((t) => t.trim()).filter(Boolean))];
+    $("#cant-titulos").textContent = `(${estado.receta.titulos_conocidos.length})`;
     cambioReceta();
   };
 }
@@ -391,16 +470,18 @@ function irAFila(fila) {
 }
 
 async function abrirSenal(id) {
-  const guardada = await api(`/api/senales/${id}`).then((r) => r.json());
-  const textoGuardado = JSON.stringify(guardada);
-  let receta = guardada;
+  const r = await api(`/api/senales/${id}`);
+  const version = r.headers.get("ETag");
+  const guardada = await r.json();
+  let receta = structuredClone(guardada);
   try {
     const borrador = localStorage.getItem("borrador:" + id);
+    const textoGuardado = JSON.stringify(normalizar(structuredClone(guardada)));
     if (borrador && borrador !== textoGuardado && confirm("Hay cambios sin guardar de la última vez. ¿Recuperarlos?")) {
       receta = JSON.parse(borrador);
     }
   } catch {}
-  cargarReceta(receta, textoGuardado);
+  cargarReceta(receta, guardada, version);
   try { localStorage.setItem("ultima-senal", id); } catch {}
   $("#resultados-ejemplos").replaceChildren();
 }
@@ -412,9 +493,22 @@ async function listarSenales(elegir) {
   for (const s of senales) sel.append(el("option", { value: s.id, textContent: s.nombre, selected: s.id === elegir }));
 }
 
-async function guardar() {
+async function guardar(forzar = false) {
   try {
-    await json(`/api/senales/${estado.receta.id}`, "PUT", estado.receta);
+    const cabeceras = { "Content-Type": "application/json" };
+    if (estado.version && !forzar) cabeceras["If-Match"] = estado.version;
+    const r = await fetch(`/api/senales/${estado.receta.id}`, {
+      method: "PUT", headers: cabeceras, body: JSON.stringify(estado.receta) });
+    if (r.status === 409) {
+      const { detail } = await r.json();
+      if (confirm(`${detail}.\n\nAceptar: guardar igual y pisar esos cambios.\nCancelar: recargar la señal (lo tuyo queda como borrador).`)) {
+        return guardar(true);
+      }
+      return abrirSenal(estado.receta.id);
+    }
+    if (r.status === 401) { location.href = "/login"; return; }
+    if (!r.ok) throw new Error((await r.json()).detail || r.statusText);
+    estado.version = r.headers.get("ETag");
     estado.guardada = JSON.stringify(estado.receta);
     try { localStorage.removeItem("borrador:" + estado.receta.id); } catch {}
     $("#btn-guardar").disabled = true;
@@ -610,7 +704,8 @@ async function iniciar() {
       tarjetas: [], salida: { columnas: [] } }, null);
   };
   $("#in-archivo").onchange = (e) => e.target.files[0] && subirGrilla(e.target.files[0]);
-  $("#btn-guardar").onclick = guardar;
+  $("#btn-guardar").onclick = () => guardar();
+  enlazarTitulos();
   $("#btn-xlsx").onclick = () => exportar("xlsx");
   $("#btn-csv").onclick = () => exportar("csv");
   $("#btn-salir").onclick = async () => { await fetch("/api/logout", { method: "POST" }); location.href = "/login"; };

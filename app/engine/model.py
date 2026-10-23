@@ -174,6 +174,9 @@ class Validaciones(Base):
     superposiciones: bool = True
     filas_esperadas: int | None = None
     obligatorias: list[str] = []
+    # Nota por cada programa que no está en los títulos conocidos de la señal.
+    avisar_titulos_nuevos: bool = False
+    programa: str | None = None  # None = detectar por nombre
 
 
 class Senal(Base):
@@ -184,3 +187,5 @@ class Senal(Base):
     tarjetas: list[Tarjeta]
     salida: Salida
     validaciones: Validaciones = Validaciones()
+    # Programas que la señal ya emitió; los usa `separar` en modo titulos_conocidos.
+    titulos_conocidos: list[str] = []

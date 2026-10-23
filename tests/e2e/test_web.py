@@ -73,6 +73,12 @@ def test_flujo_basico(servidor, tmp_path):
         pagina.wait_for_selector("#tabla td:text('Joseph Prince')")
         assert pagina.locator(".insignia").first.inner_text() == "2 celdas"
 
+        pagina.click("#bloque-titulos summary")
+        pagina.set_input_files("#tit-archivos", str(grilla))
+        pagina.wait_for_selector("#tit-resultado:not([hidden])")
+        pagina.click("#btn-tit-agregar")
+        assert pagina.inner_text("#cant-titulos") == "(2)"
+
         pagina.click("#btn-guardar")
         pagina.wait_for_selector("#estado:text('Guardado')")
         assert pagina.locator("#sel-senal option[value=senal-de-prueba]").count() == 1

@@ -43,11 +43,16 @@ class Resultado:
     informes: list[InformeTarjeta] = field(default_factory=list)
 
 
-def aplicar(tabla: pd.DataFrame, tarjetas: list[m.Tarjeta]) -> Resultado:
-    """Corre las tarjetas activas. Una tarjeta con error se saltea y las demás siguen."""
+def aplicar(tabla: pd.DataFrame, tarjetas: list[m.Tarjeta], titulos: list[str] = ()) -> Resultado:
+    """Corre las tarjetas activas. Una tarjeta con error se saltea y las demás siguen.
+
+    `titulos` son los títulos conocidos de la señal: se suman a los de cada tarjeta `separar`.
+    """
     df = tabla.copy().astype(object)
     informes = []
     for t in tarjetas:
+        if t.tipo == "separar" and titulos:
+            t = t.model_copy(update={"titulos": [*t.titulos, *titulos]})
         informe = InformeTarjeta(t.id)
         informes.append(informe)
         informe.columnas = list(df.columns)
@@ -96,5 +101,5 @@ def armar_salida(df: pd.DataFrame, salida: m.Salida) -> pd.DataFrame:
 
 
 def correr(senal: m.Senal, tabla: pd.DataFrame) -> tuple[pd.DataFrame, list[InformeTarjeta]]:
-    r = aplicar(tabla, senal.tarjetas)
+    r = aplicar(tabla, senal.tarjetas, senal.titulos_conocidos)
     return armar_salida(r.tabla, senal.salida), r.informes

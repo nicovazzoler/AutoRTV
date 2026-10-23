@@ -126,3 +126,31 @@ def test_web_se_sirve():
     c = TestClient(app)
     assert "AutoRTV" in c.get("/").text and "form-login" in c.get("/login").text
     assert c.get("/web/app.js").status_code == 200
+
+
+def test_guardar_no_pisa_a_otro(cliente):
+    cliente.put("/api/senales/sintetica", json=RECETA)
+    version = cliente.get("/api/senales/sintetica").headers["ETag"]
+    otra = {**RECETA, "nombre": "Cambiada por otro"}
+    assert cliente.put("/api/senales/sintetica", json=otra, headers={"If-Match": version}).status_code == 200
+    # Mi versión quedó vieja: el guardado se rechaza y dice quién guardó.
+    r = cliente.put("/api/senales/sintetica", json=RECETA, headers={"If-Match": version})
+    assert r.status_code == 409 and r.json()["detail"].startswith("admin guardó cambios el")
+    assert cliente.put("/api/senales/sintetica", json=RECETA).status_code == 200  # "guardar igual"
+
+
+def test_aprender_titulos(cliente):
+    esperado = excel(pd.DataFrame({"Programa": ["MacGyver", "Praise", "MacGyver"]}))
+    otro = excel(pd.DataFrame({"Programa": ["Praise", "Joseph Prince"]}))
+    cliente.post("/api/senales/sintetica/ejemplos", data={"nombre": "s1"},
+                 files={"entrada": ("a.xlsx", GRILLA), "esperado": ("b.xlsx", esperado)})
+    r = cliente.post("/api/senales/sintetica/titulos/aprender",
+                     data={"usar_ejemplos": "true", "conocidos": json.dumps(["Praise"])},
+                     files=[("archivos", ("o.xlsx", otro))])
+    assert r.status_code == 200, r.text
+    assert r.json() == {"columna_usada": "Programa", "titulos": [
+        {"titulo": "MacGyver", "apariciones": 2, "nuevo": True},
+        {"titulo": "Praise", "apariciones": 2, "nuevo": False},
+        {"titulo": "Joseph Prince", "apariciones": 1, "nuevo": True},
+    ]}
+    assert cliente.post("/api/senales/vacia/titulos/aprender", data={"usar_ejemplos": "true"}).status_code == 422

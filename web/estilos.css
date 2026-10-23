@@ -95,6 +95,10 @@ td .esperado { color: var(--ok); }
 
 @media (max-width: 900px) { main { grid-template-columns: 1fr; } }
 
+.lista-titulos { list-style: none; margin: 4px 0 8px; padding: 0; max-height: 220px; overflow: auto;
+  border: 1px solid var(--borde); border-radius: 5px; font-size: 12px; }
+.lista-titulos li { padding: 2px 6px; border-bottom: 1px solid #eef0f3; }
+.lista-titulos .veces { color: var(--tenue); }
 details.bloque > summary { cursor: pointer; list-style: none; display: flex; gap: 8px; align-items: baseline; }
 details.bloque > summary h2 { margin: 0; }
 details.bloque > summary::before { content: "▸"; color: var(--tenue); }

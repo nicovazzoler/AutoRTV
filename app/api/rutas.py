@@ -1,13 +1,16 @@
 import datetime as dt
+import io
+import json
 import os
 from dataclasses import asdict
 
 import pandas as pd
-from fastapi import APIRouter, Cookie, Depends, File, Form, HTTPException, Response, UploadFile
+from fastapi import APIRouter, Cookie, Depends, Header, File, Form, HTTPException, Response, UploadFile
 from pydantic import BaseModel, TypeAdapter
 
 from app import almacen, auth, export, tablas
 from app.engine import model as m
+from app.engine import titulos
 from app.engine.comparar import diferencias, porcentaje_igual, sugerir_correcciones
 from app.engine.pipeline import DE_ESTRUCTURA, correr
 from app.inputs import excel
@@ -97,22 +100,58 @@ def senales():
 
 
 @api.get("/senales/{senal_id}")
-def senal(senal_id: str):
+def senal(senal_id: str, response: Response):
     try:
-        return almacen.leer(senal_id).model_dump(exclude_none=True)
+        receta = almacen.leer(senal_id)
     except (almacen.NoExiste, ValueError):
         raise HTTPException(404, "No existe la señal")
+    # La versión va en el ETag; al guardar vuelve en If-Match para no pisar a otro.
+    response.headers["ETag"] = almacen.version(senal_id)
+    return receta.model_dump(exclude_none=True)
 
 
 @api.put("/senales/{senal_id}")
-def guardar_senal(senal_id: str, receta: m.Senal, u: auth.Usuario = Depends(auth.usuario_actual)):
+def guardar_senal(senal_id: str, receta: m.Senal, response: Response,
+                  u: auth.Usuario = Depends(auth.usuario_actual), if_match: str | None = Header(default=None)):
     if receta.id != senal_id:
         raise HTTPException(422, "El id de la receta no coincide con la ruta")
     try:
+        actual = almacen.version(senal_id)
+        if if_match is not None and actual is not None and if_match != actual:
+            quien = almacen.ultimo_guardado(senal_id)
+            detalle = f"{quien[0]} guardó cambios el {quien[1]:%d/%m a las %H:%M}" if quien else "Alguien guardó cambios"
+            raise HTTPException(409, detalle)
         almacen.guardar(receta, u.usuario)
     except ValueError as e:
         raise HTTPException(422, str(e))
+    response.headers["ETag"] = almacen.version(senal_id)
     return {"ok": True}
+
+
+@api.post("/senales/{senal_id}/titulos/aprender")
+async def aprender_titulos(senal_id: str, columna: str = Form(""), usar_ejemplos: bool = Form(False),
+                           conocidos: str = Form("[]"), archivos: list[UploadFile] = File(default=[])):
+    """Cuenta los títulos de EPG terminados. No guarda: la web los agrega a la receta."""
+    tablas = []
+    try:
+        if usar_ejemplos:
+            for nombre in almacen.listar_ejemplos(senal_id):
+                _, esperado = almacen.rutas_ejemplo(senal_id, nombre)
+                tablas.append(pd.read_excel(esperado, dtype=object))
+        for archivo in archivos:
+            tablas.append(pd.read_excel(io.BytesIO(await _leer_archivo(archivo)), dtype=object))
+    except ValueError as e:
+        raise HTTPException(422, str(e))
+    if not tablas:
+        raise HTTPException(422, "No hay de dónde aprender: subí archivos o agregá ejemplos a la señal")
+    conteo, usada = titulos.aprender(tablas, columna.strip() or None)
+    if usada is None:
+        raise HTTPException(422, "No encontré la columna de programa: escribila a mano")
+    ya = set(json.loads(conocidos))
+    return {
+        "columna_usada": usada,
+        "titulos": [{"titulo": t, "apariciones": n, "nuevo": t not in ya} for t, n in conteo.most_common()],
+    }
 
 
 # --- Tablas, vista previa y export ---
@@ -148,7 +187,7 @@ def _correr(p: Pedido):
 @api.post("/preview")
 def preview(p: Pedido):
     salida, informes = _correr(p)
-    avisos = grilla.validar(salida, p.senal.validaciones)
+    avisos = grilla.validar(salida, p.senal.validaciones, p.senal.titulos_conocidos)
     return {
         "columnas": [str(c) for c in salida.columns],
         "filas": export.a_filas(salida, p.filas),
@@ -231,6 +270,6 @@ def evaluar_ejemplos(senal_id: str, receta: m.Senal):
             "diferencias": [{**d, "obtenido": export.celda_json(d["obtenido"]),
                              "esperado": export.celda_json(d["esperado"])} for d in difs[:100]],
             "correcciones": sugerir_correcciones(salida, esperado, texto),
-            "resumen_validaciones": grilla.resumen(grilla.validar(salida, receta.validaciones)),
+            "resumen_validaciones": grilla.resumen(grilla.validar(salida, receta.validaciones, receta.titulos_conocidos)),
         })
     return resultados

@@ -1,5 +1,6 @@
 """Guarda recetas (con historial) y ejemplos antes/después en DATA_DIR/senales."""
 import datetime as dt
+import hashlib
 import json
 import re
 import shutil
@@ -36,6 +37,21 @@ def leer(senal_id: str) -> m.Senal:
     if not archivo.exists():
         raise NoExiste(senal_id)
     return m.Senal.model_validate_json(archivo.read_text(encoding="utf-8"))
+
+
+def version(senal_id: str) -> str | None:
+    """Hash del JSON guardado: cambia en cada guardado, sirve para detectar que otro guardó."""
+    archivo = _carpeta(senal_id) / "senal.json"
+    return hashlib.sha256(archivo.read_bytes()).hexdigest()[:16] if archivo.exists() else None
+
+
+def ultimo_guardado(senal_id: str) -> tuple[str, dt.datetime] | None:
+    """(usuario, fecha) del último guardado, sacado del nombre del archivo de historial."""
+    historial = sorted((_carpeta(senal_id) / "historial").glob("*.json"))
+    if not historial:
+        return None
+    sello, _, usuario = historial[-1].stem.partition("_")
+    return usuario, dt.datetime.strptime(sello, "%Y%m%d-%H%M%S-%f")
 
 
 def guardar(senal: m.Senal, usuario: str) -> None:
