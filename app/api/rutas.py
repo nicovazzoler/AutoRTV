@@ -11,6 +11,7 @@ from app.engine import model as m
 from app.engine.comparar import diferencias, porcentaje_igual, sugerir_correcciones
 from app.engine.pipeline import DE_ESTRUCTURA, correr
 from app.inputs import excel
+from app.validate import grilla
 
 publico = APIRouter(prefix="/api")
 api = APIRouter(prefix="/api", dependencies=[Depends(auth.usuario_actual)])
@@ -147,11 +148,15 @@ def _correr(p: Pedido):
 @api.post("/preview")
 def preview(p: Pedido):
     salida, informes = _correr(p)
+    avisos = grilla.validar(salida, p.senal.validaciones)
     return {
         "columnas": [str(c) for c in salida.columns],
         "filas": export.a_filas(salida, p.filas),
         "total_filas": len(salida),
         "tarjetas": [asdict(i) for i in informes],
+        "validaciones": [asdict(a) for a in avisos],
+        "resumen_validaciones": grilla.resumen(avisos),
+        "columnas_validadas": grilla.detectar_columnas(list(salida.columns), p.senal.validaciones),
     }
 
 
@@ -226,5 +231,6 @@ def evaluar_ejemplos(senal_id: str, receta: m.Senal):
             "diferencias": [{**d, "obtenido": export.celda_json(d["obtenido"]),
                              "esperado": export.celda_json(d["esperado"])} for d in difs[:100]],
             "correcciones": sugerir_correcciones(salida, esperado, texto),
+            "resumen_validaciones": grilla.resumen(grilla.validar(salida, receta.validaciones)),
         })
     return resultados

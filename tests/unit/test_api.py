@@ -80,6 +80,9 @@ def test_preview_y_export(cliente):
     assert fila == {"N": 1, "Dia": "VIERNES", "FechaEPG": "23/10/2026", "HoraEPG": "00:00", "Duracion": 90,
                     "Programa": "Joseph Prince", "Capitulo": "Grace"}
     assert all(t["error"] is None for t in cuerpo["tarjetas"])
+    # El último programa dura hasta medianoche (1350 min): pasa el máximo de 720.
+    assert [(v["regla"], v["fila"]) for v in cuerpo["validaciones"]] == [("duracion_larga", 2)]
+    assert cuerpo["columnas_validadas"] == {"fecha": "FechaEPG", "hora": "HoraEPG", "duracion": "Duracion"}
 
     xlsx = cliente.post("/api/export", json={"tabla_id": tabla_id, "senal": RECETA, "formato": "xlsx"})
     assert xlsx.status_code == 200

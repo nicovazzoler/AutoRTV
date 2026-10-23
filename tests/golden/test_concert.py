@@ -9,6 +9,7 @@ from app.engine import model as m
 from app.engine.comparar import diferencias
 from app.engine.pipeline import correr
 from app.inputs import excel
+from app.validate.grilla import resumen, validar
 
 DIR = Path(__file__).resolve().parents[2] / "privado" / "concert"
 pytestmark = pytest.mark.skipif(not DIR.exists(), reason="sin datos privados de Concert Channel")
@@ -22,3 +23,5 @@ def test_concert_coincide_con_el_esperado():
     assert [i for i in informes if i.error] == []
     assert len(salida) == len(esperado)
     assert diferencias(salida, esperado) == []
+    # Solo el 1/10 (arranca 06:00) y el 1/11 (termina 06:00) quedan como días parciales.
+    assert resumen(validar(salida, senal.validaciones)) == {"error": 0, "aviso": 0, "info": 2}

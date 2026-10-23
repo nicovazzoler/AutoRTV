@@ -39,6 +39,26 @@
           <button id="btn-agregar">+ Tarjeta</button>
         </div>
       </section>
+      <details class="bloque" id="bloque-validaciones">
+        <summary><h2>Validaciones</h2> <span id="cols-validadas" class="tenue"></span></summary>
+        <p class="tenue">Las columnas de fecha, hora y duración se detectan solas. Completá solo si esta señal las llama distinto.</p>
+        <div class="fila">
+          <label>Fecha <input id="val-fecha" list="columnas-conocidas" placeholder="automática"></label>
+          <label>Hora <input id="val-hora" list="columnas-conocidas" placeholder="automática"></label>
+          <label>Duración <input id="val-duracion" list="columnas-conocidas" placeholder="automática"></label>
+        </div>
+        <div class="fila">
+          <label>Minutos por día <input id="val-dia" type="number" class="corto"></label>
+          <label>Duración máx. <input id="val-max" type="number" class="corto"></label>
+          <label>Tolerancia (min) <input id="val-tol" type="number" min="0" class="corto"></label>
+          <label>Filas esperadas <input id="val-filas" type="number" min="0" class="corto"></label>
+        </div>
+        <div class="fila">
+          <label class="check"><input id="val-huecos" type="checkbox"> avisar huecos</label>
+          <label class="check"><input id="val-super" type="checkbox"> avisar superposiciones</label>
+        </div>
+        <label>Columnas obligatorias (una por línea) <textarea id="val-obligatorias" rows="3"></textarea></label>
+      </details>
       <section class="bloque">
         <h2>Columnas de salida <span class="tenue">(una por línea, vacío = todas)</span></h2>
         <textarea id="in-salida" rows="8"></textarea>
@@ -54,6 +74,10 @@
 
       <div id="vista-tabla" class="vista">
         <p id="resumen" class="tenue">Subí una grilla para ver la vista previa.</p>
+        <details id="panel-validaciones" class="panel-validaciones" hidden>
+          <summary id="resumen-validaciones"></summary>
+          <ul id="lista-validaciones"></ul>
+        </details>
         <div class="contenedor-tabla"><table id="tabla"></table></div>
       </div>
 

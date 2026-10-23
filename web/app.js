@@ -24,6 +24,10 @@ const OPERADORES = { igual: "es igual a", distinto: "es distinto de", contiene: 
 const CAMPOS_DE_COLUMNA = new Set(["columna", "destino", "fecha", "hora", "programa", "capitulo", "sinopsis",
   "destino_programa", "destino_capitulo"]);
 
+const VALIDACIONES_DEFAULT = { fecha: null, hora: null, duracion: null, dia_minutos: 1440, max_duracion_min: 720,
+  tolerancia_min: 0, huecos: true, superposiciones: true, filas_esperadas: null, obligatorias: [] };
+const ICONOS = { error: "✕", aviso: "⚠", info: "ℹ" };
+
 const estado = {
   schema: null, sinCondicion: new Set(), yo: null, receta: null, guardada: null,
   tablaId: null, informes: [], columnas: new Set(), abierta: null, ultimoPreview: 0,
@@ -312,8 +316,78 @@ function cargarReceta(receta, guardada) {
   $("#in-hoja").value = receta.entrada.hoja;
   $("#in-fila").value = receta.entrada.fila_encabezado;
   $("#in-salida").value = receta.salida.columnas.join("\n");
+  receta.validaciones = { ...VALIDACIONES_DEFAULT, ...(receta.validaciones || {}) };
+  const v = receta.validaciones;
+  $("#val-fecha").value = v.fecha || "";
+  $("#val-hora").value = v.hora || "";
+  $("#val-duracion").value = v.duracion || "";
+  $("#val-dia").value = v.dia_minutos ?? "";
+  $("#val-max").value = v.max_duracion_min ?? "";
+  $("#val-tol").value = v.tolerancia_min;
+  $("#val-filas").value = v.filas_esperadas ?? "";
+  $("#val-huecos").checked = v.huecos;
+  $("#val-super").checked = v.superposiciones;
+  $("#val-obligatorias").value = v.obligatorias.join("\n");
+  $("#panel-validaciones").hidden = true;
   dibujarTarjetas();
   cambioReceta();
+}
+
+function enlazarValidaciones() {
+  const v = () => estado.receta.validaciones;
+  const texto = (id, campo) => { $(id).oninput = (e) => { v()[campo] = e.target.value.trim() || null; cambioReceta(); }; };
+  const numero = (id, campo, vacio) => {
+    $(id).oninput = (e) => { v()[campo] = e.target.value === "" ? vacio : Number(e.target.value); cambioReceta(); };
+  };
+  const tilde = (id, campo) => { $(id).onchange = (e) => { v()[campo] = e.target.checked; cambioReceta(); }; };
+  texto("#val-fecha", "fecha");
+  texto("#val-hora", "hora");
+  texto("#val-duracion", "duracion");
+  numero("#val-dia", "dia_minutos", null);
+  numero("#val-max", "max_duracion_min", null);
+  numero("#val-tol", "tolerancia_min", 0);
+  numero("#val-filas", "filas_esperadas", null);
+  tilde("#val-huecos", "huecos");
+  tilde("#val-super", "superposiciones");
+  $("#val-obligatorias").oninput = (e) => {
+    v().obligatorias = e.target.value.split("\n").map((x) => x.trim()).filter(Boolean);
+    cambioReceta();
+  };
+}
+
+function pintarValidaciones(r) {
+  const avisos = r.validaciones;
+  const n = r.resumen_validaciones;
+  const cols = r.columnas_validadas;
+  $("#cols-validadas").textContent = cols.fecha && cols.hora && cols.duracion
+    ? `usa ${cols.fecha} · ${cols.hora} · ${cols.duracion}` : "faltan columnas";
+  const panel = $("#panel-validaciones");
+  panel.hidden = false;
+  const contadores = [];
+  if (n.error) contadores.push(el("span", { className: "contador error", textContent: `✕ ${n.error} errores` }));
+  if (n.aviso) contadores.push(el("span", { className: "contador aviso", textContent: `⚠ ${n.aviso} avisos` }));
+  if (!n.error && !n.aviso) contadores.push(el("span", { className: "contador ok", textContent: "✓ Sin errores ni avisos" }));
+  if (n.info) contadores.push(el("span", { className: "tenue", textContent: `${n.info} notas` }));
+  $("#resumen-validaciones").replaceChildren(el("b", { textContent: "Validaciones" }), ...contadores);
+  if (n.error) panel.open = true;
+  $("#lista-validaciones").replaceChildren(...avisos.map((a) => {
+    const li = el("li", { className: a.nivel },
+      el("span", { className: "icono", textContent: ICONOS[a.nivel] + " " }),
+      a.fila ? el("b", { textContent: `Fila ${a.fila}: ` }) : null, a.mensaje);
+    if (a.fila) {
+      li.dataset.fila = a.fila;
+      li.onclick = () => irAFila(a.fila);
+    }
+    return li;
+  }));
+}
+
+function irAFila(fila) {
+  const tr = document.querySelector(`#tabla tbody tr:nth-child(${fila})`);
+  if (!tr) { avisar(`La fila ${fila} está fuera de las filas visibles`); return; }
+  document.querySelectorAll("#tabla tr.resaltada").forEach((x) => x.classList.remove("resaltada"));
+  tr.classList.add("resaltada");
+  tr.scrollIntoView({ block: "center" });
 }
 
 async function abrirSenal(id) {
@@ -361,7 +435,8 @@ async function previsualizar() {
     for (const i of r.tarjetas) i.columnas.forEach((c) => estado.columnas.add(c));
     r.columnas.forEach((c) => estado.columnas.add(c));
     actualizarColumnasConocidas();
-    dibujarTabla(r.columnas, r.filas);
+    dibujarTabla(r.columnas, r.filas, r.validaciones);
+    pintarValidaciones(r);
     $("#resumen").textContent = `${r.total_filas} filas` + (r.total_filas > r.filas.length ? ` (se muestran ${r.filas.length})` : "");
     pintarInformes();
     avisar("");
@@ -374,10 +449,15 @@ function actualizarColumnasConocidas() {
   $("#columnas-conocidas").replaceChildren(...[...estado.columnas].map((c) => el("option", { value: c })));
 }
 
-function dibujarTabla(columnas, filas) {
+function dibujarTabla(columnas, filas, avisos = []) {
+  const nivelPorFila = {};
+  for (const a of avisos) {
+    if (!a.fila || a.nivel === "info") continue;
+    if (a.nivel === "error" || !nivelPorFila[a.fila]) nivelPorFila[a.fila] = a.nivel;
+  }
   const tabla = $("#tabla");
   const cabeza = el("tr", {}, el("th", { textContent: "#" }), ...columnas.map((c) => el("th", { textContent: c })));
-  const cuerpo = filas.map((f, k) => el("tr", {}, el("td", { className: "num", textContent: k + 1 }),
+  const cuerpo = filas.map((f, k) => el("tr", { className: nivelPorFila[k + 1] ? `fila-${nivelPorFila[k + 1]}` : "" }, el("td", { className: "num", textContent: k + 1 }),
     ...f.map((v) => el("td", v === null || v === "" ? { className: "vacia", textContent: "—" } : { textContent: v, title: v }))));
   tabla.replaceChildren(el("thead", {}, cabeza), el("tbody", {}, ...cuerpo));
 }
@@ -429,7 +509,8 @@ function dibujarEjemplo(r) {
 
   const titulo = el("h3", {},
     el("span", { className: "porcentaje" + (r.total_diferencias === 0 ? " completo" : ""), textContent: `${r.porcentaje} %` }),
-    r.nombre, el("span", { className: "tenue", textContent: `${r.filas[0]} filas (esperadas ${r.filas[1]}) · ${r.total_diferencias} diferencias` }),
+    r.nombre, el("span", { className: "tenue", textContent: `${r.filas[0]} filas (esperadas ${r.filas[1]}) · ${r.total_diferencias} diferencias`
+      + ` · validaciones: ${r.resumen_validaciones.error} errores, ${r.resumen_validaciones.aviso} avisos` }),
     el("span", { className: "espacio" }), borrar);
   const bloque = el("div", { className: "ejemplo" }, titulo);
 
@@ -554,6 +635,7 @@ async function iniciar() {
   $("#btn-evaluar").onclick = evaluarEjemplos;
   $("#form-ejemplo").onsubmit = subirEjemplo;
   $("#form-usuario").onsubmit = crearUsuario;
+  enlazarValidaciones();
 
   let ultima = null;
   try { ultima = localStorage.getItem("ultima-senal"); } catch {}

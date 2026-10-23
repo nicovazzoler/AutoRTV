@@ -163,10 +163,17 @@ class Salida(Base):
 
 
 class Validaciones(Base):
+    # Columnas de salida para validar horarios; None = detectarlas por nombre.
+    fecha: str | None = None
+    hora: str | None = None
+    duracion: str | None = None
     dia_minutos: int | None = 1440
+    max_duracion_min: int | None = 720
+    tolerancia_min: int = 0
     huecos: bool = True
     superposiciones: bool = True
     filas_esperadas: int | None = None
+    obligatorias: list[str] = []
 
 
 class Senal(Base):

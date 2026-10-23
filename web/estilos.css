@@ -94,3 +94,23 @@ td .esperado { color: var(--ok); }
 .caja-login label, .caja-login input { width: 100%; }
 
 @media (max-width: 900px) { main { grid-template-columns: 1fr; } }
+
+details.bloque > summary { cursor: pointer; list-style: none; display: flex; gap: 8px; align-items: baseline; }
+details.bloque > summary h2 { margin: 0; }
+details.bloque > summary::before { content: "▸"; color: var(--tenue); }
+details.bloque[open] > summary::before { content: "▾"; }
+details.bloque[open] > summary { margin-bottom: 8px; }
+.panel-validaciones { margin: 0 0 10px; border: 1px solid var(--borde); border-radius: 6px; padding: 6px 10px; }
+.panel-validaciones summary { cursor: pointer; display: flex; gap: 12px; align-items: center; }
+.panel-validaciones ul { list-style: none; margin: 6px 0 0; padding: 0; max-height: 220px; overflow: auto; font-size: 12px; }
+.panel-validaciones li { padding: 3px 4px; border-top: 1px solid #eef0f3; cursor: default; }
+.panel-validaciones li[data-fila] { cursor: pointer; }
+.panel-validaciones li[data-fila]:hover { background: var(--acento-suave); }
+.contador { font-weight: 600; }
+.contador.error, li.error .icono { color: var(--error); }
+.contador.aviso, li.aviso .icono { color: var(--aviso); }
+.contador.ok { color: var(--ok); }
+li.info .icono { color: var(--tenue); }
+tr.fila-error td { background: var(--error-suave); }
+tr.fila-aviso td { background: var(--aviso-suave); }
+tr.resaltada td { box-shadow: inset 0 2px var(--acento), inset 0 -2px var(--acento); }

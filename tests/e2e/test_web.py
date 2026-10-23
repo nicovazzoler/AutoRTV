@@ -62,6 +62,9 @@ def test_flujo_basico(servidor, tmp_path):
         pagina.click("#btn-nueva")
         pagina.set_input_files("#in-archivo", str(grilla))
         pagina.wait_for_selector("#tabla td:text('joseph prince')")
+        # La grilla no tiene duración: el panel avisa qué columna falta para validar horarios.
+        pagina.wait_for_selector("#resumen-validaciones:has-text('1 avisos')")
+        assert "falta la columna de duracion" in pagina.text_content("#lista-validaciones")
 
         pagina.select_option("#sel-tipo", "mayus_minus")
         pagina.click("#btn-agregar")
