@@ -1,4 +1,5 @@
 """Humo de la web en un Chromium real: login, subir grilla, agregar tarjeta, ver la tabla cambiar."""
+import json
 import os
 import socket
 import subprocess
@@ -17,7 +18,13 @@ def servidor(tmp_path):
     with socket.socket() as s:
         s.bind(("127.0.0.1", 0))
         puerto = s.getsockname()[1]
-    entorno = {"DATA_DIR": str(tmp_path), "ADMIN_USUARIO": "admin", "ADMIN_CLAVE": "clave-segura", "PATH": ""}
+    # El asistente responde siempre lo mismo: pasar Titulo a mayúsculas.
+    falso = tmp_path / "asistente.json"
+    falso.write_text(json.dumps([{"explicacion": "Pasé los títulos a mayúsculas", "columnas_salida": None,
+                                  "tarjetas_json": json.dumps([{"id": "a1", "tipo": "mayus_minus",
+                                                                "columnas": ["Titulo"], "modo": "MAYUS"}])}]))
+    entorno = {"DATA_DIR": str(tmp_path), "ADMIN_USUARIO": "admin", "ADMIN_CLAVE": "clave-segura", "PATH": "",
+               "AGENTE_FALSO": str(falso)}
     proc = subprocess.Popen([sys.executable, "-m", "uvicorn", "app.main:app", "--port", str(puerto)],
                             cwd=RAIZ, env=entorno, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     url = f"http://127.0.0.1:{puerto}"
@@ -82,4 +89,15 @@ def test_flujo_basico(servidor, tmp_path):
         pagina.click("#btn-guardar")
         pagina.wait_for_selector("#estado:text('Guardado')")
         assert pagina.locator("#sel-senal option[value=senal-de-prueba]").count() == 1
+
+        pagina.fill("#in-pedido", "pasá los títulos a mayúsculas")
+        pagina.click("#btn-pedir")
+        pagina.wait_for_selector("#propuesta:not([hidden]) >> text=Pasé los títulos a mayúsculas")
+        assert "+ Mayúsculas / minúsculas" in pagina.inner_text("#propuesta")
+        assert "− Mayúsculas / minúsculas" in pagina.inner_text("#propuesta")  # reemplaza la tarjeta manual
+        pagina.click("#propuesta button:text('Ver en la tabla')")
+        pagina.wait_for_selector("#tabla td:text('JOSEPH PRINCE')")
+        pagina.click("#propuesta button:text('Aplicar')")
+        assert pagina.locator("#lista-tarjetas > li").count() == 1
+        pagina.wait_for_selector("#tabla td:text('JOSEPH PRINCE')")
         navegador.close()

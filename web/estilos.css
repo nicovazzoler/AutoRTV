@@ -95,6 +95,17 @@ td .esperado { color: var(--ok); }
 
 @media (max-width: 900px) { main { grid-template-columns: 1fr; } }
 
+.asistente textarea { font-family: inherit; font-size: 13px; }
+.propuesta { margin-top: 8px; border: 1px solid var(--acento); border-radius: 6px; padding: 8px; background: var(--acento-suave); }
+.propuesta.fallida { border-color: var(--aviso); background: var(--aviso-suave); }
+.propuesta p { margin: 0 0 6px; }
+.propuesta ul { margin: 4px 0 8px; padding-left: 18px; font-size: 12px; }
+.propuesta .agregada { color: var(--ok); }
+.propuesta .borrada { color: var(--error); }
+.propuesta .metricas { font-size: 12px; margin-bottom: 6px; }
+.propuesta .metricas b.mejor { color: var(--ok); }
+.propuesta .metricas b.peor { color: var(--error); }
+.vista-propuesta { color: var(--acento); font-weight: 600; }
 .lista-titulos { list-style: none; margin: 4px 0 8px; padding: 0; max-height: 220px; overflow: auto;
   border: 1px solid var(--borde); border-radius: 5px; font-size: 12px; }
 .lista-titulos li { padding: 2px 6px; border-bottom: 1px solid #eef0f3; }

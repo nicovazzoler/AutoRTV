@@ -154,3 +154,57 @@ def test_aprender_titulos(cliente):
         {"titulo": "Joseph Prince", "apariciones": 1, "nuevo": True},
     ]}
     assert cliente.post("/api/senales/vacia/titulos/aprender", data={"usar_ejemplos": "true"}).status_code == 422
+
+
+def _con_asistente(monkeypatch, respuestas):
+    from app.agent import cliente as modulo
+    proveedor = modulo.Grabado(respuestas)
+    monkeypatch.setattr(modulo, "proveedor_configurado", lambda: proveedor)
+    return proveedor
+
+
+ASISTENTE_OK = {"explicacion": "Pasé el programa a mayúsculas",
+                "tarjetas_json": json.dumps(RECETA["tarjetas"] + [
+                    {"id": "m1", "tipo": "mayus_minus", "columnas": ["Programa"], "modo": "MAYUS"}]),
+                "columnas_salida": None}
+
+
+def test_asistente_sin_key(cliente, monkeypatch):
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("AGENTE_FALSO", raising=False)
+    r = cliente.post("/api/asistente", json={"senal": RECETA, "pedido": "x", "tabla_id": "t"})
+    assert r.status_code == 503
+
+
+def test_asistente_propone_y_registra(cliente, monkeypatch):
+    _con_asistente(monkeypatch, [ASISTENTE_OK])
+    tabla_id = cliente.post("/api/tablas", files={"archivo": ("g.xlsx", GRILLA)}).json()["tabla_id"]
+    r = cliente.post("/api/asistente", json={"senal": RECETA, "pedido": "programa en mayúsculas", "tabla_id": tabla_id})
+    assert r.status_code == 200, r.text
+    cuerpo = r.json()
+    assert cuerpo["logrado"] and cuerpo["cambios"][0]["tipo"] == "agregada"
+    # La propuesta no se guarda sola.
+    assert cliente.get("/api/senales/sintetica").status_code == 404
+    uso = cliente.get("/api/asistente/uso").json()
+    assert uso["configurado"] and uso["usuarios"][0]["usuario"] == "admin" and uso["usuarios"][0]["pedidos"] == 1
+
+
+def test_asistente_tope_diario(cliente, monkeypatch):
+    _con_asistente(monkeypatch, [ASISTENTE_OK])
+    monkeypatch.setenv("AGENTE_LIMITE_DIARIO", "1")
+    tabla_id = cliente.post("/api/tablas", files={"archivo": ("g.xlsx", GRILLA)}).json()["tabla_id"]
+    pedido = {"senal": RECETA, "pedido": "x", "tabla_id": tabla_id}
+    assert cliente.post("/api/asistente", json=pedido).status_code == 200
+    assert cliente.post("/api/asistente", json=pedido).status_code == 429
+
+
+def test_asistente_desde_ejemplo(cliente, monkeypatch):
+    proveedor = _con_asistente(monkeypatch, [ASISTENTE_OK])
+    tabla_id = cliente.post("/api/tablas", files={"archivo": ("g.xlsx", GRILLA)}).json()["tabla_id"]
+    esperado = cliente.post("/api/export", json={"tabla_id": tabla_id, "senal": RECETA}).content
+    cliente.post("/api/senales/sintetica/ejemplos", data={"nombre": "s1"},
+                 files={"entrada": ("a.xlsx", GRILLA), "esperado": ("b.xlsx", esperado)})
+    r = cliente.post("/api/asistente", json={"senal": RECETA, "pedido": "armá", "ejemplo": "s1"})
+    # La propuesta pone el programa en mayúsculas y el ejemplo deja de dar 100 %: 3 vueltas sin lograrlo.
+    assert r.status_code == 200 and not r.json()["logrado"] and r.json()["vueltas"] == 3
+    assert "Así tiene que quedar" in proveedor.pedidos[0][0]["content"]

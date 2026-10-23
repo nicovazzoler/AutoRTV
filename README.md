@@ -29,6 +29,19 @@ CHROMIUM=/ruta/a/chrome .venv/bin/python -m pytest tests/e2e
 2. Agregar un **volumen** montado en `/data`: ahí quedan usuarios, señales, historial y ejemplos.
 3. Variables: `ADMIN_USUARIO` y `ADMIN_CLAVE` (solo se usan si todavía no hay usuarios).
 
+## Asistente (IA)
+
+Usa la API de Claude. Variables:
+
+- `ANTHROPIC_API_KEY`: key de console.anthropic.com. Conviene un workspace solo para este
+  proyecto, con límite de gasto mensual. Sin key, el asistente aparece como "no configurado".
+- `AGENTE_MODELO` (opcional, por defecto `claude-opus-5-5`).
+- `AGENTE_LIMITE_DIARIO` (opcional, por defecto 50 pedidos por persona por día).
+
+El asistente solo propone tarjetas: la persona ve los cambios y el % de los ejemplos y decide si
+aplicar. A Claude le llega solo la señal abierta y 15 filas de muestra. Los tests usan respuestas
+grabadas (`AGENTE_FALSO`) y no gastan.
+
 ## Datos
 
 - `DATA_DIR` (por defecto `datos/`): `app.db` (usuarios y sesiones) y `senales/<id>/`

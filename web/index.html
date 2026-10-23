@@ -31,6 +31,15 @@
           <label>Fila de encabezado <input id="in-fila" type="number" min="1" class="corto"></label>
         </div>
       </section>
+      <section class="bloque asistente">
+        <h2>Pedile al asistente</h2>
+        <textarea id="in-pedido" rows="3" placeholder="Ej.: los títulos de capítulo vienen con 'Ep 1' al final, sacalo"></textarea>
+        <div class="fila">
+          <button id="btn-pedir" class="primario">Pedir</button>
+          <span id="estado-asistente" class="tenue"></span>
+        </div>
+        <div id="propuesta" hidden></div>
+      </section>
       <section class="bloque">
         <h2>Tarjetas <span class="tenue">(arrastrá para ordenar)</span></h2>
         <ol id="lista-tarjetas" class="tarjetas"></ol>
@@ -128,6 +137,8 @@
           <button type="submit">Crear usuario</button>
         </form>
         <ul id="lista-usuarios" class="lista-simple"></ul>
+        <h2>Uso del asistente este mes</h2>
+        <div id="uso-asistente" class="tenue"></div>
       </div>
     </section>
   </main>

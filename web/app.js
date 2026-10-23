@@ -321,6 +321,9 @@ function cargarReceta(receta, guardada, version = null) {
   estado.version = version;
   estado.informes = [];
   estado.abierta = null;
+  estado.propuesta = null;
+  estado.verPropuesta = false;
+  $("#propuesta").hidden = true;
   $("#principal").hidden = false;
   $("#in-hoja").value = receta.entrada.hoja;
   $("#in-fila").value = receta.entrada.fila_encabezado;
@@ -368,6 +371,108 @@ function enlazarValidaciones() {
     v().obligatorias = e.target.value.split("\n").map((x) => x.trim()).filter(Boolean);
     cambioReceta();
   };
+}
+
+// --- Asistente ---
+
+async function pedirAsistente(pedido, ejemplo = null) {
+  if (!pedido.trim()) { avisar("Escribí qué querés que haga el asistente", true); return; }
+  if (!ejemplo && !estado.tablaId) { avisar("Subí una grilla antes de pedirle algo al asistente", true); return; }
+  const boton = $("#btn-pedir");
+  boton.disabled = true;
+  $("#estado-asistente").textContent = "Pensando y probando la propuesta… (puede tardar un minuto)";
+  avisar("El asistente está trabajando…");
+  try {
+    const p = await json("/api/asistente", "POST", { senal: estado.receta, pedido, tabla_id: estado.tablaId, ejemplo });
+    estado.propuesta = p;
+    estado.verPropuesta = false;
+    dibujarPropuesta();
+    $("#estado-asistente").textContent = "";
+    avisar("");
+    if (ejemplo) mostrarPestana("tabla");
+  } catch (e) {
+    $("#estado-asistente").textContent = "";
+    avisar(e.message, true);
+  } finally { boton.disabled = false; }
+}
+
+function dibujarPropuesta() {
+  const p = estado.propuesta;
+  const caja = $("#propuesta");
+  caja.hidden = !p;
+  if (!p) return;
+  caja.className = "propuesta" + (p.logrado ? "" : " fallida");
+  const hijos = [];
+  if (!p.logrado) {
+    hijos.push(el("p", {}, el("b", { textContent: `No lo logró del todo (${p.vueltas} intentos). ` }),
+      p.receta ? "Te muestro el último intento; revisalo antes de aplicarlo." : "No llegó a una propuesta válida."));
+  }
+  if (p.explicacion) hijos.push(el("p", { textContent: p.explicacion }));
+  if (p.cambios.length) hijos.push(el("ul", {}, ...p.cambios.map(lineaCambio)));
+  else if (p.receta) hijos.push(el("p", { className: "tenue", textContent: "No cambia ninguna tarjeta." }));
+  if (p.despues) hijos.push(dibujarMetricas(p.antes, p.despues));
+  if (p.problemas.length) {
+    hijos.push(el("details", {}, el("summary", { textContent: `Problemas que quedaron (${p.problemas.length})` }),
+      el("ul", {}, ...p.problemas.map((x) => el("li", { textContent: x })))));
+  }
+  const botones = el("div", { className: "fila" });
+  if (p.receta) {
+    botones.append(
+      el("button", { textContent: estado.verPropuesta ? "Ver la receta actual" : "Ver en la tabla", onclick: () => {
+        estado.verPropuesta = !estado.verPropuesta; dibujarPropuesta(); previsualizar(); } }),
+      el("button", { className: "primario", textContent: "Aplicar", onclick: aplicarPropuesta }));
+  }
+  botones.append(el("button", { textContent: "Descartar", onclick: () => {
+    estado.propuesta = null; estado.verPropuesta = false; dibujarPropuesta(); previsualizar(); } }));
+  hijos.push(botones);
+  caja.replaceChildren(...hijos);
+}
+
+function lineaCambio(c) {
+  if (c.tipo === "salida") return el("li", { textContent: `Columnas de salida: ${c.columnas.join(", ") || "todas"}` });
+  if (c.tipo === "orden") return el("li", { textContent: "Cambia el orden de las tarjetas" });
+  const signo = { agregada: "+", modificada: "~", borrada: "−" }[c.tipo];
+  const detalle = c.tipo === "modificada" ? ` (cambia ${c.campos.join(", ")})` : "";
+  return el("li", { className: c.tipo },
+    `${signo} ${NOMBRES[c.tarjeta.tipo] || c.tarjeta.tipo}: ${c.tarjeta.nota || resumen(c.tarjeta)}${detalle}`);
+}
+
+function dibujarMetricas(antes, despues) {
+  const comparar = (a, b, menosEsMejor) => {
+    const clase = a === b ? "" : (b < a) === menosEsMejor ? "mejor" : "peor";
+    return el("b", { className: clase, textContent: a === b ? `${b}` : `${a} → ${b}` });
+  };
+  const lineas = [el("div", {}, "Errores de tarjetas: ", comparar(antes.errores_tarjetas, despues.errores_tarjetas, true),
+    " · Validaciones con error: ", comparar(antes.validaciones.error, despues.validaciones.error, true))];
+  for (const [nombre, pct] of Object.entries(despues.ejemplos)) {
+    lineas.push(el("div", {}, `Ejemplo ${nombre}: `, comparar(antes.ejemplos[nombre], pct, false), " %"));
+  }
+  return el("div", { className: "metricas" }, ...lineas);
+}
+
+function aplicarPropuesta() {
+  const r = estado.propuesta.receta;
+  estado.receta.tarjetas = r.tarjetas;
+  estado.receta.salida = r.salida;
+  $("#in-salida").value = r.salida.columnas.join("\n");
+  estado.propuesta = null;
+  estado.verPropuesta = false;
+  dibujarPropuesta();
+  dibujarTarjetas();
+  cambioReceta();
+  avisar("Propuesta aplicada. Tocá Guardar para que quede para todos.");
+}
+
+async function mostrarUsoAsistente() {
+  try {
+    const u = await api("/api/asistente/uso").then((r) => r.json());
+    const caja = $("#uso-asistente");
+    if (!u.configurado) { caja.textContent = "El asistente no está configurado (falta ANTHROPIC_API_KEY en el servidor)."; return; }
+    caja.replaceChildren(el("p", { textContent: `Tope: ${u.limite_diario} pedidos por persona por día.` }),
+      ...(u.usuarios.length ? u.usuarios.map((x) => el("div", { textContent:
+        `${x.usuario}: ${x.pedidos} pedidos (${x.logrados} logrados) · ${x.tokens_entrada.toLocaleString("es-AR")} tokens de entrada, ${x.tokens_salida.toLocaleString("es-AR")} de salida` }))
+        : [el("p", { textContent: "Todavía nadie lo usó este mes." })]));
+  } catch (e) { avisar(e.message, true); }
 }
 
 // --- Títulos conocidos ---
@@ -522,8 +627,9 @@ async function guardar(forzar = false) {
 async function previsualizar() {
   if (!estado.tablaId || !estado.receta) return;
   const turno = ++estado.ultimoPreview;
+  const receta = estado.verPropuesta && estado.propuesta?.receta ? estado.propuesta.receta : estado.receta;
   try {
-    const r = await json("/api/preview", "POST", { tabla_id: estado.tablaId, senal: estado.receta });
+    const r = await json("/api/preview", "POST", { tabla_id: estado.tablaId, senal: receta });
     if (turno !== estado.ultimoPreview) return;  // llegó una respuesta vieja
     estado.informes = r.tarjetas;
     for (const i of r.tarjetas) i.columnas.forEach((c) => estado.columnas.add(c));
@@ -531,7 +637,8 @@ async function previsualizar() {
     actualizarColumnasConocidas();
     dibujarTabla(r.columnas, r.filas, r.validaciones);
     pintarValidaciones(r);
-    $("#resumen").textContent = `${r.total_filas} filas` + (r.total_filas > r.filas.length ? ` (se muestran ${r.filas.length})` : "");
+    $("#resumen").replaceChildren(`${r.total_filas} filas` + (r.total_filas > r.filas.length ? ` (se muestran ${r.filas.length})` : ""),
+      estado.verPropuesta ? el("span", { className: "vista-propuesta", textContent: " · mostrando la propuesta del asistente" }) : "");
     pintarInformes();
     avisar("");
   } catch (e) {
@@ -605,7 +712,11 @@ function dibujarEjemplo(r) {
     el("span", { className: "porcentaje" + (r.total_diferencias === 0 ? " completo" : ""), textContent: `${r.porcentaje} %` }),
     r.nombre, el("span", { className: "tenue", textContent: `${r.filas[0]} filas (esperadas ${r.filas[1]}) · ${r.total_diferencias} diferencias`
       + ` · validaciones: ${r.resumen_validaciones.error} errores, ${r.resumen_validaciones.aviso} avisos` }),
-    el("span", { className: "espacio" }), borrar);
+    el("span", { className: "espacio" }),
+    r.total_diferencias ? el("button", { className: "chico", textContent: "Armar desde este ejemplo",
+      title: "El asistente ajusta las tarjetas para que esta grilla quede igual al EPG terminado",
+      onclick: () => pedirAsistente("Ajustá las tarjetas para que la grilla de entrada de este ejemplo quede igual al EPG esperado.", r.nombre) }) : null,
+    borrar);
   const bloque = el("div", { className: "ejemplo" }, titulo);
 
   const cantidad = Object.values(r.correcciones).reduce((n, m) => n + Object.keys(m).length, 0);
@@ -679,7 +790,7 @@ async function crearUsuario(e) {
 function mostrarPestana(nombre) {
   for (const b of document.querySelectorAll(".pestanas button")) b.classList.toggle("activa", b.dataset.pestana === nombre);
   for (const v of ["tabla", "ejemplos", "usuarios"]) $(`#vista-${v}`).hidden = v !== nombre;
-  if (nombre === "usuarios") listarUsuarios();
+  if (nombre === "usuarios") { listarUsuarios(); mostrarUsoAsistente(); }
   if (nombre === "ejemplos" && estado.receta) evaluarEjemplos();
 }
 
@@ -705,6 +816,7 @@ async function iniciar() {
   };
   $("#in-archivo").onchange = (e) => e.target.files[0] && subirGrilla(e.target.files[0]);
   $("#btn-guardar").onclick = () => guardar();
+  $("#btn-pedir").onclick = () => pedirAsistente($("#in-pedido").value);
   enlazarTitulos();
   $("#btn-xlsx").onclick = () => exportar("xlsx");
   $("#btn-csv").onclick = () => exportar("csv");

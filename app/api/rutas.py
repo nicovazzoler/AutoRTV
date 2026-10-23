@@ -9,6 +9,8 @@ from fastapi import APIRouter, Cookie, Depends, Header, File, Form, HTTPExceptio
 from pydantic import BaseModel, TypeAdapter
 
 from app import almacen, auth, export, tablas
+from app.agent import asistente as asistente_ia
+from app.agent import cliente, uso
 from app.engine import model as m
 from app.engine import titulos
 from app.engine.comparar import diferencias, porcentaje_igual, sugerir_correcciones
@@ -273,3 +275,63 @@ def evaluar_ejemplos(senal_id: str, receta: m.Senal):
             "resumen_validaciones": grilla.resumen(grilla.validar(salida, receta.validaciones, receta.titulos_conocidos)),
         })
     return resultados
+
+
+# --- Asistente ---
+
+class PedidoAsistente(BaseModel):
+    senal: m.Senal
+    pedido: str
+    tabla_id: str | None = None
+    ejemplo: str | None = None  # "armar desde este ejemplo": la grilla es la entrada del ejemplo
+
+
+@api.post("/asistente")
+def asistente(p: PedidoAsistente, u: auth.Usuario = Depends(auth.usuario_actual)):
+    proveedor = cliente.proveedor_configurado()
+    if proveedor is None:
+        raise HTTPException(503, "El asistente no está configurado: falta la variable ANTHROPIC_API_KEY en el servidor")
+    if uso.pedidos_de_hoy(u.usuario) >= uso.limite_diario():
+        raise HTTPException(429, f"Llegaste al tope de {uso.limite_diario()} pedidos al asistente por hoy")
+    if not p.pedido.strip():
+        raise HTTPException(422, "Escribí qué querés que haga el asistente")
+
+    try:
+        # Hasta 3 ejemplos, siempre incluido el de "armar desde este ejemplo": más contexto encarece sin mejorar mucho.
+        nombres = almacen.listar_ejemplos(p.senal.id)
+        nombres = ([p.ejemplo] if p.ejemplo in nombres else []) + [n for n in nombres if n != p.ejemplo][:3 - bool(p.ejemplo)]
+        ejemplos = [_leer_ejemplo(p.senal, n) for n in nombres]
+    except ValueError as e:
+        raise HTTPException(422, str(e))
+    if p.ejemplo:
+        objetivo = next((e for e in ejemplos if e.nombre == p.ejemplo), None)
+        if objetivo is None:
+            raise HTTPException(404, "No existe ese ejemplo")
+        tabla = objetivo.entrada
+    else:
+        tabla = _correr_tabla(p.tabla_id, p.senal)
+
+    propuesta = asistente_ia.pedir(p.senal, tabla, p.pedido, proveedor, ejemplos, objetivo=p.ejemplo)
+    uso.registrar(u.usuario, p.senal.id, p.pedido, propuesta.vueltas, propuesta.tokens_entrada,
+                  propuesta.tokens_salida, propuesta.logrado)
+    return asdict(propuesta)
+
+
+@api.get("/asistente/uso", dependencies=[Depends(auth.solo_admin)])
+def uso_asistente():
+    return {"configurado": cliente.proveedor_configurado() is not None, "limite_diario": uso.limite_diario(),
+            "usuarios": uso.resumen_del_mes()}
+
+
+def _leer_ejemplo(receta: m.Senal, nombre: str) -> asistente_ia.Ejemplo:
+    ruta_entrada, ruta_esperado = almacen.rutas_ejemplo(receta.id, nombre)
+    return asistente_ia.Ejemplo(nombre, excel.leer(ruta_entrada, receta.entrada), pd.read_excel(ruta_esperado, dtype=object))
+
+
+def _correr_tabla(tabla_id: str | None, receta: m.Senal) -> pd.DataFrame:
+    if not tabla_id:
+        raise HTTPException(422, "Subí una grilla antes de pedirle algo al asistente")
+    try:
+        return tablas.tabla(tabla_id, receta.entrada)
+    except KeyError:
+        raise HTTPException(410, "El archivo ya no está en memoria: volvé a subirlo")
