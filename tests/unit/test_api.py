@@ -238,3 +238,31 @@ def test_login_marca_la_cookie_segura(tmp_path, monkeypatch):
     auth.crear_usuario("ana", "clave-de-ana")
     r = TestClient(app).post("/api/login", json={"usuario": "ana", "clave": "clave-de-ana"})
     assert "secure" in r.headers["set-cookie"].lower() and "httponly" in r.headers["set-cookie"].lower()
+
+
+def test_cambiar_mi_clave(cliente):
+    otra_sesion = TestClient(app)
+    otra_sesion.post("/api/login", json={"usuario": "admin", "clave": "clave-segura"})
+    r = cliente.post("/api/yo/clave", json={"actual": "equivocada", "nueva": "clave-nueva-1"})
+    assert r.status_code == 422 and r.json()["detail"] == "La clave actual no es correcta"
+    assert cliente.post("/api/yo/clave", json={"actual": "clave-segura", "nueva": "corta"}).status_code == 422
+
+    assert cliente.post("/api/yo/clave", json={"actual": "clave-segura", "nueva": "clave-nueva-1"}).status_code == 200
+    assert cliente.get("/api/yo").status_code == 200  # la sesión desde la que se cambió sigue
+    assert otra_sesion.get("/api/yo").status_code == 401  # las otras se cierran
+    assert TestClient(app).post("/api/login", json={"usuario": "admin", "clave": "clave-segura"}).status_code == 401
+    assert TestClient(app).post("/api/login", json={"usuario": "admin", "clave": "clave-nueva-1"}).status_code == 200
+
+
+def test_admin_resetea_clave(cliente):
+    cliente.post("/api/usuarios", json={"usuario": "ana", "clave": "clave-de-ana"})
+    ana = TestClient(app)
+    ana.post("/api/login", json={"usuario": "ana", "clave": "clave-de-ana"})
+    (id_ana,) = [u["id"] for u in cliente.get("/api/usuarios").json() if u["usuario"] == "ana"]
+    (id_admin,) = [u["id"] for u in cliente.get("/api/usuarios").json() if u["usuario"] == "admin"]
+
+    assert ana.post(f"/api/usuarios/{id_admin}/clave", json={"nueva": "la-robo-yo"}).status_code == 403
+    assert cliente.post("/api/usuarios/99999/clave", json={"nueva": "clave-nueva-1"}).status_code == 404
+    assert cliente.post(f"/api/usuarios/{id_ana}/clave", json={"nueva": "nueva-de-ana"}).status_code == 200
+    assert ana.get("/api/yo").status_code == 401
+    assert TestClient(app).post("/api/login", json={"usuario": "ana", "clave": "nueva-de-ana"}).status_code == 200

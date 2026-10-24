@@ -882,11 +882,36 @@ async function listarUsuarios() {
   $("#lista-usuarios").replaceChildren(...usuarios.map((u) => el("li", {},
     el("span", { textContent: u.usuario }), u.admin ? el("span", { className: "insignia", textContent: "admin" }) : null,
     el("span", { className: "espacio" }),
+    el("button", { className: "chico", textContent: "Nueva clave", onclick: async () => {
+      const nueva = prompt(`Clave nueva para ${u.usuario} (mínimo 8 caracteres). Se le cierran las sesiones abiertas.`);
+      if (!nueva) return;
+      try {
+        await json(`/api/usuarios/${u.id}/clave`, "POST", { nueva });
+        avisar(`Clave de ${u.usuario} cambiada. Pasásela por un medio seguro.`);
+      } catch (e) { avisar(e.message, true); }
+    } }),
     u.id === estado.yo.id ? null : el("button", { className: "chico", textContent: "Borrar", onclick: async () => {
       if (!confirm(`¿Borrar a ${u.usuario}?`)) return;
       await api(`/api/usuarios/${u.id}`, { method: "DELETE" });
       listarUsuarios();
     } }))));
+}
+
+function enlazarCambioDeClave() {
+  const dialogo = $("#dialogo-clave");
+  const error = $("#error-clave");
+  $("#usuario").onclick = () => { $("#form-clave").reset(); error.hidden = true; dialogo.showModal(); };
+  $("#btn-clave-cancelar").onclick = () => dialogo.close();
+  $("#form-clave").onsubmit = async (e) => {
+    e.preventDefault();
+    const datos = Object.fromEntries(new FormData(e.target));
+    if (datos.nueva !== datos.repetida) { error.textContent = "Las claves nuevas no coinciden"; error.hidden = false; return; }
+    try {
+      await json("/api/yo/clave", "POST", { actual: datos.actual, nueva: datos.nueva });
+      dialogo.close();
+      avisar("Clave cambiada. Las otras sesiones abiertas con tu usuario se cerraron.");
+    } catch (err) { error.textContent = err.message; error.hidden = false; }
+  };
 }
 
 async function crearUsuario(e) {
@@ -914,6 +939,7 @@ async function iniciar() {
   estado.schema = tipos.schema;
   estado.sinCondicion = new Set(tipos.sin_condicion);
   $("#usuario").textContent = estado.yo.usuario;
+  enlazarCambioDeClave();
   $("#pestana-usuarios").hidden = !estado.yo.admin;
   for (const tipo of Object.keys(estado.schema.discriminator.mapping).sort((a, b) => (NOMBRES[a] || a).localeCompare(NOMBRES[b] || b))) {
     $("#sel-tipo").append(el("option", { value: tipo, textContent: NOMBRES[tipo] || tipo }));

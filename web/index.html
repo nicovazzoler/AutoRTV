@@ -20,7 +20,7 @@
     <button id="btn-csv" disabled>csv</button>
     <button id="btn-exportar-receta" title="Descargar la receta como archivo .json" disabled>Exportar receta</button>
     <label class="boton" title="Cargar una receta desde un archivo .json">Importar receta<input id="in-receta" type="file" accept=".json,application/json" hidden></label>
-    <span id="usuario" class="tenue"></span>
+    <button id="usuario" class="enlace" title="Cambiar mi clave"></button>
     <button id="btn-salir">Salir</button>
   </header>
 
@@ -151,6 +151,21 @@
       </div>
     </section>
   </main>
+
+  <dialog id="dialogo-clave">
+    <form id="form-clave" method="dialog" class="caja-login">
+      <h2>Cambiar mi clave</h2>
+      <label>Clave actual <input name="actual" type="password" autocomplete="current-password" required></label>
+      <label>Clave nueva <input name="nueva" type="password" autocomplete="new-password" minlength="8" required></label>
+      <label>Repetir clave nueva <input name="repetida" type="password" autocomplete="new-password" minlength="8" required></label>
+      <p id="error-clave" class="error" hidden></p>
+      <div class="fila">
+        <button type="button" id="btn-clave-cancelar">Cancelar</button>
+        <span class="espacio"></span>
+        <button type="submit" class="primario">Cambiar</button>
+      </div>
+    </form>
+  </dialog>
 
   <datalist id="columnas-conocidas"></datalist>
   <script src="/web/app.js"></script>

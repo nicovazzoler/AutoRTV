@@ -90,6 +90,18 @@ def test_flujo_basico(servidor, tmp_path):
         pagina.wait_for_selector("#estado:text('Guardado')")
         assert pagina.locator("#sel-senal option[value=senal-de-prueba]").count() == 1
 
+        # Cambiar la clave desde el cuadro y volver a entrar con la nueva.
+        pagina.click("#usuario")
+        pagina.fill("#form-clave input[name=actual]", "clave-segura")
+        pagina.fill("#form-clave input[name=nueva]", "otra-clave-1")
+        pagina.fill("#form-clave input[name=repetida]", "otra-clave-2")
+        pagina.click("#form-clave button[type=submit]")
+        assert pagina.inner_text("#error-clave") == "Las claves nuevas no coinciden"
+        pagina.fill("#form-clave input[name=repetida]", "otra-clave-1")
+        pagina.click("#form-clave button[type=submit]")
+        pagina.wait_for_selector("#estado:has-text('Clave cambiada')")
+        assert pagina.request.post(servidor + "/api/login", data={"usuario": "admin", "clave": "otra-clave-1"}).ok
+
         pagina.fill("#in-pedido", "pasá los títulos a mayúsculas")
         pagina.click("#btn-pedir")
         pagina.wait_for_selector("#propuesta:not([hidden]) >> text=Pasé los títulos a mayúsculas")

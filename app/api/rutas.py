@@ -61,6 +61,21 @@ def yo(u: auth.Usuario = Depends(auth.usuario_actual)):
     return asdict(u)
 
 
+class CambioClave(BaseModel):
+    actual: str
+    nueva: str
+
+
+@api.post("/yo/clave")
+def cambiar_mi_clave(datos: CambioClave, u: auth.Usuario = Depends(auth.usuario_actual),
+                     autortv_sesion: str | None = Cookie(default=None)):
+    try:
+        auth.cambiar_clave(u.id, datos.actual, datos.nueva, sesion_actual=autortv_sesion)
+    except ValueError as e:
+        raise HTTPException(422, str(e))
+    return {"ok": True}
+
+
 # --- Usuarios (admin) ---
 
 class NuevoUsuario(BaseModel):
@@ -78,6 +93,21 @@ def usuarios():
 def crear_usuario(datos: NuevoUsuario):
     try:
         auth.crear_usuario(datos.usuario, datos.clave, datos.admin)
+    except ValueError as e:
+        raise HTTPException(422, str(e))
+    return {"ok": True}
+
+
+class ClaveNueva(BaseModel):
+    nueva: str
+
+
+@api.post("/usuarios/{usuario_id}/clave", dependencies=[Depends(auth.solo_admin)])
+def resetear_clave(usuario_id: int, datos: ClaveNueva):
+    try:
+        auth.resetear_clave(usuario_id, datos.nueva)
+    except LookupError:
+        raise HTTPException(404, "No existe ese usuario")
     except ValueError as e:
         raise HTTPException(422, str(e))
     return {"ok": True}
