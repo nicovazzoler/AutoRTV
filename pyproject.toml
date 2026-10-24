@@ -1,0 +1,9 @@
+[project]
+name = "autortv"
+version = "0.1.0"
+description = "Convierte grillas de TV en EPG normalizado con tarjetas de reglas editables"
+requires-python = ">=3.12"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+filterwarnings = ["ignore:Using `httpx`"]

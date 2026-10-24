@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AutoRTV</title>
+  <link rel="stylesheet" href="/web/estilos.css">
+</head>
+<body>
+  <header class="barra">
+    <strong class="marca">AutoRTV</strong>
+    <select id="sel-senal" title="Señal"></select>
+    <button id="btn-nueva">Nueva señal</button>
+    <label class="boton">Subir grilla<input id="in-archivo" type="file" accept=".xlsx,.xls" hidden></label>
+    <span id="nombre-archivo" class="tenue"></span>
+    <span class="espacio"></span>
+    <span id="estado" class="tenue"></span>
+    <button id="btn-guardar" class="primario" disabled>Guardar</button>
+    <button id="btn-xlsx" disabled>Exportar xlsx</button>
+    <button id="btn-csv" disabled>csv</button>
+    <button id="btn-exportar-receta" title="Descargar la receta como archivo .json" disabled>Exportar receta</button>
+    <label class="boton" title="Cargar una receta desde un archivo .json">Importar receta<input id="in-receta" type="file" accept=".json,application/json" hidden></label>
+    <span id="usuario" class="tenue"></span>
+    <button id="btn-salir">Salir</button>
+  </header>
+
+  <main id="principal" hidden>
+    <aside class="panel">
+      <section class="bloque asistente">
+        <h2>Pedile al asistente</h2>
+        <textarea id="in-pedido" rows="3" placeholder="Ej.: los títulos de capítulo vienen con 'Ep 1' al final, sacalo"></textarea>
+        <div class="fila">
+          <button id="btn-pedir" class="primario">Pedir</button>
+          <span id="estado-asistente" class="tenue"></span>
+        </div>
+        <div id="propuesta" hidden></div>
+      </section>
+      <details class="bloque" id="bloque-entrada">
+        <summary><h2>Entrada</h2> <span id="res-entrada" class="tenue"></span></summary>
+        <div class="fila">
+          <label>Hoja <input id="in-hoja" class="corto"></label>
+          <label>Fila de encabezado <input id="in-fila" type="number" min="1" class="corto"></label>
+        </div>
+      </details>
+      <section class="bloque">
+        <h2>Tarjetas <span id="res-tarjetas" class="tenue"></span></h2>
+        <div class="fila">
+          <span class="tenue">Arrastrá para cambiar el orden.</span>
+          <span class="espacio"></span>
+          <button id="btn-abrir-todo" type="button" class="chico">Abrir todo</button>
+          <button id="btn-cerrar-todo" type="button" class="chico">Cerrar todo</button>
+        </div>
+        <ul id="lista-tarjetas" class="bloques-tarjetas"></ul>
+        <div class="fila">
+          <select id="sel-tipo"></select>
+          <button id="btn-agregar">+ Tarjeta</button>
+        </div>
+      </section>
+      <details class="bloque" id="bloque-titulos">
+        <summary><h2>Títulos conocidos</h2> <span id="cant-titulos" class="tenue"></span></summary>
+        <p class="tenue">Programas que esta señal ya emitió. La tarjeta <b>Separar</b> en modo
+          <i>titulos_conocidos</i> los usa para cortar programa y capítulo exacto.</p>
+        <div class="fila">
+          <label>Columna de programa <input id="tit-columna" list="columnas-conocidas" placeholder="automática"></label>
+          <button id="btn-tit-ejemplos" type="button">Aprender de los ejemplos</button>
+          <label class="boton">Aprender de archivos…<input id="tit-archivos" type="file" accept=".xlsx,.xls" multiple hidden></label>
+        </div>
+        <div id="tit-resultado" hidden>
+          <p id="tit-resumen" class="tenue"></p>
+          <div class="fila">
+            <button id="btn-tit-nuevos" type="button" class="chico">Marcar solo nuevos</button>
+            <button id="btn-tit-ninguno" type="button" class="chico">Desmarcar todos</button>
+            <span class="espacio"></span>
+            <button id="btn-tit-agregar" type="button" class="primario">Agregar seleccionados</button>
+          </div>
+          <ul id="tit-lista" class="lista-titulos"></ul>
+        </div>
+        <label>Lista (uno por línea) <input id="tit-buscar" type="search" placeholder="buscar…"></label>
+        <textarea id="tit-texto" rows="8"></textarea>
+      </details>
+      <details class="bloque" id="bloque-validaciones">
+        <summary><h2>Validaciones</h2> <span id="cols-validadas" class="tenue"></span></summary>
+        <p class="tenue">Las columnas de fecha, hora y duración se detectan solas. Completá solo si esta señal las llama distinto.</p>
+        <div class="fila">
+          <label>Fecha <input id="val-fecha" list="columnas-conocidas" placeholder="automática"></label>
+          <label>Hora <input id="val-hora" list="columnas-conocidas" placeholder="automática"></label>
+          <label>Duración <input id="val-duracion" list="columnas-conocidas" placeholder="automática"></label>
+        </div>
+        <div class="fila">
+          <label>Minutos por día <input id="val-dia" type="number" class="corto"></label>
+          <label>Duración máx. <input id="val-max" type="number" class="corto"></label>
+          <label>Tolerancia (min) <input id="val-tol" type="number" min="0" class="corto"></label>
+          <label>Filas esperadas <input id="val-filas" type="number" min="0" class="corto"></label>
+        </div>
+        <div class="fila">
+          <label class="check"><input id="val-huecos" type="checkbox"> avisar huecos</label>
+          <label class="check"><input id="val-super" type="checkbox"> avisar superposiciones</label>
+        </div>
+        <label>Columnas obligatorias (una por línea) <textarea id="val-obligatorias" rows="3"></textarea></label>
+        <div class="fila">
+          <label class="check"><input id="val-titulos" type="checkbox"> avisar títulos que no están en la lista</label>
+          <label>Columna de programa <input id="val-programa" list="columnas-conocidas" placeholder="automática"></label>
+        </div>
+      </details>
+      <details class="bloque" id="bloque-salida">
+        <summary><h2>Columnas de salida</h2> <span id="res-salida" class="tenue"></span></summary>
+        <p class="tenue">Una por línea, en el orden del EPG. Vacío = todas las columnas.</p>
+        <textarea id="in-salida" rows="8"></textarea>
+      </details>
+    </aside>
+
+    <section class="contenido">
+      <nav class="pestanas">
+        <button data-pestana="tabla" class="activa">Tabla</button>
+        <button data-pestana="ejemplos">Ejemplos</button>
+        <button data-pestana="usuarios" id="pestana-usuarios" hidden>Usuarios</button>
+      </nav>
+
+      <div id="vista-tabla" class="vista">
+        <p id="resumen" class="tenue">Subí una grilla para ver la vista previa.</p>
+        <details id="panel-validaciones" class="panel-validaciones" hidden>
+          <summary id="resumen-validaciones"></summary>
+          <ul id="lista-validaciones"></ul>
+        </details>
+        <div class="contenedor-tabla"><table id="tabla"></table></div>
+      </div>
+
+      <div id="vista-ejemplos" class="vista" hidden>
+        <p class="tenue">Un ejemplo es un par <b>grilla como vino → EPG como quedó</b>. La receta se prueba contra todos
+          los ejemplos de la señal y se ve qué tan parecido sale.</p>
+        <form id="form-ejemplo" class="fila">
+          <label>Nombre <input name="nombre" placeholder="semana-2026-10-01" pattern="[a-z0-9][a-z0-9_\-]*" required></label>
+          <label>Como vino <input name="entrada" type="file" accept=".xlsx,.xls" required></label>
+          <label>Como quedó <input name="esperado" type="file" accept=".xlsx,.xls" required></label>
+          <button type="submit">Agregar ejemplo</button>
+        </form>
+        <div class="fila"><button id="btn-evaluar" class="primario">Probar receta contra los ejemplos</button></div>
+        <div id="resultados-ejemplos"></div>
+      </div>
+
+      <div id="vista-usuarios" class="vista" hidden>
+        <form id="form-usuario" class="fila">
+          <label>Usuario <input name="usuario" required></label>
+          <label>Clave <input name="clave" type="password" minlength="8" required></label>
+          <label class="check"><input name="admin" type="checkbox"> admin</label>
+          <button type="submit">Crear usuario</button>
+        </form>
+        <ul id="lista-usuarios" class="lista-simple"></ul>
+        <h2>Uso del asistente este mes</h2>
+        <div id="uso-asistente" class="tenue"></div>
+      </div>
+    </section>
+  </main>
+
+  <datalist id="columnas-conocidas"></datalist>
+  <script src="/web/app.js"></script>
+</body>
+</html>

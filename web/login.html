@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AutoRTV · Ingresar</title>
+  <link rel="stylesheet" href="/web/estilos.css">
+</head>
+<body class="pantalla-login">
+  <form id="form-login" class="caja-login">
+    <h1>AutoRTV</h1>
+    <label>Usuario <input name="usuario" autocomplete="username" required autofocus></label>
+    <label>Clave <input name="clave" type="password" autocomplete="current-password" required></label>
+    <button type="submit" class="primario">Ingresar</button>
+    <p id="error-login" class="error" hidden></p>
+  </form>
+  <script>
+    document.getElementById("form-login").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const datos = Object.fromEntries(new FormData(e.target));
+      const r = await fetch("/api/login", {
+        method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(datos),
+      });
+      if (r.ok) { location.href = "/"; return; }
+      const error = document.getElementById("error-login");
+      error.textContent = "Usuario o clave incorrectos";
+      error.hidden = false;
+    });
+  </script>
+</body>
+</html>
