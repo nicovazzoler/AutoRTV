@@ -5,7 +5,7 @@ from fastapi import FastAPI
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from app import auth
+from app import auth, db
 from app.api.rutas import api, publico
 
 WEB = Path(__file__).resolve().parents[1] / "web"
@@ -13,6 +13,7 @@ WEB = Path(__file__).resolve().parents[1] / "web"
 
 @asynccontextmanager
 async def arranque(_app):
+    db.motor()  # crea las tablas y migra el volumen viejo antes de atender pedidos
     auth.asegurar_admin_inicial()
     yield
 
