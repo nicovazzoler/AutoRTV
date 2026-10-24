@@ -44,6 +44,20 @@ grabadas (`AGENTE_FALSO`) y no gastan.
 
 ## Datos
 
-- `DATA_DIR` (por defecto `datos/`): `app.db` (usuarios y sesiones) y `senales/<id>/`
-  con la receta, su historial y los ejemplos antes/después.
+- Con `DATABASE_URL` (Postgres en Railway) todo vive en la base: usuarios, sesiones, recetas con su
+  historial, ejemplos, grillas subidas (se borran a las 24 h) y uso del asistente. La app no guarda
+  nada propio, así que se puede correr con más de una réplica.
+- Sin `DATABASE_URL`, usa SQLite en `DATA_DIR/autortv.db` (por defecto `datos/`): para uso local y tests.
+- **Migración automática:** al arrancar con la base vacía, copia lo que haya en `DATA_DIR` con el
+  formato anterior (`app.db` + `senales/<id>/`). Los usuarios conservan su clave.
+- Las tablas se crean solas al arrancar. Si más adelante cambian columnas, se suma Alembic.
 - `privado/` y `datos/` están en `.gitignore`: las grillas y recetas del laburo no van al repo.
+
+### Postgres en Railway
+
+1. En el proyecto: **New → Database → Add PostgreSQL**.
+2. En el servicio de la app → **Variables**: `DATABASE_URL` = `${{Postgres.DATABASE_URL}}`.
+3. Redeploy: el log muestra "Migradas desde el volumen: N usuarios y M señales" la primera vez.
+
+Tests contra Postgres real: `DATABASE_URL=postgresql://usuario@host/base pytest` (vacía las tablas
+antes de cada test, usar una base solo para eso).

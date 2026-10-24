@@ -61,7 +61,8 @@ def test_guardar_receta_con_historial(cliente, tmp_path):
     cliente.put("/api/senales/sintetica", json=RECETA)
     assert cliente.get("/api/senales").json() == [{"id": "sintetica", "nombre": RECETA["nombre"]}]
     assert cliente.get("/api/senales/sintetica").json()["tarjetas"][1]["modo"] == "min_mayus"
-    assert len(list((tmp_path / "senales" / "sintetica" / "historial").iterdir())) == 2
+    from app import almacen
+    assert [h["usuario"] for h in almacen.historial("sintetica")] == ["admin", "admin"]
 
 
 def test_ids_con_ruta_se_rechazan(cliente):

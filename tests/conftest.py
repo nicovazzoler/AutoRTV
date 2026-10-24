@@ -19,3 +19,18 @@ def cliente(tmp_path, monkeypatch):
     c = TestClient(app)
     assert c.post("/api/login", json={"usuario": "admin", "clave": "clave-segura"}).status_code == 200
     return c
+
+
+@pytest.fixture(autouse=True)
+def base_limpia():
+    """Con DATABASE_URL (Postgres real) todos los tests comparten base: se vacía antes de cada uno."""
+    import os
+    if not os.environ.get("DATABASE_URL"):
+        yield
+        return
+    from app import db, tablas
+    with db.transaccion() as con:
+        for tabla in reversed(db.metadata.sorted_tables):
+            con.execute(tabla.delete())
+    tablas.olvidar_cache()
+    yield

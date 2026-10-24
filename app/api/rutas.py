@@ -121,15 +121,11 @@ def guardar_senal(senal_id: str, receta: m.Senal, response: Response,
     if receta.id != senal_id:
         raise HTTPException(422, "El id de la receta no coincide con la ruta")
     try:
-        actual = almacen.version(senal_id)
-        if if_match is not None and actual is not None and if_match != actual:
-            quien = almacen.ultimo_guardado(senal_id)
-            detalle = f"{quien[0]} guardó cambios el {quien[1]:%d/%m a las %H:%M}" if quien else "Alguien guardó cambios"
-            raise HTTPException(409, detalle)
-        almacen.guardar(receta, u.usuario)
+        response.headers["ETag"] = almacen.guardar(receta, u.usuario, esperada=if_match)
+    except almacen.Conflicto as c:
+        raise HTTPException(409, f"{c.usuario} guardó cambios el {c.fecha:%d/%m a las %H:%M}")
     except ValueError as e:
         raise HTTPException(422, str(e))
-    response.headers["ETag"] = almacen.version(senal_id)
     return {"ok": True}
 
 
@@ -151,8 +147,8 @@ async def aprender_titulos(senal_id: str, columna: str = Form(""), usar_ejemplos
     try:
         if usar_ejemplos:
             for nombre in almacen.listar_ejemplos(senal_id):
-                _, esperado = almacen.rutas_ejemplo(senal_id, nombre)
-                tablas.append(pd.read_excel(esperado, dtype=object))
+                _, esperado = almacen.leer_ejemplo(senal_id, nombre)
+                tablas.append(pd.read_excel(io.BytesIO(esperado), dtype=object))
         for archivo in archivos:
             tablas.append(pd.read_excel(io.BytesIO(await _leer_archivo(archivo)), dtype=object))
     except ValueError as e:
@@ -241,10 +237,10 @@ def ejemplos(senal_id: str):
 
 
 @api.post("/senales/{senal_id}/ejemplos")
-async def subir_ejemplo(senal_id: str, nombre: str = Form(...),
-                        entrada: UploadFile = File(...), esperado: UploadFile = File(...)):
+async def subir_ejemplo(senal_id: str, nombre: str = Form(...), entrada: UploadFile = File(...),
+                        esperado: UploadFile = File(...), u: auth.Usuario = Depends(auth.usuario_actual)):
     try:
-        almacen.guardar_ejemplo(senal_id, nombre, await _leer_archivo(entrada), await _leer_archivo(esperado))
+        almacen.guardar_ejemplo(senal_id, nombre, await _leer_archivo(entrada), await _leer_archivo(esperado), u.usuario)
     except ValueError as e:
         raise HTTPException(422, str(e))
     return {"ok": True}
@@ -268,10 +264,10 @@ def evaluar_ejemplos(senal_id: str, receta: m.Senal):
         raise HTTPException(422, str(e))
     resultados = []
     for nombre in nombres:
-        ruta_entrada, ruta_esperado = almacen.rutas_ejemplo(senal_id, nombre)
+        entrada, esperado_xlsx = almacen.leer_ejemplo(senal_id, nombre)
         try:
-            salida, _ = correr(receta, excel.leer(ruta_entrada, receta.entrada))
-            esperado = pd.read_excel(ruta_esperado, dtype=object)
+            salida, _ = correr(receta, excel.leer(io.BytesIO(entrada), receta.entrada))
+            esperado = pd.read_excel(io.BytesIO(esperado_xlsx), dtype=object)
         except Exception as e:
             resultados.append({"nombre": nombre, "error": f"No se pudo correr: {e}"})
             continue
@@ -337,8 +333,9 @@ def uso_asistente():
 
 
 def _leer_ejemplo(receta: m.Senal, nombre: str) -> asistente_ia.Ejemplo:
-    ruta_entrada, ruta_esperado = almacen.rutas_ejemplo(receta.id, nombre)
-    return asistente_ia.Ejemplo(nombre, excel.leer(ruta_entrada, receta.entrada), pd.read_excel(ruta_esperado, dtype=object))
+    entrada, esperado = almacen.leer_ejemplo(receta.id, nombre)
+    return asistente_ia.Ejemplo(nombre, excel.leer(io.BytesIO(entrada), receta.entrada),
+                                pd.read_excel(io.BytesIO(esperado), dtype=object))
 
 
 def _correr_tabla(tabla_id: str | None, receta: m.Senal) -> pd.DataFrame:

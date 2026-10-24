@@ -5,3 +5,5 @@ openpyxl
 pydantic==2.14.1
 python-multipart
 anthropic==2.2.0
+sqlalchemy==2.1.6
+psycopg[binary]==3.3.6
