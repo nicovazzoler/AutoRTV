@@ -321,3 +321,12 @@ def test_crear_senal_desde_grilla_y_ejemplo(cliente):
     assert confirmada.json()["id"] == "mi-senal-hd-2"
     distinta = cliente.post("/api/senales/crear", files=archivos, data={"nombre": "Otra cosa"})
     assert distinta.status_code == 200
+
+
+def test_charla_del_asistente(cliente, monkeypatch):
+    _con_asistente(monkeypatch, [{"respuesta": "¡Hola! ¿Qué querés cambiar?", "proponer_cambios": False}])
+    r = cliente.post("/api/asistente/charla", json={"senal": RECETA, "pedido": "hola", "historial": []})
+    assert r.status_code == 200, r.text
+    assert r.json()["respuesta"] == "¡Hola! ¿Qué querés cambiar?" and not r.json()["proponer_cambios"]
+    assert cliente.post("/api/asistente/charla", json={"senal": RECETA, "pedido": " "}).status_code == 422
+    assert cliente.get("/api/asistente/uso").json()["usuarios"][0]["pedidos"] == 1

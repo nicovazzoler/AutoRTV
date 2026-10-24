@@ -19,6 +19,8 @@ from app.validate import grilla
 MAX_VUELTAS = 3
 FILAS_MUESTRA = 15
 MAX_DIFERENCIAS = 30
+MAX_HISTORIAL = 10  # mensajes previos de la conversación que se reenvían
+MAX_LARGO_MENSAJE = 1500
 LISTA_TARJETAS = TypeAdapter(list[m.Tarjeta])
 
 
@@ -50,9 +52,53 @@ class Propuesta:
     tokens_salida: int = 0
 
 
+@dataclass
+class Charla:
+    respuesta: str
+    proponer_cambios: bool
+    tokens_entrada: int = 0
+    tokens_salida: int = 0
+
+
 def sistema() -> str:
     texto = (Path(__file__).parent / "prompts" / "sistema.md").read_text(encoding="utf-8")
     return texto + json.dumps(TypeAdapter(m.Tarjeta).json_schema(), ensure_ascii=False)
+
+
+def sistema_charla() -> str:
+    return (Path(__file__).parent / "prompts" / "charla.md").read_text(encoding="utf-8")
+
+
+def charlar(receta: m.Senal, tabla: pd.DataFrame | None, historial: list[dict], mensaje: str,
+            proveedor: Proveedor) -> Charla:
+    """Respuesta rápida. Si el mensaje pide cambiar reglas o columnas, avisa que hay que armar una propuesta."""
+    partes = ["## Receta actual (tarjetas en orden)",
+              json.dumps([t.model_dump(exclude_none=True) for t in receta.tarjetas], ensure_ascii=False)]
+    if tabla is not None:
+        salida, informes = correr(receta, tabla)
+        errores = [f"tarjeta {i.id}: {i.error}" for i in informes if i.error]
+        partes += [f"## Grilla de entrada: columnas {list(map(str, tabla.columns))}", _filas(tabla),
+                   f"## Salida actual ({len(salida)} filas)", _filas(salida)]
+        if errores:
+            partes += ["## Tarjetas con error", "\n".join(errores)]
+    else:
+        partes.append("(No hay grilla subida.)")
+    partes += _conversacion(historial) + ["## Mensaje nuevo", mensaje]
+    r = proveedor.charlar(sistema_charla(), [{"role": "user", "content": "\n\n".join(partes)}])
+    if r.rechazo:
+        return Charla(f"No puedo responder eso ({r.rechazo}).", False, r.tokens_entrada, r.tokens_salida)
+    datos = r.datos if isinstance(r.datos, dict) else {}
+    return Charla(str(datos.get("respuesta", "")), bool(datos.get("proponer_cambios", not datos)),
+                  r.tokens_entrada, r.tokens_salida)
+
+
+def _conversacion(historial: list[dict]) -> list[str]:
+    """Últimos mensajes de la conversación, como texto: el asistente no guarda nada entre pedidos."""
+    if not historial:
+        return []
+    lineas = [f"{'Persona' if h.get('rol') == 'persona' else 'Asistente'}: {str(h.get('texto', ''))[:MAX_LARGO_MENSAJE]}"
+              for h in historial[-MAX_HISTORIAL:]]
+    return ["## Conversación hasta ahora", "\n".join(lineas)]
 
 
 def medir(receta: m.Senal, tabla: pd.DataFrame, ejemplos: list[Ejemplo]) -> tuple[Metricas, dict]:
@@ -70,10 +116,11 @@ def medir(receta: m.Senal, tabla: pd.DataFrame, ejemplos: list[Ejemplo]) -> tupl
 
 
 def pedir(receta: m.Senal, tabla: pd.DataFrame, pedido: str, proveedor: Proveedor,
-          ejemplos: list[Ejemplo] = (), objetivo: str | None = None, orden_columnas: list[str] = ()) -> Propuesta:
+          ejemplos: list[Ejemplo] = (), objetivo: str | None = None, orden_columnas: list[str] = (),
+          historial: list[dict] = ()) -> Propuesta:
     """`objetivo` = nombre de un ejemplo que tiene que llegar al 100 % ("armar desde este ejemplo")."""
     antes, detalle = medir(receta, tabla, ejemplos)
-    contexto = _contexto(receta, tabla, detalle, antes, ejemplos, pedido, objetivo, orden_columnas)
+    contexto = _contexto(receta, tabla, detalle, antes, ejemplos, pedido, objetivo, orden_columnas, historial)
     mensajes = [{"role": "user", "content": contexto}]
     effort = "medium" if objetivo else "low"
     resultado = Propuesta(logrado=False, antes=antes)
@@ -162,7 +209,8 @@ def cambios(antes: m.Senal, despues: m.Senal) -> list[dict]:
     return lista
 
 
-def _contexto(receta, tabla, detalle, antes: Metricas, ejemplos, pedido, objetivo, orden_columnas=()) -> str:
+def _contexto(receta, tabla, detalle, antes: Metricas, ejemplos, pedido, objetivo, orden_columnas=(),
+              historial=()) -> str:
     partes = [
         "## Receta actual",
         json.dumps({"tarjetas": [t.model_dump(exclude_none=True) for t in receta.tarjetas],
@@ -190,7 +238,7 @@ def _contexto(receta, tabla, detalle, antes: Metricas, ejemplos, pedido, objetiv
     if orden_columnas:
         partes += ["## Orden general de columnas del EPG",
                    "Si agregás columnas o cambiás columnas_salida, respetá este orden: " + ", ".join(orden_columnas)]
-    partes += ["## Pedido", pedido]
+    partes += _conversacion(list(historial)) + ["## Pedido", pedido]
     return "\n\n".join(partes)
 
 
