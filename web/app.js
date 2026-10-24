@@ -39,7 +39,7 @@ const ICONOS = { error: "✕", aviso: "⚠", info: "ℹ" };
 
 const estado = {
   schema: null, sinCondicion: new Set(), yo: null, receta: null, guardada: null,
-  tablaId: null, informes: [], recienCambiadas: new Set(), columnas: new Set(), abierta: null, ultimoPreview: 0,
+  tablaId: null, informes: [], hilo: [], recienCambiadas: new Set(), columnas: new Set(), abierta: null, ultimoPreview: 0,
 };
 
 const $ = (s) => document.querySelector(s);
@@ -308,6 +308,64 @@ function itemTarjeta(t, k) {
 }
 
 // Actualiza insignias y mensajes sin redibujar los formularios (no se pierde el foco al tipear).
+// --- Reglas en frases ---
+
+const MODOS_MAYUS = { MAYUS: "MAYÚSCULAS", minus: "minúsculas", Titulo: "Tipo Título", Oracion: "Tipo oración",
+  titulo_en: "título en inglés (palabras chicas en minúscula)" };
+const PRESETS = { entre_parentesis: "lo que está entre paréntesis", numero: "el número", anio: "el año" };
+
+function columnasEnFrase(c) {
+  if (c === "*" || c === undefined) return "todas las columnas";
+  return (Array.isArray(c) ? c : [c]).join(", ");
+}
+
+function frase(t) {
+  const c = (x) => `«${x}»`;
+  const texto = {
+    limpiar_espacios: () => `Limpia espacios de más y saltos de línea en ${columnasEnFrase(t.columnas)}`,
+    reemplazar: () => t.modo === "celda" ? `Si la celda dice exactamente ${c(t.buscar)}, la cambia por ${c(t.por)} (${columnasEnFrase(t.columnas)})`
+      : `${t.por ? "Cambia" : "Borra"} ${t.modo === "regex" ? "el patrón " : ""}${c(t.buscar)}${t.por ? ` por ${c(t.por)}` : ""} en ${columnasEnFrase(t.columnas)}`,
+    quitar: () => `Saca ${t.regex ? "el patrón " : ""}${c(t.texto)}${{ inicio: " del principio", fin: " del final", todo: "" }[t.donde || "todo"]} de ${columnasEnFrase(t.columnas)}`,
+    separar: () => `Parte ${t.columna} en ${t.destinos[0]} y ${t.destinos[1]} ` + ({
+      separador: `donde aparece ${c(t.valor)}`, min_mayus: "donde termina una minúscula y empieza una Mayúscula",
+      titulos_conocidos: "usando los títulos conocidos de la señal", regex: `con el patrón ${c(t.valor)}` }[t.modo]),
+    extraer: () => `Copia ${PRESETS[t.preset] || `el patrón ${c(t.patron)}`} de ${t.columna} a ${t.destino}${t.quitar_del_origen ? " y lo saca del original" : ""}`,
+    mayus_minus: () => `Pasa ${columnasEnFrase(t.columnas)} a ${MODOS_MAYUS[t.modo]}`,
+    asignar: () => `Pone ${c(t.valor)} en ${t.columna}`,
+    a_numero: () => `Pasa ${columnasEnFrase(t.columnas)} a número ("01" → 1)`,
+    correcciones: () => `Corrige a mano ${Object.keys(t.mapa || {}).length} textos en ${columnasEnFrase(t.columnas)}`,
+    renombrar: () => `Renombra columnas: ${Object.entries(t.mapa || {}).map(([a, b]) => `${a} → ${b}`).join(", ")}`,
+    numerar: () => `Numera las filas en ${t.columna || "N"}`,
+    redondear_hora: () => `Redondea la hora de ${t.columna} ${(t.a_minutos || 1) > 1 ? `a ${t.a_minutos} minutos` : "al minuto"}`,
+    dia_semana: () => `Escribe en ${t.destino || "Dia"} el día de la semana de ${t.columna}`,
+    duracion: () => `${t.destino || "Duracion"} = minutos hasta el programa siguiente${t.ultimo_hasta ? ` (el último termina a las ${t.ultimo_hasta})` : ""}`,
+    clasificar_sinopsis: () => `Si la sinopsis de ${t.sinopsis} se repite en todos los capítulos va a ${t.destino_programa}; si cambia, a ${t.destino_capitulo}`,
+  }[t.tipo];
+  let resultado = texto ? texto() : (NOMBRES[t.tipo] || t.tipo);
+  if (t.si) resultado += `, solo si ${t.si.columna} ${OPERADORES[t.si.op]}${["vacio", "no_vacio"].includes(t.si.op) ? "" : " " + c(t.si.valor)}`;
+  return resultado;
+}
+
+function dibujarReglas() {
+  if (!estado.receta) return;
+  const items = estado.receta.tarjetas.map((t) => {
+    const informe = estado.informes.find((i) => i.id === t.id);
+    const detalle = informe?.error ? el("span", { className: "insignia error", textContent: informe.error })
+      : informe && t.activa !== false ? el("span", { className: "tenue", textContent: ` · ${informe.celdas_cambiadas} celdas` }) : null;
+    const activa = el("input", { type: "checkbox", checked: t.activa !== false, title: "Activar o desactivar esta regla",
+      onchange: (e) => { t.activa = e.target.checked; cambioReceta(); dibujarTarjetas(); } });
+    return el("li", { className: t.activa === false ? "inactiva" : "" },
+      el("label", { className: "check" }, activa, el("span", { textContent: frase(t) })), detalle,
+      t.nota ? el("div", { className: "tenue nota", textContent: t.nota }) : null,
+      estado.yo.admin ? el("button", { className: "enlace", textContent: "editar", onclick: () => {
+        estado.abierta = t.id; dibujarTarjetas();
+        document.querySelector(`#lista-tarjetas li.tarjeta[data-id="${t.id}"]`)?.scrollIntoView({ block: "center" });
+      } }) : null);
+  });
+  $("#lista-reglas").replaceChildren(...(items.length ? items
+    : [el("li", { className: "tenue", textContent: "Esta señal todavía no tiene reglas. Pedile al asistente que las arme." })]));
+}
+
 function pintarInformes() {
   for (const grupo of document.querySelectorAll("#lista-tarjetas > li.grupo")) {
     const informes = grupo.dataset.ids.split(" ").map((id) => estado.informes.find((i) => i.id === id)).filter(Boolean);
@@ -334,6 +392,7 @@ function pintarInformes() {
       ...(informe?.error ? [el("div", { className: "error", textContent: informe.error })] : []),
       ...(informe?.avisos || []).map((a) => el("div", { className: "aviso", textContent: a })));
   }
+  dibujarReglas();
 }
 
 function resumen(t) {
@@ -397,6 +456,8 @@ function cargarReceta(receta, guardada, version = null) {
   estado.propuesta = null;
   estado.verPropuesta = false;
   $("#propuesta").hidden = true;
+  estado.hilo = [];
+  dibujarHilo();
   $("#principal").hidden = false;
   $("#in-hoja").value = receta.entrada.hoja;
   $("#in-fila").value = receta.entrada.fila_encabezado;
@@ -460,24 +521,62 @@ function enlazarValidaciones() {
 
 // --- Asistente ---
 
-function estadoAsistente(texto, esError = false) {
+// `camino` muestra qué modelo está trabajando: "rapido" (charla) o "propuesta" (cambios).
+function estadoAsistente(texto, esError = false, camino = "") {
   const e = $("#estado-asistente");
   e.textContent = texto;
-  e.className = esError ? "error-asistente" : "tenue";
+  e.className = esError ? "error-asistente" : `tenue ${camino ? "trabajando " + camino : ""}`;
 }
 
-async function pedirAsistente(pedido, ejemplo = null) {
+// Cada mensaje pasa primero por la charla (modelo rápido); si pide cambios, sigue a la propuesta.
+async function enviarMensaje(forzarPropuesta = false) {
+  const texto = $("#in-pedido").value.trim();
+  if (!texto) { estadoAsistente("Escribí qué querés que haga el asistente", true); return; }
+  const previo = estado.hilo.slice();
+  agregarAlHilo("persona", texto);
+  $("#in-pedido").value = "";
+  if (!forzarPropuesta) {
+    ocupado(true);
+    estadoAsistente("Respondiendo rápido…", false, "rapido");
+    try {
+      const c = await json("/api/asistente/charla", "POST", { senal: estado.receta, pedido: texto,
+        tabla_id: estado.tablaId, historial: previo });
+      if (c.respuesta) agregarAlHilo("asistente", c.respuesta);
+      estadoAsistente("");
+      if (!c.proponer_cambios) return;
+    } catch (e) { estadoAsistente(e.message, true); return; } finally { ocupado(false); }
+  }
+  await pedirAsistente(texto, null, previo);
+}
+
+function ocupado(si) { $("#btn-pedir").disabled = $("#btn-proponer").disabled = si; }
+
+function agregarAlHilo(rol, texto) {
+  estado.hilo.push({ rol, texto });
+  dibujarHilo();
+}
+
+function dibujarHilo() {
+  const lista = $("#hilo");
+  lista.hidden = $("#btn-hilo-nuevo").hidden = !estado.hilo.length;
+  lista.replaceChildren(...estado.hilo.map((m) => el("li", { className: m.rol + (m.texto.startsWith("(") ? " nota" : ""),
+    textContent: m.texto })));
+  lista.scrollTop = lista.scrollHeight;
+}
+
+async function pedirAsistente(pedido, ejemplo = null, historial = []) {
   if (!pedido.trim()) { estadoAsistente("Escribí qué querés que haga el asistente", true); return; }
-  if (!ejemplo && !estado.tablaId) { estadoAsistente("Subí una grilla antes de pedirle algo al asistente", true); return; }
-  const boton = $("#btn-pedir");
-  boton.disabled = true;
-  estadoAsistente("Pensando y probando la propuesta… (puede tardar un minuto)");
+  if (!ejemplo && !estado.tablaId) { estadoAsistente("Subí una grilla para que el asistente pueda armar una propuesta", true); return; }
+  ocupado(true);
+  estadoAsistente("Armando una propuesta y probándola contra la grilla… (puede tardar un minuto)", false, "propuesta");
   avisar("El asistente está trabajando…");
   try {
-    const p = await json("/api/asistente", "POST", { senal: estado.receta, pedido, tabla_id: estado.tablaId, ejemplo });
+    const p = await json("/api/asistente", "POST", { senal: estado.receta, pedido, tabla_id: estado.tablaId, ejemplo, historial });
     estado.propuesta = p;
     estado.verPropuesta = false;
     dibujarPropuesta();
+    if (ejemplo) agregarAlHilo("persona", pedido);
+    agregarAlHilo("asistente", p.explicacion || (p.receta ? "Te dejo una propuesta abajo." : "No llegué a una propuesta válida."));
     estadoAsistente("");
     avisar("");
     if (ejemplo) mostrarPestana("tabla");
@@ -485,7 +584,7 @@ async function pedirAsistente(pedido, ejemplo = null) {
     estadoAsistente(e.message, true);
     avisar("");
     if (ejemplo) avisar(e.message, true);  // pedido desde la pestaña Ejemplos: el cuadro del asistente no se ve
-  } finally { boton.disabled = false; }
+  } finally { ocupado(false); }
 }
 
 function dibujarPropuesta() {
@@ -515,7 +614,8 @@ function dibujarPropuesta() {
       el("button", { className: "primario", textContent: "Aplicar", onclick: aplicarPropuesta }));
   }
   botones.append(el("button", { textContent: "Descartar", onclick: () => {
-    estado.propuesta = null; estado.verPropuesta = false; dibujarPropuesta(); previsualizar(); } }));
+    estado.propuesta = null; estado.verPropuesta = false; dibujarPropuesta(); previsualizar();
+    agregarAlHilo("asistente", "(Propuesta descartada)"); } }));
   hijos.push(botones);
   caja.replaceChildren(...hijos);
 }
@@ -554,6 +654,7 @@ function aplicarPropuesta() {
   dibujarPropuesta();
   dibujarTarjetas();
   cambioReceta();
+  agregarAlHilo("asistente", "(Propuesta aplicada)");
   avisar("Propuesta aplicada. Tocá Guardar para que quede para todos.");
 }
 
@@ -1168,7 +1269,7 @@ async function crearUsuario(e) {
 
 function mostrarPestana(nombre) {
   for (const b of document.querySelectorAll(".pestanas button")) b.classList.toggle("activa", b.dataset.pestana === nombre);
-  for (const v of ["tabla", "base", "ejemplos", "usuarios"]) $(`#vista-${v}`).hidden = v !== nombre;
+  for (const v of ["tabla", "reglas", "base", "ejemplos", "usuarios"]) $(`#vista-${v}`).hidden = v !== nombre;
   if (nombre === "base") listarBase();
   if (nombre === "usuarios") { listarUsuarios(); mostrarUsoAsistente(); listarCatalogo(); }
   if (nombre === "ejemplos" && estado.receta) evaluarEjemplos();
@@ -1200,7 +1301,12 @@ async function iniciar() {
   $("#in-idioma-port").onchange = idioma("port");
   $("#in-archivo").onchange = (e) => e.target.files[0] && subirGrilla(e.target.files[0]);
   $("#btn-guardar").onclick = () => guardar();
-  $("#btn-pedir").onclick = () => pedirAsistente($("#in-pedido").value);
+  $("#btn-pedir").onclick = () => enviarMensaje();
+  $("#btn-proponer").onclick = () => enviarMensaje(true);
+  $("#in-pedido").onkeydown = (e) => {
+    if (e.key === "Enter" && !e.shiftKey && !$("#btn-pedir").disabled) { e.preventDefault(); enviarMensaje(); }
+  };
+  $("#btn-hilo-nuevo").onclick = () => { estado.hilo = []; dibujarHilo(); };
   enlazarTitulos();
   $("#btn-xlsx").onclick = () => exportar("xlsx");
   $("#btn-csv").onclick = () => exportar("csv");

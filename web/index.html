@@ -27,12 +27,14 @@
   <main id="principal" hidden>
     <aside class="panel">
       <section class="bloque asistente">
-        <h2>Pedile al asistente</h2>
+        <h2>Pedile al asistente <button id="btn-hilo-nuevo" class="enlace" type="button" hidden>nueva conversación</button></h2>
+        <ul id="hilo" class="hilo" hidden></ul>
         <textarea id="in-pedido" rows="3" placeholder="Ej.: los títulos de capítulo vienen con 'Ep 1' al final, sacalo"></textarea>
         <div class="fila">
-          <button id="btn-pedir" class="primario">Pedir</button>
-          <span id="estado-asistente" class="tenue"></span>
+          <button id="btn-pedir" class="primario" title="Enter para enviar, Shift+Enter para otra línea">Enviar</button>
+          <button id="btn-proponer" title="Saltea la charla y arma directamente una propuesta de cambios">Proponer cambios</button>
         </div>
+        <p id="estado-asistente" class="tenue"></p>
         <div id="propuesta" hidden></div>
       </section>
       <details class="bloque" id="bloque-entrada">
@@ -47,7 +49,7 @@
           <label class="check"><input id="in-idioma-port" type="checkbox"> portugués</label>
         </div>
       </details>
-      <section class="bloque">
+      <section class="bloque solo-admin" id="bloque-tarjetas" hidden>
         <h2>Tarjetas <span id="res-tarjetas" class="tenue"></span></h2>
         <div class="fila">
           <span class="tenue">Arrastrá para cambiar el orden.</span>
@@ -117,6 +119,7 @@
     <section class="contenido">
       <nav class="pestanas">
         <button data-pestana="tabla" class="activa">Tabla</button>
+        <button data-pestana="reglas">Reglas</button>
         <button data-pestana="base">Base</button>
         <button data-pestana="ejemplos">Ejemplos</button>
         <button data-pestana="usuarios" id="pestana-usuarios" hidden>Admin</button>
@@ -138,6 +141,12 @@
           <ul id="lista-validaciones"></ul>
         </details>
         <div class="contenedor-tabla"><table id="tabla"></table></div>
+      </div>
+
+      <div id="vista-reglas" class="vista" hidden>
+        <p class="tenue">Lo que hace la receta, en orden: cada regla trabaja sobre lo que dejó la anterior.
+          Destildá una para ver cómo queda sin ella. Para cambiarlas, pedíselo al asistente.</p>
+        <ol id="lista-reglas" class="lista-reglas"></ol>
       </div>
 
       <div id="vista-base" class="vista" hidden>

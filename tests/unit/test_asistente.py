@@ -92,3 +92,30 @@ def test_lista_de_cambios():
         "salida": m.Salida(columnas=["N"])})
     assert [(c["tipo"], c["id"], c.get("campos")) for c in cambios(antes, despues)] == [
         ("modificada", "t2", ["donde"]), ("agregada", "t9", None), ("borrada", "t1", None), ("salida", "", None)]
+
+
+def test_charla_responde_sin_proponer_y_recibe_la_conversacion():
+    from app.agent.asistente import charlar
+
+    proveedor = Grabado([{"respuesta": "La tarjeta t1 limpia espacios.", "proponer_cambios": False}])
+    historial = [{"rol": "persona", "texto": "hola"}, {"rol": "asistente", "texto": "¡Hola!"}]
+    c = charlar(RECETA, TABLA, historial, "¿qué hace t1?", proveedor)
+    assert (c.respuesta, c.proponer_cambios) == ("La tarjeta t1 limpia espacios.", False)
+    enviado = proveedor.pedidos[0][0]["content"]
+    assert "Persona: hola\nAsistente: ¡Hola!" in enviado and enviado.endswith("¿qué hace t1?")
+
+
+def test_charla_que_pide_cambios_y_respuesta_rota_pasan_a_propuesta():
+    from app.agent.asistente import charlar
+
+    pide = charlar(RECETA, None, [], "pasá todo a mayúsculas",
+                   Grabado([{"respuesta": "Dale, armo una propuesta.", "proponer_cambios": True}]))
+    assert pide.proponer_cambios
+    assert charlar(RECETA, None, [], "x", Grabado([{"respuesta": "", "proponer_cambios": True}, "roto"])).proponer_cambios
+
+
+def test_propuesta_recibe_la_conversacion():
+    proveedor = Grabado([respuesta(LIMPIAR)])
+    pedir(RECETA, TABLA, "ahora poné Cap primero", proveedor,
+          historial=[{"rol": "persona", "texto": "sacá el Ep"}, {"rol": "asistente", "texto": "Listo"}])
+    assert "## Conversación hasta ahora\n\nPersona: sacá el Ep\nAsistente: Listo" in proveedor.pedidos[0][0]["content"]

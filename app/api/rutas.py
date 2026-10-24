@@ -532,22 +532,43 @@ def evaluar_ejemplos(senal_id: str, receta: m.Senal):
 
 # --- Asistente ---
 
+class MensajeHilo(BaseModel):
+    rol: str  # persona | asistente
+    texto: str
+
+
 class PedidoAsistente(BaseModel):
     senal: m.Senal
     pedido: str
     tabla_id: str | None = None
     ejemplo: str | None = None  # "armar desde este ejemplo": la grilla es la entrada del ejemplo
+    historial: list[MensajeHilo] = []
 
 
-@api.post("/asistente")
-def asistente(p: PedidoAsistente, u: auth.Usuario = Depends(auth.usuario_actual)):
+def _proveedor_disponible(u: auth.Usuario, pedido: str):
     proveedor = cliente.proveedor_configurado()
     if proveedor is None:
         raise HTTPException(503, "El asistente no está configurado: falta la variable ANTHROPIC_API_KEY en el servidor")
     if uso.pedidos_de_hoy(u.usuario) >= uso.limite_diario():
         raise HTTPException(429, f"Llegaste al tope de {uso.limite_diario()} pedidos al asistente por hoy")
-    if not p.pedido.strip():
+    if not pedido.strip():
         raise HTTPException(422, "Escribí qué querés que haga el asistente")
+    return proveedor
+
+
+@api.post("/asistente/charla")
+def charla_asistente(p: PedidoAsistente, u: auth.Usuario = Depends(auth.usuario_actual)):
+    """Primer paso de cada mensaje: responde rápido o avisa que hay que armar una propuesta."""
+    proveedor = _proveedor_disponible(u, p.pedido)
+    tabla = _correr_tabla(p.tabla_id, p.senal) if p.tabla_id else None
+    c = asistente_ia.charlar(p.senal, tabla, [h.model_dump() for h in p.historial], p.pedido, proveedor)
+    uso.registrar(u.usuario, p.senal.id, "[charla] " + p.pedido, 1, c.tokens_entrada, c.tokens_salida, True)
+    return asdict(c)
+
+
+@api.post("/asistente")
+def asistente(p: PedidoAsistente, u: auth.Usuario = Depends(auth.usuario_actual)):
+    proveedor = _proveedor_disponible(u, p.pedido)
 
     try:
         # Hasta 3 ejemplos, siempre incluido el de "armar desde este ejemplo": más contexto encarece sin mejorar mucho.
@@ -566,7 +587,7 @@ def asistente(p: PedidoAsistente, u: auth.Usuario = Depends(auth.usuario_actual)
 
     orden = [c.nombre for c in catalogo.leer()]
     propuesta = asistente_ia.pedir(p.senal, tabla, p.pedido, proveedor, ejemplos, objetivo=p.ejemplo,
-                                   orden_columnas=orden)
+                                   orden_columnas=orden, historial=[h.model_dump() for h in p.historial])
     uso.registrar(u.usuario, p.senal.id, p.pedido, propuesta.vueltas, propuesta.tokens_entrada,
                   propuesta.tokens_salida, propuesta.logrado)
     return asdict(propuesta)

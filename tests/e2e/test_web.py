@@ -18,9 +18,10 @@ def servidor(tmp_path):
     with socket.socket() as s:
         s.bind(("127.0.0.1", 0))
         puerto = s.getsockname()[1]
-    # El asistente responde siempre lo mismo: pasar Titulo a mayúsculas.
+    # El asistente charla siempre lo mismo y propone siempre lo mismo: pasar Titulo a mayúsculas.
     falso = tmp_path / "asistente.json"
-    falso.write_text(json.dumps([{"explicacion": "Pasé los títulos a mayúsculas", "columnas_salida": None,
+    falso.write_text(json.dumps([{"respuesta": "¡Hola! Decime qué querés cambiar.", "proponer_cambios": False},
+                                 {"explicacion": "Pasé los títulos a mayúsculas", "columnas_salida": None,
                                   "tarjetas_json": json.dumps([{"id": "a1", "tipo": "mayus_minus",
                                                                 "columnas": ["Titulo"], "modo": "MAYUS"}])}]))
     entorno = {"DATA_DIR": str(tmp_path), "ADMIN_USUARIO": "admin", "ADMIN_CLAVE": "clave-segura", "PATH": "",
@@ -115,9 +116,15 @@ def test_flujo_basico(servidor, tmp_path):
         pagina.wait_for_selector("#estado:has-text('Clave cambiada')")
         assert pagina.request.post(servidor + "/api/login", data={"usuario": "admin", "clave": "otra-clave-1"}).ok
 
+        # La charla responde en el hilo sin proponer; "Proponer cambios" va directo a la propuesta.
+        pagina.fill("#in-pedido", "hola")
+        pagina.press("#in-pedido", "Enter")
+        pagina.wait_for_selector("#hilo li.asistente:text('¡Hola! Decime qué querés cambiar.')")
+        assert pagina.is_hidden("#propuesta")
         pagina.fill("#in-pedido", "pasá los títulos a mayúsculas")
-        pagina.click("#btn-pedir")
+        pagina.click("#btn-proponer")
         pagina.wait_for_selector("#propuesta:not([hidden]) >> text=Pasé los títulos a mayúsculas")
+        assert pagina.locator("#hilo li").all_inner_texts()[-1] == "Pasé los títulos a mayúsculas"
         assert "+ Mayúsculas / minúsculas" in pagina.inner_text("#propuesta")
         assert "− Mayúsculas / minúsculas" in pagina.inner_text("#propuesta")  # reemplaza la tarjeta manual
         pagina.click("#propuesta button:text('Ver en la tabla')")
@@ -125,6 +132,13 @@ def test_flujo_basico(servidor, tmp_path):
         pagina.click("#propuesta button:text('Aplicar')")
         assert pagina.locator("#lista-tarjetas > li").count() == 1
         pagina.wait_for_selector("#tabla td:text('JOSEPH PRINCE')")
+
+        # Pestaña Reglas: la tarjeta como frase, y destildarla la desactiva.
+        pagina.click(".pestanas button[data-pestana=reglas]")
+        assert pagina.inner_text("#lista-reglas li").startswith("Pasa Titulo a MAYÚSCULAS")
+        pagina.uncheck("#lista-reglas li input[type=checkbox]")
+        pagina.click(".pestanas button[data-pestana=tabla]")
+        pagina.wait_for_selector("#tabla td:text('joseph prince')")
         navegador.close()
 
 

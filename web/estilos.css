@@ -14,6 +14,7 @@
 }
 
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }  /* si no, un display propio (label, .fila) le gana a hidden */
 body { margin: 0; font: 14px/1.4 system-ui, sans-serif; color: var(--texto); background: var(--fondo); }
 button, input, select, textarea { font: inherit; }
 button, .boton {
@@ -157,3 +158,21 @@ td.crudo { color: var(--tenue); max-width: 320px; }
 #barra-pautas { align-items: center; }
 .caja-ancha { width: 440px; }
 #base-buscar { min-width: 260px; }
+.hilo { list-style: none; margin: 0 0 8px; padding: 0; max-height: 320px; overflow: auto; display: flex; flex-direction: column; gap: 6px; }
+.hilo li { padding: 6px 9px; border-radius: 8px; font-size: 13px; white-space: pre-wrap; max-width: 92%; }
+.hilo li.persona { align-self: flex-end; background: var(--acento-suave); }
+.hilo li.asistente { align-self: flex-start; background: #f0f2f5; }
+.hilo li.nota { background: none; color: var(--tenue); font-size: 12px; padding: 0 4px; }
+#estado-asistente { margin: 4px 0 0; font-size: 12px; }
+#estado-asistente:empty { display: none; }
+#estado-asistente.trabajando::before { content: ""; display: inline-block; width: 8px; height: 8px; margin-right: 6px;
+  border-radius: 50%; animation: latido 1s infinite alternate; }
+#estado-asistente.rapido::before { background: var(--ok); }
+#estado-asistente.propuesta::before { background: var(--acento); }
+@keyframes latido { from { opacity: .3; } to { opacity: 1; } }
+.lista-reglas { margin: 0; padding-left: 26px; display: flex; flex-direction: column; gap: 6px; }
+.lista-reglas li { padding: 6px 8px; border: 1px solid var(--borde); border-radius: 6px; background: #fff; }
+.lista-reglas li.inactiva { opacity: .55; }
+.lista-reglas label.check { display: inline; font-size: 14px; }
+.lista-reglas label.check input { margin-right: 6px; vertical-align: middle; }
+.lista-reglas .nota { font-size: 12px; margin-top: 2px; }
