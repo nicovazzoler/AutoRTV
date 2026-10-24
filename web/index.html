@@ -18,8 +18,8 @@
     <button id="btn-guardar" class="primario" disabled>Guardar</button>
     <button id="btn-xlsx" disabled>Exportar xlsx</button>
     <button id="btn-csv" disabled>csv</button>
-    <button id="btn-exportar-receta" title="Descargar la receta como archivo .json" disabled>Exportar receta</button>
-    <label class="boton" title="Cargar una receta desde un archivo .json">Importar receta<input id="in-receta" type="file" accept=".json,application/json" hidden></label>
+    <button id="btn-exportar-receta" class="solo-admin" title="Descargar la receta como archivo .json" disabled hidden>Exportar receta</button>
+    <label id="lbl-importar-receta" class="boton solo-admin" title="Cargar una receta desde un archivo .json" hidden>Importar receta<input id="in-receta" type="file" accept=".json,application/json" hidden></label>
     <button id="usuario" class="enlace" title="Cambiar mi clave"></button>
     <button id="btn-salir">Salir</button>
   </header>
@@ -40,6 +40,11 @@
         <div class="fila">
           <label>Hoja <input id="in-hoja" class="corto"></label>
           <label>Fila de encabezado <input id="in-fila" type="number" min="1" class="corto"></label>
+        </div>
+        <div class="fila">
+          <span class="tenue">El EPG lleva:</span>
+          <label class="check"><input id="in-idioma-ing" type="checkbox"> inglés</label>
+          <label class="check"><input id="in-idioma-port" type="checkbox"> portugués</label>
         </div>
       </details>
       <section class="bloque">
@@ -78,7 +83,7 @@
         <label>Lista (uno por línea) <input id="tit-buscar" type="search" placeholder="buscar…"></label>
         <textarea id="tit-texto" rows="8"></textarea>
       </details>
-      <details class="bloque" id="bloque-validaciones">
+      <details class="bloque solo-admin" id="bloque-validaciones" hidden>
         <summary><h2>Validaciones</h2> <span id="cols-validadas" class="tenue"></span></summary>
         <p class="tenue">Las columnas de fecha, hora y duración se detectan solas. Completá solo si esta señal las llama distinto.</p>
         <div class="fila">
@@ -113,7 +118,7 @@
       <nav class="pestanas">
         <button data-pestana="tabla" class="activa">Tabla</button>
         <button data-pestana="ejemplos">Ejemplos</button>
-        <button data-pestana="usuarios" id="pestana-usuarios" hidden>Usuarios</button>
+        <button data-pestana="usuarios" id="pestana-usuarios" hidden>Admin</button>
       </nav>
 
       <div id="vista-tabla" class="vista">
@@ -139,6 +144,15 @@
       </div>
 
       <div id="vista-usuarios" class="vista" hidden>
+        <h2>Catálogo de columnas</h2>
+        <p class="tenue">Orden general del EPG y reglas de cada columna (largo máximo, números, valores permitidos,
+          obligatorias). Subí el Excel con columna, regla y significado.</p>
+        <div class="fila">
+          <label class="boton">Subir catálogo (.xlsx)<input id="in-catalogo" type="file" accept=".xlsx,.xls" hidden></label>
+          <span id="res-catalogo" class="tenue"></span>
+        </div>
+        <div class="contenedor-tabla catalogo"><table id="tabla-catalogo"></table></div>
+        <h2>Usuarios</h2>
         <form id="form-usuario" class="fila">
           <label>Usuario <input name="usuario" required></label>
           <label>Clave <input name="clave" type="password" minlength="8" required></label>
@@ -151,6 +165,21 @@
       </div>
     </section>
   </main>
+
+  <dialog id="dialogo-senal">
+    <form id="form-senal" method="dialog" class="caja-login">
+      <h2>Nueva señal</h2>
+      <p class="tenue">El nombre se toma del archivo de la grilla.</p>
+      <label>Grilla cruda (como viene) <input name="grilla_cruda" type="file" accept=".xlsx,.xls" required></label>
+      <label>Ejemplo (macro hecha) <input name="ejemplo" type="file" accept=".xlsx,.xls" required></label>
+      <p id="error-senal" class="error" hidden></p>
+      <div class="fila">
+        <button type="button" id="btn-senal-cancelar">Cancelar</button>
+        <span class="espacio"></span>
+        <button type="submit" class="primario">Crear</button>
+      </div>
+    </form>
+  </dialog>
 
   <dialog id="dialogo-clave">
     <form id="form-clave" method="dialog" class="caja-login">

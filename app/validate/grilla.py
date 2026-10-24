@@ -25,6 +25,7 @@ class Aviso:
     regla: str
     mensaje: str
     fila: int | None = None  # 1 = primera fila de datos
+    columna: str | None = None  # para marcar la celda exacta
 
 
 def detectar_columnas(columnas: list[str], v: m.Validaciones) -> dict[str, str | None]:
@@ -35,8 +36,11 @@ def detectar_columnas(columnas: list[str], v: m.Validaciones) -> dict[str, str |
     return elegidas
 
 
-def validar(salida: pd.DataFrame, v: m.Validaciones, titulos: list[str] = ()) -> list[Aviso]:
+def validar(salida: pd.DataFrame, v: m.Validaciones, titulos: list[str] = (),
+            catalogo: list | None = None, idiomas: list[str] = ()) -> list[Aviso]:
     avisos: list[Aviso] = []
+    if catalogo:
+        avisos += _segun_catalogo(salida, catalogo, set(idiomas))
     if v.avisar_titulos_nuevos:
         avisos += _titulos_nuevos(salida, v, set(titulos))
     if v.filas_esperadas is not None and len(salida) != v.filas_esperadas:
@@ -65,6 +69,60 @@ def _titulos_nuevos(df: pd.DataFrame, v: m.Validaciones, conocidos: set[str]) ->
             primera.setdefault(x.strip(), i + 1)
             veces[x.strip()] += 1
     return [Aviso("info", "titulo_nuevo", f"Título nuevo: {t} ({veces[t]} veces)", fila) for t, fila in primera.items()]
+
+
+def _segun_catalogo(df: pd.DataFrame, catalogo: list, idiomas: set[str]) -> list[Aviso]:
+    """Cada celda contra la regla de su columna en el catálogo (largo, entero, año, valores, obligatoria)."""
+    from app.catalogo import clave
+
+    por_clave = {clave(c): c for c in df.columns}
+    avisos = []
+    for col in catalogo:
+        exigida = col.obligatoria == "si" or col.obligatoria in idiomas
+        nombre = por_clave.get(clave(col.nombre))
+        if nombre is None:
+            if exigida:
+                avisos.append(Aviso("error", "catalogo", f"Falta la columna obligatoria {col.nombre}", columna=col.nombre))
+            continue
+        for i, v in enumerate(df[nombre]):
+            vacia = v is None or (isinstance(v, float) and pd.isna(v)) or (isinstance(v, str) and not v.strip())
+            if vacia:
+                if exigida:
+                    avisos.append(Aviso("error", "catalogo", f"{nombre} vacía (es obligatoria)", i + 1, nombre))
+                continue
+            problema = _problema_de_celda(v, col)
+            if problema:
+                avisos.append(Aviso("error", "catalogo", f"{nombre}: {problema}", i + 1, nombre))
+    return avisos
+
+
+def _problema_de_celda(v, col) -> str | None:
+    if col.tipo == "texto" and col.maximo and len(str(v)) > col.maximo:
+        return f"tiene {len(str(v))} caracteres (máximo {col.maximo})"
+    if col.tipo in ("entero", "anio"):
+        n = _entero(v)
+        if n is None:
+            return f'"{v}" no es un número entero'
+        if col.tipo == "anio" and len(str(n)) != (col.maximo or 4):
+            return f'"{v}" no es un año de {col.maximo or 4} dígitos'
+        if col.tipo == "entero" and col.maximo and n > col.maximo:
+            return f"{n} pasa el máximo de {col.maximo}"
+    if col.tipo == "valores" and col.valores:
+        texto = str(int(v)) if isinstance(v, float) and v.is_integer() else str(v).strip()
+        if texto.lower() not in {x.lower() for x in col.valores}:
+            return f'"{texto}" no es un valor permitido ({", ".join(col.valores)})'
+    return None
+
+
+def _entero(v) -> int | None:
+    if isinstance(v, bool):
+        return None
+    if isinstance(v, int):
+        return v
+    if isinstance(v, float):
+        return int(v) if v.is_integer() else None
+    texto = str(v).strip()
+    return int(texto) if texto.lstrip("-").isdigit() else None
 
 
 def _obligatorias(df: pd.DataFrame, columnas: list[str]) -> list[Aviso]:

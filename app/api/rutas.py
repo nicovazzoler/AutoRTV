@@ -2,13 +2,16 @@ import datetime as dt
 import io
 import json
 import os
+import re
+import unicodedata
 from dataclasses import asdict
+from pathlib import Path
 
 import pandas as pd
 from fastapi import APIRouter, Cookie, Depends, Header, File, Form, HTTPException, Response, UploadFile
 from pydantic import BaseModel, TypeAdapter, ValidationError
 
-from app import almacen, auth, export, tablas
+from app import almacen, auth, catalogo, export, tablas
 from app.agent import asistente as asistente_ia
 from app.agent import cliente, uso
 from app.engine import model as m
@@ -159,7 +162,7 @@ def guardar_senal(senal_id: str, receta: m.Senal, response: Response,
     return {"ok": True}
 
 
-@api.post("/senales/validar")
+@api.post("/senales/validar", dependencies=[Depends(auth.solo_admin)])
 def validar_receta(receta: dict):
     """Valida una receta importada; devuelve los errores en castellano en vez de un 422 crudo."""
     try:
@@ -222,13 +225,17 @@ def _correr(p: Pedido):
         raise HTTPException(410, "El archivo ya no está en memoria: volvé a subirlo")
     except Exception as e:  # Excel roto o config de entrada que no corresponde
         raise HTTPException(422, f"No se pudo leer el Excel: {e}")
-    return correr(p.senal, tabla)
+    salida, informes = correr(p.senal, tabla)
+    cat = catalogo.leer()
+    if cat and not p.senal.salida.columnas:  # sin columnas de salida elegidas, se ordenan como el catálogo
+        salida = salida[catalogo.ordenar(list(salida.columns), cat)]
+    return salida, informes, cat
 
 
 @api.post("/preview")
 def preview(p: Pedido):
-    salida, informes = _correr(p)
-    avisos = grilla.validar(salida, p.senal.validaciones, p.senal.titulos_conocidos)
+    salida, informes, cat = _correr(p)
+    avisos = grilla.validar(salida, p.senal.validaciones, p.senal.titulos_conocidos, cat, p.senal.idiomas)
     return {
         "columnas": [str(c) for c in salida.columns],
         "filas": export.a_filas(salida, p.filas),
@@ -246,7 +253,7 @@ class PedidoExport(Pedido):
 
 @api.post("/export")
 def exportar(p: PedidoExport):
-    salida, _ = _correr(p)
+    salida, _, _ = _correr(p)
     fecha = dt.date.today().isoformat()
     if p.formato == "csv":
         return Response(export.a_csv(salida), media_type="text/csv",
@@ -283,6 +290,63 @@ def borrar_ejemplo(senal_id: str, nombre: str):
     except ValueError as e:
         raise HTTPException(422, str(e))
     return {"ok": True}
+
+
+@api.post("/senales/crear")
+async def crear_senal(grilla_cruda: UploadFile = File(...), ejemplo: UploadFile = File(...),
+                      agregar_a: str | None = Form(None), u: auth.Usuario = Depends(auth.usuario_actual)):
+    """Crea una señal a partir de la grilla como viene y el EPG terminado (macro hecha).
+
+    El nombre sale del archivo de la grilla. Si ya existe, responde 409 con su id para que la web
+    pregunte; con `agregar_a` el par se suma como ejemplo nuevo de esa señal.
+    """
+    crudo, terminado = await _leer_archivo(grilla_cruda), await _leer_archivo(ejemplo)
+    nombre = " ".join(Path(grilla_cruda.filename or "Señal nueva").stem.split())
+    senal_id = agregar_a or _slug(nombre)
+    sello = dt.datetime.now().strftime("ejemplo-%Y%m%d-%H%M%S")
+    try:
+        if agregar_a:
+            receta = almacen.leer(senal_id)
+        else:
+            if senal_id in {s["id"] for s in almacen.listar()}:
+                raise HTTPException(409, {"mensaje": f'Ya existe la señal "{nombre}"', "id": senal_id})
+            fila = excel.detectar_fila_encabezado(io.BytesIO(crudo))
+            receta = m.Senal(id=senal_id, nombre=nombre, entrada=m.EntradaExcel(tipo="excel", fila_encabezado=fila),
+                             tarjetas=[], salida=m.Salida(columnas=[]))
+            almacen.guardar(receta, u.usuario)
+        existentes, base, n = set(almacen.listar_ejemplos(senal_id)), sello, 2
+        while sello in existentes:  # dos ejemplos subidos en el mismo segundo
+            sello, n = f"{base}-{n}", n + 1
+        almacen.guardar_ejemplo(senal_id, sello, crudo, terminado, u.usuario)
+    except almacen.NoExiste:
+        raise HTTPException(404, "No existe la señal")
+    except ValueError as e:
+        raise HTTPException(422, str(e))
+    return {"id": senal_id, "nombre": receta.nombre, "ejemplo": sello, "tabla_id": tablas.subir(crudo)}
+
+
+def _slug(nombre: str) -> str:
+    texto = unicodedata.normalize("NFD", nombre).encode("ascii", "ignore").decode().lower()
+    return re.sub(r"[^a-z0-9]+", "-", texto).strip("-")[:64] or "senal"
+
+
+# --- Catálogo de columnas ---
+
+@api.get("/catalogo")
+def ver_catalogo():
+    return [asdict(c) for c in catalogo.leer()]
+
+
+@api.post("/catalogo", dependencies=[Depends(auth.solo_admin)])
+async def cargar_catalogo(archivo: UploadFile = File(...)):
+    try:
+        columnas = catalogo.desde_excel(await _leer_archivo(archivo))
+    except Exception as e:
+        raise HTTPException(422, f"No se pudo leer el catálogo: {e}")
+    if not columnas:
+        raise HTTPException(422, "El Excel no tiene columnas")
+    catalogo.guardar(columnas)
+    return [asdict(c) for c in columnas]
 
 
 @api.post("/senales/{senal_id}/ejemplos/evaluar")
@@ -350,7 +414,9 @@ def asistente(p: PedidoAsistente, u: auth.Usuario = Depends(auth.usuario_actual)
     else:
         tabla = _correr_tabla(p.tabla_id, p.senal)
 
-    propuesta = asistente_ia.pedir(p.senal, tabla, p.pedido, proveedor, ejemplos, objetivo=p.ejemplo)
+    orden = [c.nombre for c in catalogo.leer()]
+    propuesta = asistente_ia.pedir(p.senal, tabla, p.pedido, proveedor, ejemplos, objetivo=p.ejemplo,
+                                   orden_columnas=orden)
     uso.registrar(u.usuario, p.senal.id, p.pedido, propuesta.vueltas, propuesta.tokens_entrada,
                   propuesta.tokens_salida, propuesta.logrado)
     return asdict(propuesta)

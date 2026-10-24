@@ -266,3 +266,47 @@ def test_admin_resetea_clave(cliente):
     assert cliente.post(f"/api/usuarios/{id_ana}/clave", json={"nueva": "nueva-de-ana"}).status_code == 200
     assert ana.get("/api/yo").status_code == 401
     assert TestClient(app).post("/api/login", json={"usuario": "ana", "clave": "nueva-de-ana"}).status_code == 200
+
+
+def test_catalogo_solo_admin_y_ordena_la_preview(cliente):
+    from tests.unit.test_catalogo import excel as catalogo_excel
+
+    cliente.post("/api/usuarios", json={"usuario": "ana", "clave": "clave-de-ana"})
+    ana = TestClient(app)
+    ana.post("/api/login", json={"usuario": "ana", "clave": "clave-de-ana"})
+    assert ana.post("/api/catalogo", files={"archivo": ("c.xlsx", catalogo_excel())}).status_code == 403
+    assert cliente.post("/api/catalogo", files={"archivo": ("c.xlsx", catalogo_excel())}).status_code == 200
+    assert ana.get("/api/catalogo").json()[0]["nombre"] == "N"
+    assert ana.post("/api/senales/validar", json=RECETA).status_code == 403  # importar receta: solo admin
+
+    # Sin columnas de salida elegidas, la vista previa sale en el orden del catálogo.
+    tabla_id = cliente.post("/api/tablas", files={"archivo": ("g.xlsx", GRILLA)}).json()["tabla_id"]
+    sin_salida = {**RECETA, "salida": {"columnas": []}}
+    columnas = cliente.post("/api/preview", json={"tabla_id": tabla_id, "senal": sin_salida}).json()["columnas"]
+    assert columnas[:2] == ["N", "Dia"]  # "Dia" coincide con DIA del catálogo aunque cambien las mayúsculas
+
+
+def test_crear_senal_desde_grilla_y_ejemplo(cliente):
+    wb = Workbook()
+    wb.active.append(["Schedule Data Export"])  # título arriba, como los exports reales
+    wb.active.append(["Fecha", "Hora", "Titulo"])
+    wb.active.append([dt.datetime(2026, 10, 23), dt.time(0), "Show"])
+    buf = io.BytesIO()
+    wb.save(buf)
+    archivos = {"grilla_cruda": ("Mi Señal  EPG Octubre.xlsx", buf.getvalue()), "ejemplo": ("hecho.xlsx", GRILLA)}
+
+    r = cliente.post("/api/senales/crear", files=archivos)
+    assert r.status_code == 200, r.text
+    creada = r.json()
+    assert (creada["id"], creada["nombre"]) == ("mi-senal-epg-octubre", "Mi Señal EPG Octubre")
+    receta = cliente.get("/api/senales/mi-senal-epg-octubre").json()
+    assert receta["entrada"]["fila_encabezado"] == 2
+    assert cliente.get("/api/senales/mi-senal-epg-octubre/ejemplos").json() == [creada["ejemplo"]]
+    preview = cliente.post("/api/preview", json={"tabla_id": creada["tabla_id"], "senal": receta}).json()
+    assert preview["total_filas"] == 1
+
+    otra = cliente.post("/api/senales/crear", files=archivos)
+    assert otra.status_code == 409 and otra.json()["detail"]["id"] == "mi-senal-epg-octubre"
+    sumada = cliente.post("/api/senales/crear", files=archivos, data={"agregar_a": "mi-senal-epg-octubre"})
+    assert sumada.status_code == 200
+    assert len(cliente.get("/api/senales/mi-senal-epg-octubre/ejemplos").json()) == 2

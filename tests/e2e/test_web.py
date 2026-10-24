@@ -48,7 +48,7 @@ def test_flujo_basico(servidor, tmp_path):
     wb.active.append(["Fecha", "Hora", "Titulo"])
     wb.active.append([dt.datetime(2026, 10, 23), dt.time(0), "joseph prince"])
     wb.active.append([dt.datetime(2026, 10, 23), dt.time(1, 30), "praise"])
-    grilla = tmp_path / "grilla.xlsx"
+    grilla = tmp_path / "Señal de prueba.xlsx"  # el nombre de la señal sale del archivo
     wb.save(grilla)
 
     with playwright.sync_playwright() as p:
@@ -67,8 +67,12 @@ def test_flujo_basico(servidor, tmp_path):
         pagina.wait_for_url(servidor + "/")
 
         pagina.click("#btn-nueva")
-        pagina.set_input_files("#in-archivo", str(grilla))
+        pagina.set_input_files("#form-senal input[name=grilla_cruda]", str(grilla))
+        pagina.set_input_files("#form-senal input[name=ejemplo]", str(grilla))
+        pagina.click("#form-senal button[type=submit]")
         pagina.wait_for_selector("#tabla td:text('joseph prince')")
+        # Queda guardada y seleccionada en la lista apenas se crea.
+        assert pagina.input_value("#sel-senal") == "senal-de-prueba"
         # La grilla no tiene duración: el panel avisa qué columna falta para validar horarios.
         pagina.wait_for_selector("#resumen-validaciones:has-text('1 avisos')")
         assert "falta la columna de duracion" in pagina.text_content("#lista-validaciones")

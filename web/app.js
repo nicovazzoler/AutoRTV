@@ -32,6 +32,7 @@ const VALIDACIONES_DEFAULT = { fecha: null, hora: null, duracion: null, dia_minu
 function normalizar(receta) {
   receta.validaciones = { ...VALIDACIONES_DEFAULT, ...(receta.validaciones || {}) };
   receta.titulos_conocidos = receta.titulos_conocidos || [];
+  receta.idiomas = receta.idiomas || [];
   return receta;
 }
 const ICONOS = { error: "✕", aviso: "⚠", info: "ℹ" };
@@ -399,6 +400,8 @@ function cargarReceta(receta, guardada, version = null) {
   $("#principal").hidden = false;
   $("#in-hoja").value = receta.entrada.hoja;
   $("#in-fila").value = receta.entrada.fila_encabezado;
+  $("#in-idioma-ing").checked = receta.idiomas.includes("ing");
+  $("#in-idioma-port").checked = receta.idiomas.includes("port");
   $("#in-salida").value = receta.salida.columnas.join("\n");
   const v = receta.validaciones;
   $("#val-fecha").value = v.fecha || "";
@@ -457,24 +460,31 @@ function enlazarValidaciones() {
 
 // --- Asistente ---
 
+function estadoAsistente(texto, esError = false) {
+  const e = $("#estado-asistente");
+  e.textContent = texto;
+  e.className = esError ? "error-asistente" : "tenue";
+}
+
 async function pedirAsistente(pedido, ejemplo = null) {
-  if (!pedido.trim()) { avisar("Escribí qué querés que haga el asistente", true); return; }
-  if (!ejemplo && !estado.tablaId) { avisar("Subí una grilla antes de pedirle algo al asistente", true); return; }
+  if (!pedido.trim()) { estadoAsistente("Escribí qué querés que haga el asistente", true); return; }
+  if (!ejemplo && !estado.tablaId) { estadoAsistente("Subí una grilla antes de pedirle algo al asistente", true); return; }
   const boton = $("#btn-pedir");
   boton.disabled = true;
-  $("#estado-asistente").textContent = "Pensando y probando la propuesta… (puede tardar un minuto)";
+  estadoAsistente("Pensando y probando la propuesta… (puede tardar un minuto)");
   avisar("El asistente está trabajando…");
   try {
     const p = await json("/api/asistente", "POST", { senal: estado.receta, pedido, tabla_id: estado.tablaId, ejemplo });
     estado.propuesta = p;
     estado.verPropuesta = false;
     dibujarPropuesta();
-    $("#estado-asistente").textContent = "";
+    estadoAsistente("");
     avisar("");
     if (ejemplo) mostrarPestana("tabla");
   } catch (e) {
-    $("#estado-asistente").textContent = "";
-    avisar(e.message, true);
+    estadoAsistente(e.message, true);
+    avisar("");
+    if (ejemplo) avisar(e.message, true);  // pedido desde la pestaña Ejemplos: el cuadro del asistente no se ve
   } finally { boton.disabled = false; }
 }
 
@@ -770,10 +780,19 @@ function dibujarTabla(columnas, filas, avisos = []) {
     if (!a.fila || a.nivel === "info") continue;
     if (a.nivel === "error" || !nivelPorFila[a.fila]) nivelPorFila[a.fila] = a.nivel;
   }
+  // Celdas que no cumplen el catálogo: se marcan y el motivo aparece al pasar el mouse.
+  const porCelda = {};
+  for (const a of avisos) if (a.fila && a.columna) porCelda[`${a.fila}|${a.columna}`] = a.mensaje;
   const tabla = $("#tabla");
   const cabeza = el("tr", {}, el("th", { textContent: "#" }), ...columnas.map((c) => el("th", { textContent: c })));
+  const celda = (v, k, col) => {
+    const motivo = porCelda[`${k + 1}|${col}`];
+    const props = v === null || v === "" ? { className: "vacia", textContent: "—" } : { textContent: v, title: v };
+    if (motivo) Object.assign(props, { className: "celda-error", title: motivo });
+    return el("td", props);
+  };
   const cuerpo = filas.map((f, k) => el("tr", { className: nivelPorFila[k + 1] ? `fila-${nivelPorFila[k + 1]}` : "" }, el("td", { className: "num", textContent: k + 1 }),
-    ...f.map((v) => el("td", v === null || v === "" ? { className: "vacia", textContent: "—" } : { textContent: v, title: v }))));
+    ...f.map((v, j) => celda(v, k, columnas[j]))));
   tabla.replaceChildren(el("thead", {}, cabeza), el("tbody", {}, ...cuerpo));
 }
 
@@ -786,6 +805,7 @@ async function subirGrilla(archivo) {
     estado.tablaId = r.tabla_id;
     $("#nombre-archivo").textContent = r.nombre;
     $("#btn-xlsx").disabled = $("#btn-csv").disabled = false;
+    avisar("");
     previsualizar();
   } catch (e) { avisar(e.message, true); }
 }
@@ -875,6 +895,71 @@ async function subirEjemplo(e) {
   } catch (err) { avisar(err.message, true); }
 }
 
+// --- Nueva señal ---
+
+function enlazarNuevaSenal() {
+  const dialogo = $("#dialogo-senal");
+  const error = $("#error-senal");
+  $("#btn-nueva").onclick = () => { $("#form-senal").reset(); error.hidden = true; dialogo.showModal(); };
+  $("#btn-senal-cancelar").onclick = () => dialogo.close();
+  $("#form-senal").onsubmit = async (e) => {
+    e.preventDefault();
+    const datos = new FormData(e.target);
+    error.hidden = true;
+    let r = await fetch("/api/senales/crear", { method: "POST", body: datos });
+    if (r.status === 409) {
+      const { detail } = await r.json();
+      if (!confirm(`${detail.mensaje}. ¿Agregar estos archivos como un ejemplo nuevo de esa señal?`)) return;
+      datos.append("agregar_a", detail.id);
+      r = await fetch("/api/senales/crear", { method: "POST", body: datos });
+    }
+    if (r.status === 401) { location.href = "/login"; return; }
+    if (!r.ok) {
+      const j = await r.json().catch(() => ({}));
+      error.textContent = typeof j.detail === "string" ? j.detail : "No se pudo crear la señal";
+      error.hidden = false;
+      return;
+    }
+    const creada = await r.json();
+    dialogo.close();
+    await listarSenales(creada.id);
+    await abrirSenal(creada.id);
+    estado.tablaId = creada.tabla_id;
+    $("#nombre-archivo").textContent = datos.get("grilla_cruda").name;
+    $("#btn-xlsx").disabled = $("#btn-csv").disabled = false;
+    previsualizar();
+    avisar(`Señal "${creada.nombre}" lista, con su ejemplo cargado.`);
+  };
+}
+
+// --- Catálogo (admin) ---
+
+const TIPOS_CATALOGO = { texto: "texto", entero: "número entero", anio: "año", valores: "valores fijos", fecha: "fecha", hora: "hora" };
+
+async function listarCatalogo() {
+  const columnas = await api("/api/catalogo").then((r) => r.json());
+  $("#res-catalogo").textContent = columnas.length ? `${columnas.length} columnas cargadas` : "Todavía no hay catálogo cargado.";
+  const obligatoria = { si: "sí", ing: "si lleva inglés", port: "si lleva portugués", no: "" };
+  const regla = (c) => c.tipo === "valores" ? c.valores.join(" · ")
+    : c.maximo ? `${TIPOS_CATALOGO[c.tipo]} (máx. ${c.maximo})` : TIPOS_CATALOGO[c.tipo];
+  $("#tabla-catalogo").replaceChildren(
+    el("thead", {}, el("tr", {}, ...["#", "Columna", "Regla", "Obligatoria", "Significado"].map((t) => el("th", { textContent: t })))),
+    el("tbody", {}, ...columnas.map((c, i) => el("tr", {}, el("td", { className: "num", textContent: i + 1 }),
+      el("td", { textContent: c.nombre }), el("td", { textContent: regla(c) }),
+      el("td", { textContent: obligatoria[c.obligatoria] }), el("td", { textContent: c.significado })))));
+}
+
+async function subirCatalogo(archivo) {
+  const datos = new FormData();
+  datos.append("archivo", archivo);
+  try {
+    await api("/api/catalogo", { method: "POST", body: datos });
+    await listarCatalogo();
+    avisar("Catálogo cargado. Las validaciones y el orden de columnas ya lo usan.");
+    previsualizar();
+  } catch (e) { avisar(e.message, true); }
+}
+
 // --- Usuarios ---
 
 async function listarUsuarios() {
@@ -929,7 +1014,7 @@ async function crearUsuario(e) {
 function mostrarPestana(nombre) {
   for (const b of document.querySelectorAll(".pestanas button")) b.classList.toggle("activa", b.dataset.pestana === nombre);
   for (const v of ["tabla", "ejemplos", "usuarios"]) $(`#vista-${v}`).hidden = v !== nombre;
-  if (nombre === "usuarios") { listarUsuarios(); mostrarUsoAsistente(); }
+  if (nombre === "usuarios") { listarUsuarios(); mostrarUsoAsistente(); listarCatalogo(); }
   if (nombre === "ejemplos" && estado.receta) evaluarEjemplos();
 }
 
@@ -941,19 +1026,22 @@ async function iniciar() {
   $("#usuario").textContent = estado.yo.usuario;
   enlazarCambioDeClave();
   $("#pestana-usuarios").hidden = !estado.yo.admin;
+  for (const e of document.querySelectorAll(".solo-admin")) e.hidden = !estado.yo.admin;
   for (const tipo of Object.keys(estado.schema.discriminator.mapping).sort((a, b) => (NOMBRES[a] || a).localeCompare(NOMBRES[b] || b))) {
     $("#sel-tipo").append(el("option", { value: tipo, textContent: NOMBRES[tipo] || tipo }));
   }
 
   $("#sel-senal").onchange = (e) => e.target.value && abrirSenal(e.target.value);
-  $("#btn-nueva").onclick = () => {
-    const nombre = prompt("Nombre de la señal (ej. Concert Channel)");
-    if (!nombre) return;
-    const id = nombre.trim().toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
-    if (!id) { avisar("El nombre tiene que tener letras o números", true); return; }
-    cargarReceta({ schema_version: 1, id, nombre, entrada: { tipo: "excel", hoja: 0, fila_encabezado: 1 },
-      tarjetas: [], salida: { columnas: [] } }, null);
+  enlazarNuevaSenal();
+  $("#in-catalogo").onchange = (e) => { if (e.target.files[0]) subirCatalogo(e.target.files[0]); e.target.value = ""; };
+  const idioma = (codigo) => (e) => {
+    const lista = new Set(estado.receta.idiomas);
+    e.target.checked ? lista.add(codigo) : lista.delete(codigo);
+    estado.receta.idiomas = ["ing", "port"].filter((x) => lista.has(x));
+    cambioReceta();
   };
+  $("#in-idioma-ing").onchange = idioma("ing");
+  $("#in-idioma-port").onchange = idioma("port");
   $("#in-archivo").onchange = (e) => e.target.files[0] && subirGrilla(e.target.files[0]);
   $("#btn-guardar").onclick = () => guardar();
   $("#btn-pedir").onclick = () => pedirAsistente($("#in-pedido").value);

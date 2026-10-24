@@ -70,10 +70,11 @@ def medir(receta: m.Senal, tabla: pd.DataFrame, ejemplos: list[Ejemplo]) -> tupl
 
 
 def pedir(receta: m.Senal, tabla: pd.DataFrame, pedido: str, proveedor: Proveedor,
-          ejemplos: list[Ejemplo] = (), objetivo: str | None = None) -> Propuesta:
+          ejemplos: list[Ejemplo] = (), objetivo: str | None = None, orden_columnas: list[str] = ()) -> Propuesta:
     """`objetivo` = nombre de un ejemplo que tiene que llegar al 100 % ("armar desde este ejemplo")."""
     antes, detalle = medir(receta, tabla, ejemplos)
-    mensajes = [{"role": "user", "content": _contexto(receta, tabla, detalle, antes, ejemplos, pedido, objetivo)}]
+    contexto = _contexto(receta, tabla, detalle, antes, ejemplos, pedido, objetivo, orden_columnas)
+    mensajes = [{"role": "user", "content": contexto}]
     effort = "medium" if objetivo else "low"
     resultado = Propuesta(logrado=False, antes=antes)
 
@@ -161,7 +162,7 @@ def cambios(antes: m.Senal, despues: m.Senal) -> list[dict]:
     return lista
 
 
-def _contexto(receta, tabla, detalle, antes: Metricas, ejemplos, pedido, objetivo) -> str:
+def _contexto(receta, tabla, detalle, antes: Metricas, ejemplos, pedido, objetivo, orden_columnas=()) -> str:
     partes = [
         "## Receta actual",
         json.dumps({"tarjetas": [t.model_dump(exclude_none=True) for t in receta.tarjetas],
@@ -186,6 +187,9 @@ def _contexto(receta, tabla, detalle, antes: Metricas, ejemplos, pedido, objetiv
             partes.append("Diferencias: " + "; ".join(
                 f"fila {d['fila'] + 1}, {d['columna']}: quedó {_txt(d['obtenido'])} y tenía que quedar {_txt(d['esperado'])}"
                 for d in difs))
+    if orden_columnas:
+        partes += ["## Orden general de columnas del EPG",
+                   "Si agregás columnas o cambiás columnas_salida, respetá este orden: " + ", ".join(orden_columnas)]
     partes += ["## Pedido", pedido]
     return "\n\n".join(partes)
 
