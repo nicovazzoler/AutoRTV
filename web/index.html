@@ -18,9 +18,9 @@
     <button id="btn-guardar" class="primario" disabled>Guardar</button>
     <button id="btn-xlsx" disabled>Exportar xlsx</button>
     <button id="btn-csv" disabled>csv</button>
-    <button id="btn-exportar-receta" title="Descargar la receta como archivo .json" disabled>Exportar receta</button>
-    <label class="boton" title="Cargar una receta desde un archivo .json">Importar receta<input id="in-receta" type="file" accept=".json,application/json" hidden></label>
-    <span id="usuario" class="tenue"></span>
+    <button id="btn-exportar-receta" class="solo-admin" title="Descargar la receta como archivo .json" disabled hidden>Exportar receta</button>
+    <label id="lbl-importar-receta" class="boton solo-admin" title="Cargar una receta desde un archivo .json" hidden>Importar receta<input id="in-receta" type="file" accept=".json,application/json" hidden></label>
+    <button id="usuario" class="enlace" title="Cambiar mi clave"></button>
     <button id="btn-salir">Salir</button>
   </header>
 
@@ -40,6 +40,11 @@
         <div class="fila">
           <label>Hoja <input id="in-hoja" class="corto"></label>
           <label>Fila de encabezado <input id="in-fila" type="number" min="1" class="corto"></label>
+        </div>
+        <div class="fila">
+          <span class="tenue">El EPG lleva:</span>
+          <label class="check"><input id="in-idioma-ing" type="checkbox"> inglés</label>
+          <label class="check"><input id="in-idioma-port" type="checkbox"> portugués</label>
         </div>
       </details>
       <section class="bloque">
@@ -78,7 +83,7 @@
         <label>Lista (uno por línea) <input id="tit-buscar" type="search" placeholder="buscar…"></label>
         <textarea id="tit-texto" rows="8"></textarea>
       </details>
-      <details class="bloque" id="bloque-validaciones">
+      <details class="bloque solo-admin" id="bloque-validaciones" hidden>
         <summary><h2>Validaciones</h2> <span id="cols-validadas" class="tenue"></span></summary>
         <p class="tenue">Las columnas de fecha, hora y duración se detectan solas. Completá solo si esta señal las llama distinto.</p>
         <div class="fila">
@@ -112,17 +117,45 @@
     <section class="contenido">
       <nav class="pestanas">
         <button data-pestana="tabla" class="activa">Tabla</button>
+        <button data-pestana="base">Base</button>
         <button data-pestana="ejemplos">Ejemplos</button>
-        <button data-pestana="usuarios" id="pestana-usuarios" hidden>Usuarios</button>
+        <button data-pestana="usuarios" id="pestana-usuarios" hidden>Admin</button>
       </nav>
 
       <div id="vista-tabla" class="vista">
         <p id="resumen" class="tenue">Subí una grilla para ver la vista previa.</p>
+        <div id="barra-pautas" class="fila" hidden>
+          <span id="resumen-pautas"></span>
+          <select id="sel-filtro-pautas" title="Qué filas mostrar">
+            <option value="">Todas las filas</option>
+            <option value="nuevas">Solo nuevas</option>
+          </select>
+          <button id="btn-revisar" type="button">Marcar nuevas como revisadas</button>
+          <span class="tenue">Doble clic en una celda para corregirla: queda guardada en la base.</span>
+        </div>
         <details id="panel-validaciones" class="panel-validaciones" hidden>
           <summary id="resumen-validaciones"></summary>
           <ul id="lista-validaciones"></ul>
         </details>
         <div class="contenedor-tabla"><table id="tabla"></table></div>
+      </div>
+
+      <div id="vista-base" class="vista" hidden>
+        <p class="tenue">Cada <b>pauta</b> es una fila de la grilla cruda sin fecha, hora ni duración. Si vuelve a
+          aparecer, se usa lo que está acá: lo corregido queda corregido. Doble clic en una celda para editarla.</p>
+        <div class="fila">
+          <input id="base-buscar" type="search" placeholder="buscar en la grilla o en el EPG…">
+          <select id="base-estado">
+            <option value="">Todas</option>
+            <option value="revisada">Revisadas</option>
+            <option value="editada">Editadas a mano</option>
+          </select>
+          <span id="base-resumen" class="tenue"></span>
+          <span class="espacio"></span>
+          <button id="btn-base-ejemplos" type="button">Cargar desde los ejemplos</button>
+        </div>
+        <div class="contenedor-tabla"><table id="tabla-base"></table></div>
+        <div class="fila"><button id="btn-base-mas" type="button" hidden>Ver más</button></div>
       </div>
 
       <div id="vista-ejemplos" class="vista" hidden>
@@ -139,6 +172,15 @@
       </div>
 
       <div id="vista-usuarios" class="vista" hidden>
+        <h2>Catálogo de columnas</h2>
+        <p class="tenue">Orden general del EPG y reglas de cada columna (largo máximo, números, valores permitidos,
+          obligatorias). Subí el Excel con columna, regla y significado.</p>
+        <div class="fila">
+          <label class="boton">Subir catálogo (.xlsx)<input id="in-catalogo" type="file" accept=".xlsx,.xls" hidden></label>
+          <span id="res-catalogo" class="tenue"></span>
+        </div>
+        <div class="contenedor-tabla catalogo"><table id="tabla-catalogo"></table></div>
+        <h2>Usuarios</h2>
         <form id="form-usuario" class="fila">
           <label>Usuario <input name="usuario" required></label>
           <label>Clave <input name="clave" type="password" minlength="8" required></label>
@@ -151,6 +193,49 @@
       </div>
     </section>
   </main>
+
+  <dialog id="dialogo-senal">
+    <form id="form-senal" method="dialog" class="caja-login">
+      <h2>Nueva señal</h2>
+      <label>Nombre de la señal <input name="nombre" required autocomplete="off" placeholder="Ej.: Concert Channel"></label>
+      <label>Grilla cruda (como viene) <input name="grilla_cruda" type="file" accept=".xlsx,.xls" required></label>
+      <label>Ejemplo (macro hecha) <input name="ejemplo" type="file" accept=".xlsx,.xls" required></label>
+      <p id="error-senal" class="error" hidden></p>
+      <div class="fila">
+        <button type="button" id="btn-senal-cancelar">Cancelar</button>
+        <span class="espacio"></span>
+        <button type="submit" class="primario">Crear</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="dialogo-parecidas">
+    <div class="caja-login caja-ancha">
+      <h2 id="parecidas-titulo"></h2>
+      <p class="tenue">Revisá que no sea la misma señal. Si lo es, agregá estos archivos como un ejemplo nuevo.</p>
+      <ul id="parecidas-lista" class="lista-simple"></ul>
+      <div class="fila">
+        <button type="button" id="btn-parecidas-cancelar">Cancelar</button>
+        <span class="espacio"></span>
+        <button type="button" id="btn-parecidas-crear" class="primario">Crear igual como señal nueva</button>
+      </div>
+    </div>
+  </dialog>
+
+  <dialog id="dialogo-clave">
+    <form id="form-clave" method="dialog" class="caja-login">
+      <h2>Cambiar mi clave</h2>
+      <label>Clave actual <input name="actual" type="password" autocomplete="current-password" required></label>
+      <label>Clave nueva <input name="nueva" type="password" autocomplete="new-password" minlength="8" required></label>
+      <label>Repetir clave nueva <input name="repetida" type="password" autocomplete="new-password" minlength="8" required></label>
+      <p id="error-clave" class="error" hidden></p>
+      <div class="fila">
+        <button type="button" id="btn-clave-cancelar">Cancelar</button>
+        <span class="espacio"></span>
+        <button type="submit" class="primario">Cambiar</button>
+      </div>
+    </form>
+  </dialog>
 
   <datalist id="columnas-conocidas"></datalist>
   <script src="/web/app.js"></script>

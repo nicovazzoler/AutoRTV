@@ -79,6 +79,30 @@ tablas_subidas = Table(
     Column("creada", DateTime, nullable=False, index=True),
 )
 
+catalogo = Table(
+    "catalogo", metadata,
+    Column("orden", Integer, primary_key=True),
+    Column("nombre", String(100), nullable=False),
+    Column("regla", Text, nullable=False, default=""),  # tal como la escribió el admin
+    Column("significado", Text, nullable=False, default=""),
+    Column("tipo", String(20), nullable=False),  # texto | entero | anio | valores | fecha | hora
+    Column("maximo", Integer),  # largo máximo (texto) o valor máximo (entero)
+    Column("valores", JSON),  # para tipo "valores"
+    Column("obligatoria", String(10), nullable=False, default="no"),  # no | si | ing | port
+)
+
+pautas = Table(
+    "pautas", metadata,
+    Column("senal_id", String(64), primary_key=True),
+    Column("hash", String(16), primary_key=True),
+    Column("crudo", JSON, nullable=False),  # la fila cruda sin horario, para mostrarla
+    Column("salida", JSON, nullable=False),  # columnas de contenido del EPG
+    Column("estado", String(10), nullable=False),  # revisada | editada
+    Column("usuario", String(100), nullable=False),
+    Column("actualizado", DateTime, nullable=False),
+    Column("texto", Text, nullable=False, default=""),  # crudo + salida sin tildes ni mayúsculas, para buscar
+)
+
 _motores: dict[str, Engine] = {}
 
 

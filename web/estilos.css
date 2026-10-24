@@ -97,6 +97,14 @@ td .esperado { color: var(--ok); }
 .lista-simple { list-style: none; padding: 0; }
 .lista-simple li { display: flex; gap: 8px; align-items: center; padding: 4px 0; border-bottom: 1px solid #eef0f3; }
 
+.catalogo { max-height: 320px; margin-bottom: 14px; }
+td.celda-error { background: var(--error-suave); box-shadow: inset 0 0 0 1px var(--error); }
+.error-asistente { color: var(--error); }
+button.enlace { border: none; background: none; color: var(--tenue); padding: 2px 4px; text-decoration: underline dotted; }
+button.enlace:hover { color: var(--acento); }
+dialog { border: none; border-radius: 10px; padding: 0; box-shadow: 0 10px 40px rgba(0, 0, 0, .25); }
+dialog::backdrop { background: rgba(0, 0, 0, .3); }
+dialog .caja-login { border: none; }
 .pantalla-login { display: grid; place-items: center; min-height: 100vh; }
 .caja-login { display: flex; flex-direction: column; gap: 12px; width: 280px; padding: 24px; background: var(--superficie); border: 1px solid var(--borde); border-radius: 10px; }
 .caja-login h1 { margin: 0; font-size: 20px; }
@@ -138,3 +146,14 @@ li.info .icono { color: var(--tenue); }
 tr.fila-error td { background: var(--error-suave); }
 tr.fila-aviso td { background: var(--aviso-suave); }
 tr.resaltada td { box-shadow: inset 0 2px var(--acento), inset 0 -2px var(--acento); }
+td.estado-pauta { text-align: center; padding: 4px; }
+td.estado-pauta.conocida { color: var(--ok); }
+td.estado-pauta.editada { color: var(--acento); }
+td.estado-pauta.nueva { color: var(--aviso); }
+td.editable { cursor: text; }
+td.editable:hover { box-shadow: inset 0 0 0 1px var(--borde); }
+td input.edicion { width: 100%; min-width: 160px; padding: 1px 4px; font-size: 12px; }
+td.crudo { color: var(--tenue); max-width: 320px; }
+#barra-pautas { align-items: center; }
+.caja-ancha { width: 440px; }
+#base-buscar { min-width: 260px; }

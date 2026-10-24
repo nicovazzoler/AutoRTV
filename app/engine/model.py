@@ -187,5 +187,7 @@ class Senal(Base):
     tarjetas: list[Tarjeta]
     salida: Salida
     validaciones: Validaciones = Validaciones()
+    # Idiomas que lleva el EPG de la señal: hacen obligatorios Tit ing / Tit port.
+    idiomas: list[Literal["ing", "port"]] = []
     # Programas que la señal ya emitió; los usa `separar` en modo titulos_conocidos.
     titulos_conocidos: list[str] = []

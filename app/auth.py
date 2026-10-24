@@ -7,7 +7,7 @@ import time
 from dataclasses import dataclass
 
 from fastapi import Cookie, Depends, HTTPException
-from sqlalchemy import delete, insert, select
+from sqlalchemy import delete, insert, select, update
 from sqlalchemy.exc import IntegrityError
 
 from app import db
@@ -48,6 +48,34 @@ def borrar_usuario(usuario_id: int) -> None:
     with db.transaccion() as con:
         con.execute(delete(db.sesiones).where(db.sesiones.c.usuario_id == usuario_id))
         con.execute(delete(db.usuarios).where(db.usuarios.c.id == usuario_id))
+
+
+def cambiar_clave(usuario_id: int, actual: str, nueva: str, sesion_actual: str | None = None) -> None:
+    """Cambia la clave propia. Cierra las otras sesiones del usuario y deja abierta la actual."""
+    with db.transaccion() as con:
+        guardado = con.execute(select(db.usuarios.c.hash).where(db.usuarios.c.id == usuario_id)).scalar()
+        if guardado is None or not _clave_ok(actual, guardado):
+            raise ValueError("La clave actual no es correcta")
+        _poner_clave(con, usuario_id, nueva, conservar=sesion_actual)
+
+
+def resetear_clave(usuario_id: int, nueva: str) -> None:
+    """El admin le pone una clave nueva a alguien. Se cortan todas sus sesiones."""
+    with db.transaccion() as con:
+        if con.execute(select(db.usuarios.c.id).where(db.usuarios.c.id == usuario_id)).scalar() is None:
+            raise LookupError(usuario_id)
+        _poner_clave(con, usuario_id, nueva)
+
+
+def _poner_clave(con, usuario_id: int, nueva: str, conservar: str | None = None) -> None:
+    if len(nueva) < 8:
+        raise ValueError("La clave nueva tiene que tener al menos 8 caracteres")
+    con.execute(update(db.usuarios).where(db.usuarios.c.id == usuario_id).values(hash=_hashear(nueva)))
+    # Con la clave vieja quizás entró alguien más: sus sesiones dejan de valer.
+    filtro = db.sesiones.c.usuario_id == usuario_id
+    if conservar:
+        filtro &= db.sesiones.c.token != conservar
+    con.execute(delete(db.sesiones).where(filtro))
 
 
 def listar_usuarios() -> list[Usuario]:

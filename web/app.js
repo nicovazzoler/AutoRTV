@@ -32,6 +32,7 @@ const VALIDACIONES_DEFAULT = { fecha: null, hora: null, duracion: null, dia_minu
 function normalizar(receta) {
   receta.validaciones = { ...VALIDACIONES_DEFAULT, ...(receta.validaciones || {}) };
   receta.titulos_conocidos = receta.titulos_conocidos || [];
+  receta.idiomas = receta.idiomas || [];
   return receta;
 }
 const ICONOS = { error: "✕", aviso: "⚠", info: "ℹ" };
@@ -399,6 +400,8 @@ function cargarReceta(receta, guardada, version = null) {
   $("#principal").hidden = false;
   $("#in-hoja").value = receta.entrada.hoja;
   $("#in-fila").value = receta.entrada.fila_encabezado;
+  $("#in-idioma-ing").checked = receta.idiomas.includes("ing");
+  $("#in-idioma-port").checked = receta.idiomas.includes("port");
   $("#in-salida").value = receta.salida.columnas.join("\n");
   const v = receta.validaciones;
   $("#val-fecha").value = v.fecha || "";
@@ -457,24 +460,31 @@ function enlazarValidaciones() {
 
 // --- Asistente ---
 
+function estadoAsistente(texto, esError = false) {
+  const e = $("#estado-asistente");
+  e.textContent = texto;
+  e.className = esError ? "error-asistente" : "tenue";
+}
+
 async function pedirAsistente(pedido, ejemplo = null) {
-  if (!pedido.trim()) { avisar("Escribí qué querés que haga el asistente", true); return; }
-  if (!ejemplo && !estado.tablaId) { avisar("Subí una grilla antes de pedirle algo al asistente", true); return; }
+  if (!pedido.trim()) { estadoAsistente("Escribí qué querés que haga el asistente", true); return; }
+  if (!ejemplo && !estado.tablaId) { estadoAsistente("Subí una grilla antes de pedirle algo al asistente", true); return; }
   const boton = $("#btn-pedir");
   boton.disabled = true;
-  $("#estado-asistente").textContent = "Pensando y probando la propuesta… (puede tardar un minuto)";
+  estadoAsistente("Pensando y probando la propuesta… (puede tardar un minuto)");
   avisar("El asistente está trabajando…");
   try {
     const p = await json("/api/asistente", "POST", { senal: estado.receta, pedido, tabla_id: estado.tablaId, ejemplo });
     estado.propuesta = p;
     estado.verPropuesta = false;
     dibujarPropuesta();
-    $("#estado-asistente").textContent = "";
+    estadoAsistente("");
     avisar("");
     if (ejemplo) mostrarPestana("tabla");
   } catch (e) {
-    $("#estado-asistente").textContent = "";
-    avisar(e.message, true);
+    estadoAsistente(e.message, true);
+    avisar("");
+    if (ejemplo) avisar(e.message, true);  // pedido desde la pestaña Ejemplos: el cuadro del asistente no se ve
   } finally { boton.disabled = false; }
 }
 
@@ -651,7 +661,7 @@ function pintarValidaciones(r) {
 }
 
 function irAFila(fila) {
-  const tr = document.querySelector(`#tabla tbody tr:nth-child(${fila})`);
+  const tr = document.querySelector(`#tabla tbody tr[data-fila="${fila}"]`);
   if (!tr) { avisar(`La fila ${fila} está fuera de las filas visibles`); return; }
   document.querySelectorAll("#tabla tr.resaltada").forEach((x) => x.classList.remove("resaltada"));
   tr.classList.add("resaltada");
@@ -673,6 +683,7 @@ async function abrirSenal(id) {
   cargarReceta(receta, guardada, version);
   try { localStorage.setItem("ultima-senal", id); } catch {}
   $("#resultados-ejemplos").replaceChildren();
+  if (!$("#vista-base").hidden) listarBase();
 }
 
 // --- Importar / exportar receta ---
@@ -741,14 +752,17 @@ async function previsualizar() {
   const turno = ++estado.ultimoPreview;
   const receta = estado.verPropuesta && estado.propuesta?.receta ? estado.propuesta.receta : estado.receta;
   try {
-    const r = await json("/api/preview", "POST", { tabla_id: estado.tablaId, senal: receta });
+    const r = await json("/api/preview", "POST", { tabla_id: estado.tablaId, senal: receta,
+      solo_nuevas: $("#sel-filtro-pautas").value === "nuevas" });
     if (turno !== estado.ultimoPreview) return;  // llegó una respuesta vieja
+    estado.vista = r;
     estado.informes = r.tarjetas;
     for (const i of r.tarjetas) i.columnas.forEach((c) => estado.columnas.add(c));
     r.columnas.forEach((c) => estado.columnas.add(c));
     actualizarColumnasConocidas();
-    dibujarTabla(r.columnas, r.filas, r.validaciones);
+    dibujarTabla(r);
     pintarValidaciones(r);
+    pintarResumenPautas(r);
     $("#resumen").replaceChildren(`${r.total_filas} filas` + (r.total_filas > r.filas.length ? ` (se muestran ${r.filas.length})` : ""),
       estado.verPropuesta ? el("span", { className: "vista-propuesta", textContent: " · mostrando la propuesta del asistente" }) : "");
     pintarInformes();
@@ -764,17 +778,95 @@ function actualizarColumnasConocidas() {
   $("#columnas-conocidas").replaceChildren(...[...estado.columnas].map((c) => el("option", { value: c })));
 }
 
-function dibujarTabla(columnas, filas, avisos = []) {
+const ESTADOS_PAUTA = {
+  conocida: { icono: "✔", texto: "Conocida: sale de la base" },
+  editada: { icono: "✎", texto: "Editada a mano: sale de la base" },
+  nueva: { icono: "●", texto: "Nueva: la arman las reglas, falta revisarla" },
+};
+
+function dibujarTabla(r) {
+  const { columnas, filas, indices } = r;
+  const avisos = r.validaciones || [];
+  const editables = new Set(r.contenido);
   const nivelPorFila = {};
   for (const a of avisos) {
     if (!a.fila || a.nivel === "info") continue;
     if (a.nivel === "error" || !nivelPorFila[a.fila]) nivelPorFila[a.fila] = a.nivel;
   }
-  const tabla = $("#tabla");
-  const cabeza = el("tr", {}, el("th", { textContent: "#" }), ...columnas.map((c) => el("th", { textContent: c })));
-  const cuerpo = filas.map((f, k) => el("tr", { className: nivelPorFila[k + 1] ? `fila-${nivelPorFila[k + 1]}` : "" }, el("td", { className: "num", textContent: k + 1 }),
-    ...f.map((v) => el("td", v === null || v === "" ? { className: "vacia", textContent: "—" } : { textContent: v, title: v }))));
-  tabla.replaceChildren(el("thead", {}, cabeza), el("tbody", {}, ...cuerpo));
+  // Celdas que no cumplen el catálogo: se marcan y el motivo aparece al pasar el mouse.
+  const porCelda = {};
+  for (const a of avisos) if (a.fila && a.columna) porCelda[`${a.fila}|${a.columna}`] = a.mensaje;
+  const cabeza = el("tr", {}, el("th", { textContent: "#" }), el("th", { title: "Estado de la pauta", textContent: "" }),
+    ...columnas.map((c) => el("th", { textContent: c })));
+  const cuerpo = filas.map((f, k) => {
+    const n = indices[k] + 1;  // número de fila en la grilla completa
+    const est = ESTADOS_PAUTA[r.estados[k]];
+    const tr = el("tr", { className: nivelPorFila[n] ? `fila-${nivelPorFila[n]}` : "" },
+      el("td", { className: "num", textContent: n }),
+      el("td", { className: `estado-pauta ${r.estados[k]}`, textContent: est.icono, title: est.texto }),
+      ...f.map((v, j) => {
+        const td = celda(v, porCelda[`${n}|${columnas[j]}`]);
+        if (editables.has(columnas[j])) {
+          td.classList.add("editable");
+          td.ondblclick = () => editarCelda(td, v, (valor) => json(`/api/senales/${estado.receta.id}/pautas/editar-celda`, "POST", {
+            tabla_id: estado.tablaId, senal: estado.receta, fila: indices[k], columna: columnas[j], valor }));
+        }
+        return td;
+      }));
+    tr.dataset.fila = n;
+    return tr;
+  });
+  $("#tabla").replaceChildren(el("thead", {}, cabeza), el("tbody", {}, ...cuerpo));
+}
+
+function celda(v, motivo) {
+  const props = v === null || v === "" ? { className: "vacia", textContent: "—" } : { textContent: v, title: v };
+  if (motivo) Object.assign(props, { className: "celda-error", title: motivo });
+  return el("td", props);
+}
+
+// Edición en el lugar: Enter guarda, Escape (o salir de la celda) cancela.
+function editarCelda(td, valor, guardarValor) {
+  if (td.querySelector("input")) return;
+  const entrada = el("input", { className: "edicion", value: valor ?? "" });
+  td.replaceChildren(entrada);
+  entrada.focus();
+  entrada.select();
+  let terminado = false;
+  const cancelar = () => { if (!terminado) { terminado = true; td.replaceChildren(valor ?? "—"); } };
+  entrada.onblur = cancelar;
+  entrada.onkeydown = async (e) => {
+    if (e.key === "Escape") cancelar();
+    if (e.key !== "Enter") return;
+    terminado = true;
+    entrada.disabled = true;
+    try {
+      await guardarValor(entrada.value);
+      avisar("Guardado en la base de pautas");
+      previsualizar();
+      if (!$("#vista-base").hidden) listarBase();
+    } catch (err) { avisar(err.message, true); td.replaceChildren(valor ?? "—"); }
+  };
+}
+
+function pintarResumenPautas(r) {
+  const n = r.resumen_pautas;
+  estado.pautasNuevas = n.nueva;
+  $("#barra-pautas").hidden = false;
+  $("#resumen-pautas").replaceChildren(
+    el("span", { className: "contador ok", textContent: `✔ ${n.conocida} conocidas` }), " · ",
+    el("span", { className: "contador", textContent: `✎ ${n.editada} editadas` }), " · ",
+    el("span", { className: "contador" + (n.nueva ? " aviso" : ""), textContent: `● ${n.nueva} nuevas` }));
+  $("#btn-revisar").disabled = !n.nueva;
+}
+
+async function revisarNuevas() {
+  if (!confirm(`Se guardan en la base las ${estado.pautasNuevas} filas nuevas tal como las armaron las reglas. ¿Seguir?`)) return;
+  try {
+    const r = await json(`/api/senales/${estado.receta.id}/pautas/revisar`, "POST", { tabla_id: estado.tablaId, senal: estado.receta });
+    avisar(`${r.revisadas} pautas guardadas como revisadas`);
+    previsualizar();
+  } catch (e) { avisar(e.message, true); }
 }
 
 async function subirGrilla(archivo) {
@@ -786,11 +878,13 @@ async function subirGrilla(archivo) {
     estado.tablaId = r.tabla_id;
     $("#nombre-archivo").textContent = r.nombre;
     $("#btn-xlsx").disabled = $("#btn-csv").disabled = false;
+    avisar("");
     previsualizar();
   } catch (e) { avisar(e.message, true); }
 }
 
 async function exportar(formato) {
+  if (estado.pautasNuevas && !confirm(`Hay ${estado.pautasNuevas} pautas nuevas sin revisar. ¿Exportar igual?`)) return;
   try {
     const r = await api("/api/export", { method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ tabla_id: estado.tablaId, senal: estado.receta, formato }) });
@@ -869,10 +963,156 @@ function agregarCorrecciones(porColumna) {
 async function subirEjemplo(e) {
   e.preventDefault();
   try {
-    await api(`/api/senales/${estado.receta.id}/ejemplos`, { method: "POST", body: new FormData(e.target) });
+    const r = await api(`/api/senales/${estado.receta.id}/ejemplos`, { method: "POST", body: new FormData(e.target) })
+      .then((x) => x.json());
     e.target.reset();
+    if (r.pautas?.error) avisar(r.pautas.error, true);
+    else if (r.pautas) avisar(`Ejemplo agregado: ${r.pautas.agregadas} pautas nuevas en la base`);
     evaluarEjemplos();
+    previsualizar();
   } catch (err) { avisar(err.message, true); }
+}
+
+// --- Nueva señal ---
+
+function enlazarNuevaSenal() {
+  const dialogo = $("#dialogo-senal");
+  const error = $("#error-senal");
+  $("#btn-nueva").onclick = () => { $("#form-senal").reset(); error.hidden = true; dialogo.showModal(); };
+  $("#btn-senal-cancelar").onclick = () => dialogo.close();
+  $("#form-senal").onsubmit = async (e) => {
+    e.preventDefault();
+    const datos = new FormData(e.target);
+    error.hidden = true;
+    let r = await fetch("/api/senales/crear", { method: "POST", body: datos });
+    if (r.status === 409) {
+      const { detail } = await r.json();
+      const eleccion = await elegirParecida(detail);
+      if (!eleccion) return;
+      datos.append(...(eleccion === "crear" ? ["confirmar", "true"] : ["agregar_a", eleccion]));
+      r = await fetch("/api/senales/crear", { method: "POST", body: datos });
+    }
+    if (r.status === 401) { location.href = "/login"; return; }
+    if (!r.ok) {
+      const j = await r.json().catch(() => ({}));
+      error.textContent = typeof j.detail === "string" ? j.detail : "No se pudo crear la señal";
+      error.hidden = false;
+      return;
+    }
+    const creada = await r.json();
+    dialogo.close();
+    await listarSenales(creada.id);
+    await abrirSenal(creada.id);
+    estado.tablaId = creada.tabla_id;
+    $("#nombre-archivo").textContent = datos.get("grilla_cruda").name;
+    $("#btn-xlsx").disabled = $("#btn-csv").disabled = false;
+    previsualizar();
+    const base = creada.pautas?.agregadas ? ` La base arrancó con ${creada.pautas.agregadas} pautas.` : "";
+    avisar(`Señal "${creada.nombre}" lista, con su ejemplo cargado.${base}`);
+  };
+}
+
+// Cartel de verificación cuando ya hay señales con ese nombre o uno parecido.
+// Devuelve "crear", el id de la señal a la que se suma el ejemplo, o null si se cancela.
+function elegirParecida(detalle) {
+  const dialogo = $("#dialogo-parecidas");
+  $("#parecidas-titulo").textContent = detalle.mensaje;
+  $("#btn-parecidas-crear").hidden = detalle.identica;
+  return new Promise((resolver) => {
+    const terminar = (valor) => { dialogo.onclose = null; dialogo.close(); resolver(valor); };
+    $("#parecidas-lista").replaceChildren(...detalle.parecidas.map((s) => el("li", {},
+      el("b", { textContent: s.nombre }), el("span", { className: "espacio" }),
+      el("button", { type: "button", textContent: "Agregar como ejemplo de esta", onclick: () => terminar(s.id) }))));
+    $("#btn-parecidas-crear").onclick = () => terminar("crear");
+    $("#btn-parecidas-cancelar").onclick = () => terminar(null);
+    dialogo.onclose = () => resolver(null);  // Escape
+    dialogo.showModal();
+  });
+}
+
+// --- Base de pautas ---
+
+async function listarBase(mas = false) {
+  if (!estado.receta) return;
+  const desde = mas ? estado.base.pautas.length : 0;
+  const params = new URLSearchParams({ q: $("#base-buscar").value, estado: $("#base-estado").value, desde });
+  try {
+    const r = await api(`/api/senales/${estado.receta.id}/pautas?${params}`).then((x) => x.json());
+    estado.base = mas ? { ...r, pautas: [...estado.base.pautas, ...r.pautas] } : r;
+    dibujarBase();
+  } catch (e) { avisar(e.message, true); }
+}
+
+function dibujarBase() {
+  const { pautas, total, por_estado: n } = estado.base;
+  $("#base-resumen").textContent = `${total} pautas · ${n.revisada || 0} revisadas · ${n.editada || 0} editadas`;
+  $("#btn-base-mas").hidden = pautas.length >= total;
+  const columnas = [...new Set(pautas.flatMap((p) => Object.keys(p.salida)))];
+  const cabeza = el("tr", {}, el("th", { textContent: "" }), el("th", { textContent: "Como viene en la grilla" }),
+    ...columnas.map((c) => el("th", { textContent: c })), el("th", { textContent: "Por" }), el("th", { textContent: "" }));
+  const filas = pautas.map((p) => {
+    const est = ESTADOS_PAUTA[p.estado === "editada" ? "editada" : "conocida"];
+    const crudo = Object.values(p.crudo).filter((v) => v !== null && v !== "").join(" · ");
+    return el("tr", {},
+      el("td", { className: `estado-pauta ${p.estado === "editada" ? "editada" : "conocida"}`, textContent: est.icono, title: est.texto }),
+      el("td", { className: "crudo", textContent: crudo, title: crudo }),
+      ...columnas.map((c) => {
+        const td = celda(p.salida[c] ?? null);
+        td.classList.add("editable");
+        td.ondblclick = () => editarCelda(td, p.salida[c], (valor) => json(
+          `/api/senales/${estado.receta.id}/pautas/${p.hash}`, "PUT", { salida: { ...p.salida, [c]: valor.trim() || null } }));
+        return td;
+      }),
+      el("td", { className: "tenue", textContent: p.usuario, title: p.actualizado }),
+      el("td", {}, el("button", { className: "chico", textContent: "Olvidar", title: "La próxima vez esta fila vuelve a salir como nueva",
+        onclick: async () => {
+          await api(`/api/senales/${estado.receta.id}/pautas/${p.hash}`, { method: "DELETE" });
+          listarBase();
+          previsualizar();
+        } })));
+  });
+  if (!pautas.length) filas.push(el("tr", {}, el("td", { colSpan: 3, className: "tenue",
+    textContent: "No hay pautas. Se cargan solas con los ejemplos o con «Marcar nuevas como revisadas»." })));
+  $("#tabla-base").replaceChildren(el("thead", {}, cabeza), el("tbody", {}, ...filas));
+}
+
+async function cargarBaseDeEjemplos() {
+  try {
+    const r = await json(`/api/senales/${estado.receta.id}/pautas/desde-ejemplos`, "POST", {});
+    const extra = r.conflictos ? ` (${r.conflictos} filas iguales con salidas distintas: quedó la primera)` : "";
+    avisar(`${r.agregadas} pautas nuevas desde los ejemplos${extra}` + (r.errores.length ? `. Errores: ${r.errores.join("; ")}` : ""),
+      r.errores.length > 0);
+    listarBase();
+    previsualizar();
+  } catch (e) { avisar(e.message, true); }
+}
+
+// --- Catálogo (admin) ---
+
+const TIPOS_CATALOGO = { texto: "texto", entero: "número entero", anio: "año", valores: "valores fijos", fecha: "fecha", hora: "hora" };
+
+async function listarCatalogo() {
+  const columnas = await api("/api/catalogo").then((r) => r.json());
+  $("#res-catalogo").textContent = columnas.length ? `${columnas.length} columnas cargadas` : "Todavía no hay catálogo cargado.";
+  const obligatoria = { si: "sí", ing: "si lleva inglés", port: "si lleva portugués", no: "" };
+  const regla = (c) => c.tipo === "valores" ? c.valores.join(" · ")
+    : c.maximo ? `${TIPOS_CATALOGO[c.tipo]} (máx. ${c.maximo})` : TIPOS_CATALOGO[c.tipo];
+  $("#tabla-catalogo").replaceChildren(
+    el("thead", {}, el("tr", {}, ...["#", "Columna", "Regla", "Obligatoria", "Significado"].map((t) => el("th", { textContent: t })))),
+    el("tbody", {}, ...columnas.map((c, i) => el("tr", {}, el("td", { className: "num", textContent: i + 1 }),
+      el("td", { textContent: c.nombre }), el("td", { textContent: regla(c) }),
+      el("td", { textContent: obligatoria[c.obligatoria] }), el("td", { textContent: c.significado })))));
+}
+
+async function subirCatalogo(archivo) {
+  const datos = new FormData();
+  datos.append("archivo", archivo);
+  try {
+    await api("/api/catalogo", { method: "POST", body: datos });
+    await listarCatalogo();
+    avisar("Catálogo cargado. Las validaciones y el orden de columnas ya lo usan.");
+    previsualizar();
+  } catch (e) { avisar(e.message, true); }
 }
 
 // --- Usuarios ---
@@ -882,11 +1122,36 @@ async function listarUsuarios() {
   $("#lista-usuarios").replaceChildren(...usuarios.map((u) => el("li", {},
     el("span", { textContent: u.usuario }), u.admin ? el("span", { className: "insignia", textContent: "admin" }) : null,
     el("span", { className: "espacio" }),
+    el("button", { className: "chico", textContent: "Nueva clave", onclick: async () => {
+      const nueva = prompt(`Clave nueva para ${u.usuario} (mínimo 8 caracteres). Se le cierran las sesiones abiertas.`);
+      if (!nueva) return;
+      try {
+        await json(`/api/usuarios/${u.id}/clave`, "POST", { nueva });
+        avisar(`Clave de ${u.usuario} cambiada. Pasásela por un medio seguro.`);
+      } catch (e) { avisar(e.message, true); }
+    } }),
     u.id === estado.yo.id ? null : el("button", { className: "chico", textContent: "Borrar", onclick: async () => {
       if (!confirm(`¿Borrar a ${u.usuario}?`)) return;
       await api(`/api/usuarios/${u.id}`, { method: "DELETE" });
       listarUsuarios();
     } }))));
+}
+
+function enlazarCambioDeClave() {
+  const dialogo = $("#dialogo-clave");
+  const error = $("#error-clave");
+  $("#usuario").onclick = () => { $("#form-clave").reset(); error.hidden = true; dialogo.showModal(); };
+  $("#btn-clave-cancelar").onclick = () => dialogo.close();
+  $("#form-clave").onsubmit = async (e) => {
+    e.preventDefault();
+    const datos = Object.fromEntries(new FormData(e.target));
+    if (datos.nueva !== datos.repetida) { error.textContent = "Las claves nuevas no coinciden"; error.hidden = false; return; }
+    try {
+      await json("/api/yo/clave", "POST", { actual: datos.actual, nueva: datos.nueva });
+      dialogo.close();
+      avisar("Clave cambiada. Las otras sesiones abiertas con tu usuario se cerraron.");
+    } catch (err) { error.textContent = err.message; error.hidden = false; }
+  };
 }
 
 async function crearUsuario(e) {
@@ -903,8 +1168,9 @@ async function crearUsuario(e) {
 
 function mostrarPestana(nombre) {
   for (const b of document.querySelectorAll(".pestanas button")) b.classList.toggle("activa", b.dataset.pestana === nombre);
-  for (const v of ["tabla", "ejemplos", "usuarios"]) $(`#vista-${v}`).hidden = v !== nombre;
-  if (nombre === "usuarios") { listarUsuarios(); mostrarUsoAsistente(); }
+  for (const v of ["tabla", "base", "ejemplos", "usuarios"]) $(`#vista-${v}`).hidden = v !== nombre;
+  if (nombre === "base") listarBase();
+  if (nombre === "usuarios") { listarUsuarios(); mostrarUsoAsistente(); listarCatalogo(); }
   if (nombre === "ejemplos" && estado.receta) evaluarEjemplos();
 }
 
@@ -914,20 +1180,24 @@ async function iniciar() {
   estado.schema = tipos.schema;
   estado.sinCondicion = new Set(tipos.sin_condicion);
   $("#usuario").textContent = estado.yo.usuario;
+  enlazarCambioDeClave();
   $("#pestana-usuarios").hidden = !estado.yo.admin;
+  for (const e of document.querySelectorAll(".solo-admin")) e.hidden = !estado.yo.admin;
   for (const tipo of Object.keys(estado.schema.discriminator.mapping).sort((a, b) => (NOMBRES[a] || a).localeCompare(NOMBRES[b] || b))) {
     $("#sel-tipo").append(el("option", { value: tipo, textContent: NOMBRES[tipo] || tipo }));
   }
 
   $("#sel-senal").onchange = (e) => e.target.value && abrirSenal(e.target.value);
-  $("#btn-nueva").onclick = () => {
-    const nombre = prompt("Nombre de la señal (ej. Concert Channel)");
-    if (!nombre) return;
-    const id = nombre.trim().toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
-    if (!id) { avisar("El nombre tiene que tener letras o números", true); return; }
-    cargarReceta({ schema_version: 1, id, nombre, entrada: { tipo: "excel", hoja: 0, fila_encabezado: 1 },
-      tarjetas: [], salida: { columnas: [] } }, null);
+  enlazarNuevaSenal();
+  $("#in-catalogo").onchange = (e) => { if (e.target.files[0]) subirCatalogo(e.target.files[0]); e.target.value = ""; };
+  const idioma = (codigo) => (e) => {
+    const lista = new Set(estado.receta.idiomas);
+    e.target.checked ? lista.add(codigo) : lista.delete(codigo);
+    estado.receta.idiomas = ["ing", "port"].filter((x) => lista.has(x));
+    cambioReceta();
   };
+  $("#in-idioma-ing").onchange = idioma("ing");
+  $("#in-idioma-port").onchange = idioma("port");
   $("#in-archivo").onchange = (e) => e.target.files[0] && subirGrilla(e.target.files[0]);
   $("#btn-guardar").onclick = () => guardar();
   $("#btn-pedir").onclick = () => pedirAsistente($("#in-pedido").value);
@@ -967,6 +1237,13 @@ async function iniciar() {
   };
   for (const b of document.querySelectorAll(".pestanas button")) b.onclick = () => mostrarPestana(b.dataset.pestana);
   $("#btn-evaluar").onclick = evaluarEjemplos;
+  $("#sel-filtro-pautas").onchange = previsualizar;
+  $("#btn-revisar").onclick = revisarNuevas;
+  let demora;
+  $("#base-buscar").oninput = () => { clearTimeout(demora); demora = setTimeout(listarBase, 300); };
+  $("#base-estado").onchange = () => listarBase();
+  $("#btn-base-ejemplos").onclick = cargarBaseDeEjemplos;
+  $("#btn-base-mas").onclick = () => listarBase(true);
   $("#form-ejemplo").onsubmit = subirEjemplo;
   $("#form-usuario").onsubmit = crearUsuario;
   enlazarValidaciones();

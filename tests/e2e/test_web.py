@@ -50,6 +50,14 @@ def test_flujo_basico(servidor, tmp_path):
     wb.active.append([dt.datetime(2026, 10, 23), dt.time(1, 30), "praise"])
     grilla = tmp_path / "grilla.xlsx"
     wb.save(grilla)
+    # Un ejemplo de otro día: no empareja ninguna fila, así la base de pautas arranca vacía.
+    wb = Workbook()
+    wb.active.append(["FECHA", "HORA", "Titulo"])
+    wb.active.append([dt.datetime(2026, 9, 1), dt.time(5), "Otro"])
+    wb.active.append([dt.datetime(2026, 9, 1), dt.time(6), "Otro más"])
+    wb.active.append([dt.datetime(2026, 9, 1), dt.time(7), "Y otro"])
+    ejemplo = tmp_path / "ejemplo.xlsx"
+    wb.save(ejemplo)
 
     with playwright.sync_playwright() as p:
         # CHROMIUM permite usar un Chromium ya instalado en vez del que baja Playwright.
@@ -58,7 +66,7 @@ def test_flujo_basico(servidor, tmp_path):
         except playwright.Error as e:
             pytest.skip(f"No hay Chromium para Playwright: {str(e).splitlines()[0]}")
         pagina = navegador.new_page()
-        pagina.on("dialog", lambda d: d.accept("Señal de prueba"))
+        pagina.on("dialog", lambda d: d.accept())
         pagina.goto(servidor + "/")
         pagina.wait_for_url("**/login")
         pagina.fill("input[name=usuario]", "admin")
@@ -67,8 +75,13 @@ def test_flujo_basico(servidor, tmp_path):
         pagina.wait_for_url(servidor + "/")
 
         pagina.click("#btn-nueva")
-        pagina.set_input_files("#in-archivo", str(grilla))
+        pagina.fill("#form-senal input[name=nombre]", "Señal de prueba")
+        pagina.set_input_files("#form-senal input[name=grilla_cruda]", str(grilla))
+        pagina.set_input_files("#form-senal input[name=ejemplo]", str(ejemplo))
+        pagina.click("#form-senal button[type=submit]")
         pagina.wait_for_selector("#tabla td:text('joseph prince')")
+        # Queda guardada y seleccionada en la lista apenas se crea.
+        assert pagina.input_value("#sel-senal") == "senal-de-prueba"
         # La grilla no tiene duración: el panel avisa qué columna falta para validar horarios.
         pagina.wait_for_selector("#resumen-validaciones:has-text('1 avisos')")
         assert "falta la columna de duracion" in pagina.text_content("#lista-validaciones")
@@ -90,6 +103,18 @@ def test_flujo_basico(servidor, tmp_path):
         pagina.wait_for_selector("#estado:text('Guardado')")
         assert pagina.locator("#sel-senal option[value=senal-de-prueba]").count() == 1
 
+        # Cambiar la clave desde el cuadro y volver a entrar con la nueva.
+        pagina.click("#usuario")
+        pagina.fill("#form-clave input[name=actual]", "clave-segura")
+        pagina.fill("#form-clave input[name=nueva]", "otra-clave-1")
+        pagina.fill("#form-clave input[name=repetida]", "otra-clave-2")
+        pagina.click("#form-clave button[type=submit]")
+        assert pagina.inner_text("#error-clave") == "Las claves nuevas no coinciden"
+        pagina.fill("#form-clave input[name=repetida]", "otra-clave-1")
+        pagina.click("#form-clave button[type=submit]")
+        pagina.wait_for_selector("#estado:has-text('Clave cambiada')")
+        assert pagina.request.post(servidor + "/api/login", data={"usuario": "admin", "clave": "otra-clave-1"}).ok
+
         pagina.fill("#in-pedido", "pasá los títulos a mayúsculas")
         pagina.click("#btn-pedir")
         pagina.wait_for_selector("#propuesta:not([hidden]) >> text=Pasé los títulos a mayúsculas")
@@ -100,6 +125,77 @@ def test_flujo_basico(servidor, tmp_path):
         pagina.click("#propuesta button:text('Aplicar')")
         assert pagina.locator("#lista-tarjetas > li").count() == 1
         pagina.wait_for_selector("#tabla td:text('JOSEPH PRINCE')")
+        navegador.close()
+
+
+def _entrar(p, servidor):
+    try:
+        navegador = p.chromium.launch(executable_path=os.environ.get("CHROMIUM"))
+    except playwright.Error as e:
+        pytest.skip(f"No hay Chromium para Playwright: {str(e).splitlines()[0]}")
+    pagina = navegador.new_page()
+    pagina.goto(servidor + "/login")
+    pagina.fill("input[name=usuario]", "admin")
+    pagina.fill("input[name=clave]", "clave-segura")
+    pagina.click("button[type=submit]")
+    pagina.wait_for_url(servidor + "/")
+    return navegador, pagina
+
+
+def test_base_de_pautas_y_nombre_parecido(servidor, tmp_path):
+    import datetime as dt
+    from openpyxl import Workbook
+
+    wb = Workbook()
+    wb.active.append(["Fecha", "Hora", "Titulo"])
+    wb.active.append([dt.datetime(2026, 10, 23), dt.time(0), "joseph prince"])
+    wb.active.append([dt.datetime(2026, 10, 23), dt.time(1, 30), "praise"])
+    grilla = tmp_path / "grilla.xlsx"
+    wb.save(grilla)
+    # El EPG terminado trae solo la primera fila: esa pauta queda conocida y la otra, nueva.
+    wb = Workbook()
+    wb.active.append(["FECHA", "HORA", "Programa"])
+    wb.active.append([dt.datetime(2026, 10, 23), dt.time(0), "Joseph Prince"])
+    ejemplo = tmp_path / "ejemplo.xlsx"
+    wb.save(ejemplo)
+
+    with playwright.sync_playwright() as p:
+        navegador, pagina = _entrar(p, servidor)
+        pagina.on("dialog", lambda d: d.accept())
+        pagina.click("#btn-nueva")
+        pagina.set_input_files("#form-senal input[name=grilla_cruda]", str(grilla))
+        pagina.set_input_files("#form-senal input[name=ejemplo]", str(ejemplo))
+        pagina.click("#form-senal button[type=submit]")
+        assert pagina.evaluate("document.querySelector('#form-senal input[name=nombre]').validity.valueMissing")
+        pagina.fill("#form-senal input[name=nombre]", "Canal Uno")
+        pagina.click("#form-senal button[type=submit]")
+        pagina.wait_for_selector("#tabla td:text('Joseph Prince')")
+        assert pagina.locator("#tabla td.estado-pauta").all_inner_texts() == ["✔", "●"]
+        assert "1 nuevas" in pagina.inner_text("#resumen-pautas")
+
+        # Doble clic, escribir y Enter: la fila queda editada y aparece en la Base.
+        pagina.dblclick("#tabla tr[data-fila='2'] td:text('—')")
+        pagina.fill("#tabla input.edicion", "Praise Live")
+        pagina.press("#tabla input.edicion", "Enter")
+        pagina.wait_for_selector("#tabla td:text('Praise Live')")
+        assert pagina.locator("#tabla td.estado-pauta").all_inner_texts() == ["✔", "✎"]
+        pagina.click(".pestanas button[data-pestana=base]")
+        pagina.wait_for_selector("#tabla-base td:text('Praise Live')")
+        assert "2 pautas · 1 revisadas · 1 editadas" in pagina.inner_text("#base-resumen")
+
+        # Un nombre que ya existe pide confirmación y permite sumar el par como ejemplo.
+        pagina.click("#btn-nueva")
+        pagina.fill("#form-senal input[name=nombre]", "canal uno!")
+        pagina.set_input_files("#form-senal input[name=grilla_cruda]", str(grilla))
+        pagina.set_input_files("#form-senal input[name=ejemplo]", str(ejemplo))
+        pagina.click("#form-senal button[type=submit]")
+        pagina.wait_for_selector("#dialogo-parecidas[open]")
+        assert pagina.inner_text("#parecidas-titulo") == 'Ya existe la señal "canal uno!"'
+        assert not pagina.is_visible("#btn-parecidas-crear")
+        pagina.click("#parecidas-lista button")
+        pagina.wait_for_selector("#estado:has-text('lista')")
+        assert len(pagina.request.get(servidor + "/api/senales/canal-uno/ejemplos").json()) == 2
+        pagina.screenshot(path=str(tmp_path / "base.png"), full_page=True)
         navegador.close()
 
 

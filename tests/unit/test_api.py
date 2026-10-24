@@ -238,3 +238,86 @@ def test_login_marca_la_cookie_segura(tmp_path, monkeypatch):
     auth.crear_usuario("ana", "clave-de-ana")
     r = TestClient(app).post("/api/login", json={"usuario": "ana", "clave": "clave-de-ana"})
     assert "secure" in r.headers["set-cookie"].lower() and "httponly" in r.headers["set-cookie"].lower()
+
+
+def test_cambiar_mi_clave(cliente):
+    otra_sesion = TestClient(app)
+    otra_sesion.post("/api/login", json={"usuario": "admin", "clave": "clave-segura"})
+    r = cliente.post("/api/yo/clave", json={"actual": "equivocada", "nueva": "clave-nueva-1"})
+    assert r.status_code == 422 and r.json()["detail"] == "La clave actual no es correcta"
+    assert cliente.post("/api/yo/clave", json={"actual": "clave-segura", "nueva": "corta"}).status_code == 422
+
+    assert cliente.post("/api/yo/clave", json={"actual": "clave-segura", "nueva": "clave-nueva-1"}).status_code == 200
+    assert cliente.get("/api/yo").status_code == 200  # la sesión desde la que se cambió sigue
+    assert otra_sesion.get("/api/yo").status_code == 401  # las otras se cierran
+    assert TestClient(app).post("/api/login", json={"usuario": "admin", "clave": "clave-segura"}).status_code == 401
+    assert TestClient(app).post("/api/login", json={"usuario": "admin", "clave": "clave-nueva-1"}).status_code == 200
+
+
+def test_admin_resetea_clave(cliente):
+    cliente.post("/api/usuarios", json={"usuario": "ana", "clave": "clave-de-ana"})
+    ana = TestClient(app)
+    ana.post("/api/login", json={"usuario": "ana", "clave": "clave-de-ana"})
+    (id_ana,) = [u["id"] for u in cliente.get("/api/usuarios").json() if u["usuario"] == "ana"]
+    (id_admin,) = [u["id"] for u in cliente.get("/api/usuarios").json() if u["usuario"] == "admin"]
+
+    assert ana.post(f"/api/usuarios/{id_admin}/clave", json={"nueva": "la-robo-yo"}).status_code == 403
+    assert cliente.post("/api/usuarios/99999/clave", json={"nueva": "clave-nueva-1"}).status_code == 404
+    assert cliente.post(f"/api/usuarios/{id_ana}/clave", json={"nueva": "nueva-de-ana"}).status_code == 200
+    assert ana.get("/api/yo").status_code == 401
+    assert TestClient(app).post("/api/login", json={"usuario": "ana", "clave": "nueva-de-ana"}).status_code == 200
+
+
+def test_catalogo_solo_admin_y_ordena_la_preview(cliente):
+    from tests.unit.test_catalogo import excel as catalogo_excel
+
+    cliente.post("/api/usuarios", json={"usuario": "ana", "clave": "clave-de-ana"})
+    ana = TestClient(app)
+    ana.post("/api/login", json={"usuario": "ana", "clave": "clave-de-ana"})
+    assert ana.post("/api/catalogo", files={"archivo": ("c.xlsx", catalogo_excel())}).status_code == 403
+    assert cliente.post("/api/catalogo", files={"archivo": ("c.xlsx", catalogo_excel())}).status_code == 200
+    assert ana.get("/api/catalogo").json()[0]["nombre"] == "N"
+    assert ana.post("/api/senales/validar", json=RECETA).status_code == 403  # importar receta: solo admin
+
+    # Sin columnas de salida elegidas, la vista previa sale en el orden del catálogo.
+    tabla_id = cliente.post("/api/tablas", files={"archivo": ("g.xlsx", GRILLA)}).json()["tabla_id"]
+    sin_salida = {**RECETA, "salida": {"columnas": []}}
+    columnas = cliente.post("/api/preview", json={"tabla_id": tabla_id, "senal": sin_salida}).json()["columnas"]
+    assert columnas[:2] == ["N", "Dia"]  # "Dia" coincide con DIA del catálogo aunque cambien las mayúsculas
+
+
+def test_crear_senal_desde_grilla_y_ejemplo(cliente):
+    wb = Workbook()
+    wb.active.append(["Schedule Data Export"])  # título arriba, como los exports reales
+    wb.active.append(["Fecha", "Hora", "Titulo"])
+    wb.active.append([dt.datetime(2026, 10, 23), dt.time(0), "Show"])
+    buf = io.BytesIO()
+    wb.save(buf)
+    archivos = {"grilla_cruda": ("grilla.xlsx", buf.getvalue()), "ejemplo": ("hecho.xlsx", GRILLA)}
+
+    assert cliente.post("/api/senales/crear", files=archivos, data={"nombre": "  "}).status_code == 422
+    r = cliente.post("/api/senales/crear", files=archivos, data={"nombre": "Mi Señal  HD"})
+    assert r.status_code == 200, r.text
+    creada = r.json()
+    assert (creada["id"], creada["nombre"]) == ("mi-senal-hd", "Mi Señal HD")
+    receta = cliente.get("/api/senales/mi-senal-hd").json()
+    assert receta["entrada"]["fila_encabezado"] == 2
+    assert cliente.get("/api/senales/mi-senal-hd/ejemplos").json() == [creada["ejemplo"]]
+    preview = cliente.post("/api/preview", json={"tabla_id": creada["tabla_id"], "senal": receta}).json()
+    assert preview["total_filas"] == 1
+
+    # Mismo id: no se puede crear igual, solo sumar como ejemplo.
+    igual = cliente.post("/api/senales/crear", files=archivos, data={"nombre": "mi señal hd!", "confirmar": "true"})
+    assert igual.status_code == 409 and igual.json()["detail"]["identica"]
+    assert igual.json()["detail"]["parecidas"] == [{"id": "mi-senal-hd", "nombre": "Mi Señal HD"}]
+    sumada = cliente.post("/api/senales/crear", files=archivos, data={"agregar_a": "mi-senal-hd"})
+    assert sumada.status_code == 200
+    assert len(cliente.get("/api/senales/mi-senal-hd/ejemplos").json()) == 2
+
+    # Parecido: pide confirmación y con confirmar se crea aparte.
+    parecida = cliente.post("/api/senales/crear", files=archivos, data={"nombre": "Mi Senal HD 2"})
+    assert parecida.status_code == 409 and not parecida.json()["detail"]["identica"]
+    confirmada = cliente.post("/api/senales/crear", files=archivos, data={"nombre": "Mi Senal HD 2", "confirmar": "true"})
+    assert confirmada.json()["id"] == "mi-senal-hd-2"
+    distinta = cliente.post("/api/senales/crear", files=archivos, data={"nombre": "Otra cosa"})
+    assert distinta.status_code == 200
