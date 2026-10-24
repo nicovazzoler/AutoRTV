@@ -117,17 +117,45 @@
     <section class="contenido">
       <nav class="pestanas">
         <button data-pestana="tabla" class="activa">Tabla</button>
+        <button data-pestana="base">Base</button>
         <button data-pestana="ejemplos">Ejemplos</button>
         <button data-pestana="usuarios" id="pestana-usuarios" hidden>Admin</button>
       </nav>
 
       <div id="vista-tabla" class="vista">
         <p id="resumen" class="tenue">Subí una grilla para ver la vista previa.</p>
+        <div id="barra-pautas" class="fila" hidden>
+          <span id="resumen-pautas"></span>
+          <select id="sel-filtro-pautas" title="Qué filas mostrar">
+            <option value="">Todas las filas</option>
+            <option value="nuevas">Solo nuevas</option>
+          </select>
+          <button id="btn-revisar" type="button">Marcar nuevas como revisadas</button>
+          <span class="tenue">Doble clic en una celda para corregirla: queda guardada en la base.</span>
+        </div>
         <details id="panel-validaciones" class="panel-validaciones" hidden>
           <summary id="resumen-validaciones"></summary>
           <ul id="lista-validaciones"></ul>
         </details>
         <div class="contenedor-tabla"><table id="tabla"></table></div>
+      </div>
+
+      <div id="vista-base" class="vista" hidden>
+        <p class="tenue">Cada <b>pauta</b> es una fila de la grilla cruda sin fecha, hora ni duración. Si vuelve a
+          aparecer, se usa lo que está acá: lo corregido queda corregido. Doble clic en una celda para editarla.</p>
+        <div class="fila">
+          <input id="base-buscar" type="search" placeholder="buscar en la grilla o en el EPG…">
+          <select id="base-estado">
+            <option value="">Todas</option>
+            <option value="revisada">Revisadas</option>
+            <option value="editada">Editadas a mano</option>
+          </select>
+          <span id="base-resumen" class="tenue"></span>
+          <span class="espacio"></span>
+          <button id="btn-base-ejemplos" type="button">Cargar desde los ejemplos</button>
+        </div>
+        <div class="contenedor-tabla"><table id="tabla-base"></table></div>
+        <div class="fila"><button id="btn-base-mas" type="button" hidden>Ver más</button></div>
       </div>
 
       <div id="vista-ejemplos" class="vista" hidden>
@@ -169,7 +197,7 @@
   <dialog id="dialogo-senal">
     <form id="form-senal" method="dialog" class="caja-login">
       <h2>Nueva señal</h2>
-      <p class="tenue">El nombre se toma del archivo de la grilla.</p>
+      <label>Nombre de la señal <input name="nombre" required autocomplete="off" placeholder="Ej.: Concert Channel"></label>
       <label>Grilla cruda (como viene) <input name="grilla_cruda" type="file" accept=".xlsx,.xls" required></label>
       <label>Ejemplo (macro hecha) <input name="ejemplo" type="file" accept=".xlsx,.xls" required></label>
       <p id="error-senal" class="error" hidden></p>
@@ -179,6 +207,19 @@
         <button type="submit" class="primario">Crear</button>
       </div>
     </form>
+  </dialog>
+
+  <dialog id="dialogo-parecidas">
+    <div class="caja-login caja-ancha">
+      <h2 id="parecidas-titulo"></h2>
+      <p class="tenue">Revisá que no sea la misma señal. Si lo es, agregá estos archivos como un ejemplo nuevo.</p>
+      <ul id="parecidas-lista" class="lista-simple"></ul>
+      <div class="fila">
+        <button type="button" id="btn-parecidas-cancelar">Cancelar</button>
+        <span class="espacio"></span>
+        <button type="button" id="btn-parecidas-crear" class="primario">Crear igual como señal nueva</button>
+      </div>
+    </div>
   </dialog>
 
   <dialog id="dialogo-clave">
