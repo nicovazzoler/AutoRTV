@@ -154,4 +154,17 @@ def test_tarjetas_agrupadas_por_tema(servidor, tmp_path):
         assert pagina.locator("#lista-tarjetas li.tarjeta").count() == 5
         pagina.click("#btn-cerrar-todo")
         assert pagina.locator("#lista-tarjetas li.tarjeta").count() == 1
+
+        # Exportar y volver a importar como otra señal.
+        with pagina.expect_download() as descarga:
+            pagina.click("#btn-exportar-receta")
+        exportada = json.loads(open(descarga.value.path(), encoding="utf-8").read())
+        assert [t["id"] for t in exportada["tarjetas"]] == ["l1", "l2", "c1", "l3", "c2"]
+        copia = tmp_path / "copia.json"
+        copia.write_text(json.dumps({**exportada, "id": "grupos-copia", "nombre": "Copia"}), encoding="utf-8")
+        pagina.set_input_files("#in-receta", str(copia))
+        pagina.wait_for_selector("#estado:has-text('importada')")
+        assert pagina.inner_text("#res-tarjetas") == "(5 en 4 grupos)"
+        pagina.click("#btn-guardar")
+        pagina.wait_for_selector("#sel-senal option[value=grupos-copia]", state="attached")
         navegador.close()

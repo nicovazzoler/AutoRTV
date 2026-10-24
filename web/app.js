@@ -388,6 +388,7 @@ function cambioReceta() {
 
 function cargarReceta(receta, guardada, version = null) {
   estado.receta = normalizar(receta);
+  $("#btn-exportar-receta").disabled = false;
   estado.guardada = guardada ? JSON.stringify(normalizar(structuredClone(guardada))) : null;
   estado.version = version;
   estado.informes = [];
@@ -674,6 +675,34 @@ async function abrirSenal(id) {
   $("#resultados-ejemplos").replaceChildren();
 }
 
+// --- Importar / exportar receta ---
+
+function exportarReceta() {
+  const texto = JSON.stringify(estado.receta, null, 2);
+  const url = URL.createObjectURL(new Blob([texto], { type: "application/json" }));
+  el("a", { href: url, download: `receta_${estado.receta.id}.json` }).click();
+  URL.revokeObjectURL(url);
+}
+
+async function importarReceta(archivo) {
+  let datos;
+  try { datos = JSON.parse(await archivo.text()); } catch { avisar("El archivo no es un JSON válido", true); return; }
+  const r = await json("/api/senales/validar", "POST", datos);
+  if (!r.ok) { avisar("La receta tiene errores: " + r.errores.join("; "), true); return; }
+  const receta = r.receta;
+  const existe = [...$("#sel-senal").options].some((o) => o.value === receta.id);
+  if (existe) {
+    if (!confirm(`Ya existe la señal "${receta.nombre}". ¿Reemplazar su receta? Queda como borrador hasta que toques Guardar.`)) return;
+    await abrirSenal(receta.id);
+    const version = estado.version;
+    const guardada = JSON.parse(estado.guardada);
+    cargarReceta(receta, guardada, version);
+  } else {
+    cargarReceta(receta, null);
+  }
+  avisar(`Receta "${receta.nombre}" importada. Tocá Guardar para que quede para todos.`);
+}
+
 async function listarSenales(elegir) {
   const senales = await api("/api/senales").then((r) => r.json());
   const sel = $("#sel-senal");
@@ -725,7 +754,7 @@ async function previsualizar() {
     pintarInformes();
     const grupoConErrorCerrado = [...document.querySelectorAll("#lista-tarjetas > li.grupo.con-error:not(.abierto)")].length;
     if (grupoConErrorCerrado && !document.activeElement?.closest(".formulario")) dibujarTarjetas();
-    avisar("");
+    if ($("#estado").classList.contains("error")) avisar("");  // los mensajes informativos quedan
   } catch (e) {
     if (turno === estado.ultimoPreview) avisar(e.message, true);
   }
@@ -905,6 +934,8 @@ async function iniciar() {
   enlazarTitulos();
   $("#btn-xlsx").onclick = () => exportar("xlsx");
   $("#btn-csv").onclick = () => exportar("csv");
+  $("#btn-exportar-receta").onclick = exportarReceta;
+  $("#in-receta").onchange = (e) => { if (e.target.files[0]) importarReceta(e.target.files[0]); e.target.value = ""; };
   $("#btn-salir").onclick = async () => { await fetch("/api/logout", { method: "POST" }); location.href = "/login"; };
   $("#btn-agregar").onclick = () => {
     const t = tarjetaNueva($("#sel-tipo").value);

@@ -208,3 +208,10 @@ def test_asistente_desde_ejemplo(cliente, monkeypatch):
     # La propuesta pone el programa en mayúsculas y el ejemplo deja de dar 100 %: 3 vueltas sin lograrlo.
     assert r.status_code == 200 and not r.json()["logrado"] and r.json()["vueltas"] == 3
     assert "Así tiene que quedar" in proveedor.pedidos[0][0]["content"]
+
+
+def test_validar_receta_importada(cliente):
+    assert cliente.post("/api/senales/validar", json=RECETA).json()["ok"]
+    mala = {**RECETA, "tarjetas": [{"id": "x", "tipo": "inventada"}]}
+    r = cliente.post("/api/senales/validar", json=mala).json()
+    assert not r["ok"] and "tarjetas.0" in r["errores"][0]

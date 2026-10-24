@@ -6,7 +6,7 @@ from dataclasses import asdict
 
 import pandas as pd
 from fastapi import APIRouter, Cookie, Depends, Header, File, Form, HTTPException, Response, UploadFile
-from pydantic import BaseModel, TypeAdapter
+from pydantic import BaseModel, TypeAdapter, ValidationError
 
 from app import almacen, auth, export, tablas
 from app.agent import asistente as asistente_ia
@@ -128,6 +128,16 @@ def guardar_senal(senal_id: str, receta: m.Senal, response: Response,
         raise HTTPException(422, str(e))
     response.headers["ETag"] = almacen.version(senal_id)
     return {"ok": True}
+
+
+@api.post("/senales/validar")
+def validar_receta(receta: dict):
+    """Valida una receta importada; devuelve los errores en castellano en vez de un 422 crudo."""
+    try:
+        return {"ok": True, "receta": m.Senal.model_validate(receta).model_dump(exclude_none=True)}
+    except ValidationError as e:
+        errores = [f"{'.'.join(map(str, x['loc']))}: {x['msg']}" for x in e.errors()[:10]]
+        return {"ok": False, "errores": errores}
 
 
 @api.post("/senales/{senal_id}/titulos/aprender")
