@@ -24,13 +24,6 @@
 
   <main id="principal" hidden>
     <aside class="panel">
-      <section class="bloque">
-        <h2>Entrada</h2>
-        <div class="fila">
-          <label>Hoja <input id="in-hoja" class="corto"></label>
-          <label>Fila de encabezado <input id="in-fila" type="number" min="1" class="corto"></label>
-        </div>
-      </section>
       <section class="bloque asistente">
         <h2>Pedile al asistente</h2>
         <textarea id="in-pedido" rows="3" placeholder="Ej.: los títulos de capítulo vienen con 'Ep 1' al final, sacalo"></textarea>
@@ -40,9 +33,22 @@
         </div>
         <div id="propuesta" hidden></div>
       </section>
+      <details class="bloque" id="bloque-entrada">
+        <summary><h2>Entrada</h2> <span id="res-entrada" class="tenue"></span></summary>
+        <div class="fila">
+          <label>Hoja <input id="in-hoja" class="corto"></label>
+          <label>Fila de encabezado <input id="in-fila" type="number" min="1" class="corto"></label>
+        </div>
+      </details>
       <section class="bloque">
-        <h2>Tarjetas <span class="tenue">(arrastrá para ordenar)</span></h2>
-        <ol id="lista-tarjetas" class="tarjetas"></ol>
+        <h2>Tarjetas <span id="res-tarjetas" class="tenue"></span></h2>
+        <div class="fila">
+          <span class="tenue">Arrastrá para cambiar el orden.</span>
+          <span class="espacio"></span>
+          <button id="btn-abrir-todo" type="button" class="chico">Abrir todo</button>
+          <button id="btn-cerrar-todo" type="button" class="chico">Cerrar todo</button>
+        </div>
+        <ul id="lista-tarjetas" class="bloques-tarjetas"></ul>
         <div class="fila">
           <select id="sel-tipo"></select>
           <button id="btn-agregar">+ Tarjeta</button>
@@ -94,10 +100,11 @@
           <label>Columna de programa <input id="val-programa" list="columnas-conocidas" placeholder="automática"></label>
         </div>
       </details>
-      <section class="bloque">
-        <h2>Columnas de salida <span class="tenue">(una por línea, vacío = todas)</span></h2>
+      <details class="bloque" id="bloque-salida">
+        <summary><h2>Columnas de salida</h2> <span id="res-salida" class="tenue"></span></summary>
+        <p class="tenue">Una por línea, en el orden del EPG. Vacío = todas las columnas.</p>
         <textarea id="in-salida" rows="8"></textarea>
-      </section>
+      </details>
     </aside>
 
     <section class="contenido">

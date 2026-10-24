@@ -38,7 +38,7 @@ const ICONOS = { error: "✕", aviso: "⚠", info: "ℹ" };
 
 const estado = {
   schema: null, sinCondicion: new Set(), yo: null, receta: null, guardada: null,
-  tablaId: null, informes: [], columnas: new Set(), abierta: null, ultimoPreview: 0,
+  tablaId: null, informes: [], recienCambiadas: new Set(), columnas: new Set(), abierta: null, ultimoPreview: 0,
 };
 
 const $ = (s) => document.querySelector(s);
@@ -216,40 +216,111 @@ function editorCondicion(tarjeta) {
 
 // --- Lista de tarjetas ---
 
+// Tema de cada tipo de tarjeta: solo para mostrarlas agrupadas, no cambia la receta.
+const TEMAS = {
+  limpiar_espacios: "Limpieza de texto", reemplazar: "Limpieza de texto", quitar: "Limpieza de texto",
+  mayus_minus: "Limpieza de texto", separar: "Separar y extraer", extraer: "Separar y extraer",
+  redondear_hora: "Horarios", duracion: "Horarios", dia_semana: "Horarios",
+  renombrar: "Columnas y datos", numerar: "Columnas y datos", a_numero: "Columnas y datos",
+  asignar: "Columnas y datos", clasificar_sinopsis: "Columnas y datos", correcciones: "Correcciones",
+};
+
+// Junta solo tarjetas seguidas del mismo tema: el orden de ejecución no se toca.
+function agruparConsecutivas(tarjetas) {
+  const grupos = [];
+  tarjetas.forEach((t, k) => {
+    const tema = TEMAS[t.tipo] || "Otras";
+    const ultimo = grupos[grupos.length - 1];
+    if (ultimo && ultimo.tema === tema) ultimo.indices.push(k);
+    else grupos.push({ tema, indices: [k], clave: `${tema}:${t.id}` });
+  });
+  return grupos;
+}
+
+function claveGruposAbiertos() { return "grupos-abiertos:" + estado.receta.id; }
+
+function leerGruposAbiertos() {
+  try { return new Set(JSON.parse(localStorage.getItem(claveGruposAbiertos()) || "[]")); } catch { return new Set(); }
+}
+
+function guardarGruposAbiertos(abiertos) {
+  try { localStorage.setItem(claveGruposAbiertos(), JSON.stringify([...abiertos])); } catch {}
+}
+
 function dibujarTarjetas() {
   const lista = $("#lista-tarjetas");
   lista.replaceChildren();
-  estado.receta.tarjetas.forEach((t, k) => {
-
-    const activa = el("input", { type: "checkbox", checked: t.activa !== false, title: "Activa" });
-    activa.onclick = (e) => e.stopPropagation();
-    activa.onchange = () => { t.activa = activa.checked; cambioReceta(); dibujarTarjetas(); };
-    const borrar = el("button", { className: "chico", textContent: "✕", title: "Borrar" });
-    borrar.onclick = (e) => {
-      e.stopPropagation();
-      if (!confirm(`¿Borrar la tarjeta "${NOMBRES[t.tipo]}"?`)) return;
-      estado.receta.tarjetas.splice(k, 1);
-      cambioReceta();
+  const tarjetas = estado.receta.tarjetas;
+  const grupos = agruparConsecutivas(tarjetas);
+  const abiertos = leerGruposAbiertos();
+  $("#res-tarjetas").textContent = tarjetas.length ? `(${tarjetas.length} en ${grupos.length} grupos)` : "";
+  for (const g of grupos) {
+    const ids = g.indices.map((k) => tarjetas[k].id);
+    const conError = ids.some((id) => estado.informes.find((i) => i.id === id)?.error);
+    // Se abre solo si tiene un error, la tarjeta en edición o una que acaba de cambiar el asistente.
+    if (conError || ids.includes(estado.abierta) || ids.some((id) => estado.recienCambiadas.has(id))) abiertos.add(g.clave);
+    const abierto = abiertos.has(g.clave);
+    const cabeza = el("div", { className: "cabeza-grupo", onclick: () => {
+      const actuales = leerGruposAbiertos();
+      actuales.has(g.clave) ? actuales.delete(g.clave) : actuales.add(g.clave);
+      guardarGruposAbiertos(actuales);
       dibujarTarjetas();
-    };
-    const cabeza = el("div", { className: "cabeza", onclick: () => { estado.abierta = estado.abierta === t.id ? null : t.id; dibujarTarjetas(); } },
-      activa,
-      el("span", { className: "titulo" }, `${k + 1}. ${NOMBRES[t.tipo] || t.tipo}`, el("span", { className: "nota", textContent: t.nota || resumen(t) })),
-      el("span", { className: "insignias" }), borrar);
-
-    const item = el("li", { className: "tarjeta" + (t.activa === false ? " inactiva" : ""), draggable: true },
-      cabeza, el("div", { className: "mensajes" }));
-    item.dataset.id = t.id;
-    if (estado.abierta === t.id) item.append(formularioTarjeta(t));
-    habilitarArrastre(item, k);
-    lista.append(item);
-  });
+    } }, el("b", { className: "titulo" }, g.tema, el("span", { className: "detalle" },
+      ` · ${g.indices.length} ${g.indices.length === 1 ? "tarjeta" : "tarjetas"}`)), el("span", { className: "insignias" }));
+    const grupo = el("li", { className: "grupo" + (abierto ? " abierto" : "") }, cabeza);
+    grupo.dataset.ids = ids.join(" ");
+    if (abierto) {
+      const ol = el("ol", { className: "tarjetas" });
+      for (const k of g.indices) ol.append(itemTarjeta(tarjetas[k], k));
+      grupo.append(ol);
+    }
+    lista.append(grupo);
+  }
+  guardarGruposAbiertos(abiertos);
+  estado.recienCambiadas = new Set();
   pintarInformes();
+}
+
+function itemTarjeta(t, k) {
+  const activa = el("input", { type: "checkbox", checked: t.activa !== false, title: "Activa" });
+  activa.onclick = (e) => e.stopPropagation();
+  activa.onchange = () => { t.activa = activa.checked; cambioReceta(); dibujarTarjetas(); };
+  const borrar = el("button", { className: "chico", textContent: "✕", title: "Borrar" });
+  borrar.onclick = (e) => {
+    e.stopPropagation();
+    if (!confirm(`¿Borrar la tarjeta "${NOMBRES[t.tipo]}"?`)) return;
+    estado.receta.tarjetas.splice(k, 1);
+    cambioReceta();
+    dibujarTarjetas();
+  };
+  const cabeza = el("div", { className: "cabeza", onclick: () => { estado.abierta = estado.abierta === t.id ? null : t.id; dibujarTarjetas(); } },
+    activa,
+    el("span", { className: "titulo" }, `${k + 1}. ${NOMBRES[t.tipo] || t.tipo}`, el("span", { className: "nota", textContent: t.nota || resumen(t) })),
+    el("span", { className: "insignias" }), borrar);
+
+  const item = el("li", { className: "tarjeta" + (t.activa === false ? " inactiva" : ""), draggable: true },
+    cabeza, el("div", { className: "mensajes" }));
+  item.dataset.id = t.id;
+  if (estado.abierta === t.id) item.append(formularioTarjeta(t));
+  habilitarArrastre(item, k);
+  return item;
 }
 
 // Actualiza insignias y mensajes sin redibujar los formularios (no se pierde el foco al tipear).
 function pintarInformes() {
-  for (const item of document.querySelectorAll("#lista-tarjetas > li")) {
+  for (const grupo of document.querySelectorAll("#lista-tarjetas > li.grupo")) {
+    const informes = grupo.dataset.ids.split(" ").map((id) => estado.informes.find((i) => i.id === id)).filter(Boolean);
+    const errores = informes.filter((i) => i.error).length;
+    const avisos = informes.reduce((n, i) => n + (i.avisos?.length || 0), 0);
+    const celdas = informes.reduce((n, i) => n + (i.error ? 0 : i.celdas_cambiadas), 0);
+    const insignias = [];
+    if (errores) insignias.push(el("span", { className: "insignia error", textContent: `${errores} con error` }));
+    if (informes.length) insignias.push(el("span", { className: "insignia", textContent: `${celdas} celdas` }));
+    if (avisos) insignias.push(el("span", { className: "insignia aviso", textContent: `${avisos} avisos` }));
+    grupo.querySelector(":scope > .cabeza-grupo .insignias").replaceChildren(...insignias);
+    grupo.classList.toggle("con-error", errores > 0);
+  }
+  for (const item of document.querySelectorAll("#lista-tarjetas li.tarjeta")) {
     const t = estado.receta.tarjetas.find((x) => x.id === item.dataset.id);
     const informe = estado.informes.find((i) => i.id === item.dataset.id);
     const insignias = [];
@@ -345,8 +416,18 @@ function cargarReceta(receta, guardada, version = null) {
   $("#tit-buscar").value = "";
   dibujarTitulos();
   $("#panel-validaciones").hidden = true;
+  // Señal nueva: entrada y salida abiertas porque hay que configurarlas; si no, plegadas.
+  $("#bloque-entrada").open = $("#bloque-salida").open = !guardada;
+  resumirEntradaYSalida();
   dibujarTarjetas();
   cambioReceta();
+}
+
+function resumirEntradaYSalida() {
+  const e = estado.receta.entrada;
+  $("#res-entrada").textContent = `hoja ${e.hoja}, encabezado en la fila ${e.fila_encabezado}`;
+  const n = estado.receta.salida.columnas.length;
+  $("#res-salida").textContent = n ? `${n} columnas` : "todas";
 }
 
 function enlazarValidaciones() {
@@ -452,9 +533,11 @@ function dibujarMetricas(antes, despues) {
 
 function aplicarPropuesta() {
   const r = estado.propuesta.receta;
+  estado.recienCambiadas = new Set(estado.propuesta.cambios.filter((c) => c.id).map((c) => c.id));
   estado.receta.tarjetas = r.tarjetas;
   estado.receta.salida = r.salida;
   $("#in-salida").value = r.salida.columnas.join("\n");
+  resumirEntradaYSalida();
   estado.propuesta = null;
   estado.verPropuesta = false;
   dibujarPropuesta();
@@ -640,6 +723,8 @@ async function previsualizar() {
     $("#resumen").replaceChildren(`${r.total_filas} filas` + (r.total_filas > r.filas.length ? ` (se muestran ${r.filas.length})` : ""),
       estado.verPropuesta ? el("span", { className: "vista-propuesta", textContent: " · mostrando la propuesta del asistente" }) : "");
     pintarInformes();
+    const grupoConErrorCerrado = [...document.querySelectorAll("#lista-tarjetas > li.grupo.con-error:not(.abierto)")].length;
+    if (grupoConErrorCerrado && !document.activeElement?.closest(".formulario")) dibujarTarjetas();
     avisar("");
   } catch (e) {
     if (turno === estado.ultimoPreview) avisar(e.message, true);
@@ -831,11 +916,22 @@ async function iniciar() {
   $("#in-hoja").oninput = (e) => {
     const v = e.target.value.trim();
     estado.receta.entrada.hoja = /^\d+$/.test(v) ? Number(v) : v;
+    resumirEntradaYSalida();
     cambioReceta();
   };
-  $("#in-fila").oninput = (e) => { estado.receta.entrada.fila_encabezado = Number(e.target.value) || 1; cambioReceta(); };
+  $("#in-fila").oninput = (e) => {
+    estado.receta.entrada.fila_encabezado = Number(e.target.value) || 1;
+    resumirEntradaYSalida();
+    cambioReceta();
+  };
+  $("#btn-abrir-todo").onclick = () => {
+    guardarGruposAbiertos(new Set(agruparConsecutivas(estado.receta.tarjetas).map((g) => g.clave)));
+    dibujarTarjetas();
+  };
+  $("#btn-cerrar-todo").onclick = () => { estado.abierta = null; guardarGruposAbiertos(new Set()); dibujarTarjetas(); };
   $("#in-salida").oninput = (e) => {
     estado.receta.salida.columnas = e.target.value.split("\n").map((s) => s.trim()).filter(Boolean);
+    resumirEntradaYSalida();
     cambioReceta();
   };
   for (const b of document.querySelectorAll(".pestanas button")) b.onclick = () => mostrarPestana(b.dataset.pestana);

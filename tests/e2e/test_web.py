@@ -101,3 +101,57 @@ def test_flujo_basico(servidor, tmp_path):
         assert pagina.locator("#lista-tarjetas > li").count() == 1
         pagina.wait_for_selector("#tabla td:text('JOSEPH PRINCE')")
         navegador.close()
+
+
+def test_tarjetas_agrupadas_por_tema(servidor, tmp_path):
+    import datetime as dt
+    from openpyxl import Workbook
+
+    wb = Workbook()
+    wb.active.append(["Fecha", "Hora", "Titulo"])
+    wb.active.append([dt.datetime(2026, 10, 23), dt.time(0), " a  b "])
+    grilla = tmp_path / "grilla.xlsx"
+    wb.save(grilla)
+    receta = {"id": "grupos", "nombre": "Grupos", "entrada": {"tipo": "excel"}, "salida": {"columnas": []},
+              "tarjetas": [
+                  {"id": "l1", "tipo": "limpiar_espacios"},
+                  {"id": "l2", "tipo": "reemplazar", "columnas": ["Titulo"], "buscar": "a", "por": "A"},
+                  {"id": "c1", "tipo": "numerar"},
+                  {"id": "l3", "tipo": "quitar", "columnas": ["Titulo"], "texto": "b"},
+                  {"id": "c2", "tipo": "renombrar", "mapa": {"NoExiste": "X"}},
+              ]}
+
+    with playwright.sync_playwright() as p:
+        try:
+            navegador = p.chromium.launch(executable_path=os.environ.get("CHROMIUM"))
+        except playwright.Error as e:
+            pytest.skip(f"No hay Chromium para Playwright: {str(e).splitlines()[0]}")
+        pagina = navegador.new_page()
+        pagina.goto(servidor + "/login")
+        pagina.fill("input[name=usuario]", "admin")
+        pagina.fill("input[name=clave]", "clave-segura")
+        pagina.click("button[type=submit]")
+        pagina.wait_for_url(servidor + "/")
+        assert pagina.request.put(servidor + "/api/senales/grupos", data=receta).ok
+        pagina.reload()
+        pagina.select_option("#sel-senal", "grupos")
+        pagina.set_input_files("#in-archivo", str(grilla))
+        pagina.wait_for_selector("#tabla td:text('A')")
+
+        # Solo se juntan las seguidas: limpieza, columnas, limpieza, columnas.
+        grupos = pagina.locator("#lista-tarjetas > li.grupo")
+        assert grupos.count() == 4
+        assert pagina.inner_text("#res-tarjetas") == "(5 en 4 grupos)"
+        assert "Limpieza de texto · 2 tarjetas" in grupos.nth(0).inner_text()
+        # El bloque cerrado suma las celdas: " a  b " → "a b" → "A b" son 2 cambios.
+        assert "2 celdas" in grupos.nth(0).inner_text()
+        assert pagina.locator("#lista-tarjetas li.tarjeta").count() == 1  # solo el bloque con error se abre
+        assert "1 con error" in grupos.nth(3).inner_text()
+
+        grupos.nth(0).locator(".cabeza-grupo").click()
+        assert pagina.locator("#lista-tarjetas li.tarjeta").count() == 3
+        pagina.click("#btn-abrir-todo")
+        assert pagina.locator("#lista-tarjetas li.tarjeta").count() == 5
+        pagina.click("#btn-cerrar-todo")
+        assert pagina.locator("#lista-tarjetas li.tarjeta").count() == 1
+        navegador.close()

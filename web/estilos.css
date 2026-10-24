@@ -47,6 +47,15 @@ main { display: grid; grid-template-columns: minmax(340px, 420px) 1fr; gap: 12px
 .bloque, .contenido { background: var(--superficie); border: 1px solid var(--borde); border-radius: 8px; padding: 12px; }
 .contenido { min-width: 0; }
 
+.bloques-tarjetas { list-style: none; margin: 0 0 8px; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.grupo { border: 1px solid var(--borde); border-radius: 6px; background: #fafbfc; }
+.grupo.con-error { border-color: var(--error); }
+.grupo > .cabeza-grupo { display: flex; gap: 6px; align-items: center; padding: 7px 8px; cursor: pointer; user-select: none; }
+.grupo > .cabeza-grupo::before { content: "▸"; color: var(--tenue); }
+.grupo.abierto > .cabeza-grupo::before { content: "▾"; }
+.grupo > .cabeza-grupo .titulo { flex: 1; }
+.grupo > .cabeza-grupo .detalle { color: var(--tenue); font-weight: normal; font-size: 12px; }
+.grupo > .tarjetas { margin: 0; padding: 0 6px 6px; }
 .tarjetas { list-style: none; margin: 0 0 8px; padding: 0; display: flex; flex-direction: column; gap: 6px; }
 .tarjeta { border: 1px solid var(--borde); border-radius: 6px; background: #fff; }
 .tarjeta.inactiva { opacity: .55; }
