@@ -42,7 +42,10 @@ def login(datos: Login, response: Response):
 
 
 def _es_produccion() -> bool:
-    return bool(os.environ.get("RAILWAY_ENVIRONMENT"))
+    """Si corre detrás de HTTPS: ahí la cookie de sesión se marca para viajar solo cifrada."""
+    if os.environ.get("COOKIE_SEGURA") in ("0", "1"):
+        return os.environ["COOKIE_SEGURA"] == "1"
+    return any(os.environ.get(v) for v in ("RAILWAY_ENVIRONMENT", "RAILWAY_ENVIRONMENT_NAME", "RAILWAY_ENVIRONMENT_ID"))
 
 
 @publico.post("/logout")

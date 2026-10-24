@@ -215,3 +215,25 @@ def test_validar_receta_importada(cliente):
     mala = {**RECETA, "tarjetas": [{"id": "x", "tipo": "inventada"}]}
     r = cliente.post("/api/senales/validar", json=mala).json()
     assert not r["ok"] and "tarjetas.0" in r["errores"][0]
+
+
+def test_cookie_segura_en_railway(monkeypatch):
+    from app.api.rutas import _es_produccion
+
+    for v in ("RAILWAY_ENVIRONMENT", "RAILWAY_ENVIRONMENT_NAME", "RAILWAY_ENVIRONMENT_ID", "COOKIE_SEGURA"):
+        monkeypatch.delenv(v, raising=False)
+    assert not _es_produccion()
+    monkeypatch.setenv("RAILWAY_ENVIRONMENT_NAME", "production")
+    assert _es_produccion()
+    monkeypatch.setenv("COOKIE_SEGURA", "0")  # se puede apagar a mano, por ejemplo para probar sin HTTPS
+    assert not _es_produccion()
+
+
+def test_login_marca_la_cookie_segura(tmp_path, monkeypatch):
+    from app import auth
+
+    monkeypatch.setenv("DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("COOKIE_SEGURA", "1")
+    auth.crear_usuario("ana", "clave-de-ana")
+    r = TestClient(app).post("/api/login", json={"usuario": "ana", "clave": "clave-de-ana"})
+    assert "secure" in r.headers["set-cookie"].lower() and "httponly" in r.headers["set-cookie"].lower()
