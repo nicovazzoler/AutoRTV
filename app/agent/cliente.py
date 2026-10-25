@@ -34,7 +34,7 @@ FORMATO_CHARLA = {
 class Respuesta:
     texto: str  # lo que devolvió el modelo, para reenviarlo en la vuelta siguiente
     datos: dict | None = None
-    rechazo: str | None = None  # motivo si el modelo se negó a responder
+    rechazo: str | None = None
     tokens_entrada: int = 0
     tokens_salida: int = 0
 

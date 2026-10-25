@@ -242,7 +242,7 @@ def _correr(p: Pedido) -> Corrida:
     df, estados, hashes = pautas.aplicar(tabla, r.tabla, pautas.base(p.senal.id))
     salida = armar_salida(df, p.senal.salida)
     cat = catalogo.leer()
-    if cat and not p.senal.salida.columnas:  # sin columnas de salida elegidas, se ordenan como el catálogo
+    if cat and not p.senal.salida.columnas:
         salida = salida[catalogo.ordenar(list(salida.columns), cat)]
     return Corrida(salida, r.informes, cat, estados, hashes, pautas.crudas(tabla))
 
