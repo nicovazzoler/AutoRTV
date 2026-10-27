@@ -7,7 +7,7 @@ const NOMBRES = {
   extraer: "Extraer", mayus_minus: "Mayúsculas / minúsculas", asignar: "Asignar valor", a_numero: "Pasar a número",
   correcciones: "Correcciones fijas", renombrar: "Renombrar columnas", numerar: "Numerar filas",
   redondear_hora: "Redondear hora", dia_semana: "Día de la semana", duracion: "Duración",
-  clasificar_sinopsis: "Sinopsis: programa o capítulo",
+  clasificar_sinopsis: "Sinopsis: programa o capítulo", convertir_zona: "Convertir zona horaria",
 };
 const ETIQUETAS = {
   columna: "Columna", columnas: "Columnas", buscar: "Buscar", por: "Reemplazar por", modo: "Modo", texto: "Texto",
@@ -18,6 +18,8 @@ const ETIQUETAS = {
   hora: "Columna hora", ultimo_hasta: "Último programa termina a las (HH:MM)", programa: "Columna programa",
   capitulo: "Columna capítulo", sinopsis: "Columna sinopsis", destino_programa: "Destino si es de programa",
   destino_capitulo: "Destino si es de capítulo", umbral: "Umbral (0-1)", nota: "Nota",
+  desde: "Zona de origen (ej. UTC)", hacia: "Zona de destino (ej. America/New_York)", destino_fecha: "Columna fecha destino",
+  destino_hora: "Columna hora destino",
 };
 const OPERADORES = { igual: "es igual a", distinto: "es distinto de", contiene: "contiene", empieza: "empieza con",
   termina: "termina con", vacio: "está vacía", no_vacio: "no está vacía", regex: "cumple regex" };
@@ -223,7 +225,7 @@ const TEMAS = {
   mayus_minus: "Limpieza de texto", separar: "Separar y extraer", extraer: "Separar y extraer",
   redondear_hora: "Horarios", duracion: "Horarios", dia_semana: "Horarios",
   renombrar: "Columnas y datos", numerar: "Columnas y datos", a_numero: "Columnas y datos",
-  asignar: "Columnas y datos", clasificar_sinopsis: "Columnas y datos", correcciones: "Correcciones",
+  asignar: "Columnas y datos", clasificar_sinopsis: "Columnas y datos", convertir_zona: "Horarios", correcciones: "Correcciones",
 };
 
 // Junta solo tarjetas seguidas del mismo tema: el orden de ejecución no se toca.
@@ -338,6 +340,7 @@ function frase(t) {
     redondear_hora: () => `Redondea la hora de ${t.columna} ${(t.a_minutos || 1) > 1 ? `a ${t.a_minutos} minutos` : "al minuto"}`,
     dia_semana: () => `Escribe en ${t.destino || "Dia"} el día de la semana de ${t.columna}`,
     duracion: () => `${t.destino || "Duracion"} = minutos hasta el programa siguiente${t.ultimo_hasta ? ` (el último termina a las ${t.ultimo_hasta})` : ""}`,
+    convertir_zona: () => `Pasa ${t.columna}${t.hora ? ` y ${t.hora}` : ""} de ${t.desde} a ${t.hacia} (en ${t.destino_fecha || "Fecha"} y ${t.destino_hora || "Hora"})`,
     clasificar_sinopsis: () => `Si la sinopsis de ${t.sinopsis} se repite en todos los capítulos va a ${t.destino_programa}; si cambia, a ${t.destino_capitulo}`,
   }[t.tipo];
   let resultado = texto ? texto() : (NOMBRES[t.tipo] || t.tipo);

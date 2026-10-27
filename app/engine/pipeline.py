@@ -25,6 +25,7 @@ DE_ESTRUCTURA = {
     "dia_semana": estructura.dia_semana,
     "duracion": estructura.duracion,
     "clasificar_sinopsis": estructura.clasificar_sinopsis,
+    "convertir_zona": estructura.convertir_zona,
 }
 
 

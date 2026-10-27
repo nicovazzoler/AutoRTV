@@ -1,5 +1,7 @@
 """Tarjetas que trabajan sobre la tabla entera: columnas, numeración, horarios."""
 import datetime as dt
+import re
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import pandas as pd
 
@@ -138,3 +140,37 @@ def _texto_o_none(v):
         return None
     s = str(v).strip()
     return s or None
+
+
+def _fecha_y_hora(v, hora=None) -> dt.datetime | None:
+    if isinstance(v, str) and re.match(r"^\s*\d{4}-\d{2}-\d{2}", v):
+        convertida = pd.to_datetime(v.strip(), errors="coerce")
+        v = None if pd.isna(convertida) else convertida.to_pydatetime()
+    if isinstance(v, pd.Timestamp):
+        v = v.to_pydatetime()
+    fecha = a_fecha(v)
+    if fecha is None:
+        return None
+    h = a_hora(hora) if hora is not None else (v.time() if isinstance(v, dt.datetime) else dt.time(0))
+    return dt.datetime.combine(fecha, h) if h is not None else None
+
+
+def convertir_zona(df, t: m.ConvertirZona):
+    columnas_de(df, [t.columna] + ([t.hora] if t.hora else []))
+    try:
+        desde, hacia = ZoneInfo(t.desde), ZoneInfo(t.hacia)
+    except (ZoneInfoNotFoundError, ValueError):
+        raise ErrorTarjeta(f"Zona horaria desconocida: {t.desde} o {t.hacia} (ej. UTC, America/New_York)")
+    fechas, horas = [], []
+    for i in df.index:
+        momento = _fecha_y_hora(df.at[i, t.columna], df.at[i, t.hora] if t.hora else None)
+        if momento is None:
+            fechas.append(None)
+            horas.append(None)
+            continue
+        local = momento.replace(tzinfo=desde).astimezone(hacia).replace(tzinfo=None)
+        fechas.append(dt.datetime.combine(local.date(), dt.time(0)))
+        horas.append(local.time())
+    df[t.destino_fecha] = fechas
+    df[t.destino_hora] = horas
+    return df

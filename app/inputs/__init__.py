@@ -7,17 +7,20 @@ from app.engine import model as m
 
 
 def leer(contenido: bytes, entrada) -> pd.DataFrame:
-    from app.inputs import excel, html, pdf, texto, xml
+    from app.inputs import excel, html, partir, pdf, texto, xml
 
     if entrada.tipo == "excel":
-        return excel.leer(io.BytesIO(contenido), entrada)
-    if entrada.tipo == "pdf":
-        return pdf.leer(io.BytesIO(contenido), entrada)
-    if entrada.tipo == "xml":
-        return xml.leer(io.BytesIO(contenido), entrada)
-    if entrada.tipo == "html":
-        return html.leer(io.BytesIO(contenido), entrada)
-    return texto.leer(contenido, entrada)
+        tabla = excel.leer(io.BytesIO(contenido), entrada)
+    elif entrada.tipo == "pdf":
+        tabla = pdf.leer(io.BytesIO(contenido), entrada)
+    elif entrada.tipo == "xml":
+        tabla = xml.leer(io.BytesIO(contenido), entrada)
+    elif entrada.tipo == "html":
+        tabla = html.leer(io.BytesIO(contenido), entrada)
+    else:
+        tabla = texto.leer(contenido, entrada)
+    # Antes de las reglas: cada parte queda como fila cruda propia y la base la reconoce sola.
+    return partir.partir_filas(tabla, entrada.partir) if entrada.partir else tabla
 
 
 def detectar(contenido: bytes):

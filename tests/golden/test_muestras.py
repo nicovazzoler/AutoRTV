@@ -13,9 +13,10 @@ pytestmark = pytest.mark.skipif(not DIR.exists(), reason="sin las muestras del l
 PDFS = [
     ("GRILLA TRECE SEMANA 43-OCTUBRE- A#U00d1O 2026 (19-10).pdf", "Ejemplo Trece (RPC).xlsx", "f", "h", None, 172),
     ("Grade TV NOVA 44.2026 - 26.10.2026 a 01.11.2026 (21-10).pdf", "Ejemplo TV Nova Nordeste.xlsx", "f", "HORA", [1], 212),
-    # Televisión Mexiquense: 4 celdas traen dos programas con " / " y la macro las parte en dos filas.
     ("Programacion 34.1 semana 44 (24-10).pdf", "Ejemplo IG (24-10).xlsx", "FECHA", "HORA", None, 165),
 ]
+# Televisión Mexiquense: las celdas "A / B" con una duración (7'43") son dos programas.
+MEXIQUENSE = m.Partir(solo_si=r"\d+'\d+\"")
 
 
 def _esperado(nombre: str) -> pd.DataFrame:
@@ -30,6 +31,24 @@ def test_pdf_trae_los_mismos_horarios_que_la_macro(archivo, ejemplo, col_fecha, 
     esperado = _esperado(ejemplo)
     claves = [(f.date(), h.strftime("%H:%M")) for f, h in zip(esperado[col_fecha], esperado[col_hora])]
     assert sum(c in leidos for c in claves) == iguales
+
+
+def test_mexiquense_partiendo_las_celdas_dobles():
+    df = inputs.leer((DIR / PDFS[2][0]).read_bytes(), m.EntradaPdf(tipo="pdf", partir=MEXIQUENSE))
+    leidos = {(f.date(), i.strftime("%H:%M")) for f, i in zip(df["Fecha"], df["Inicio"])}
+    esperado = _esperado(PDFS[2][1])
+    assert all((f.date(), h.strftime("%H:%M")) in leidos for f, h in zip(esperado["FECHA"], esperado["HORA"]))
+
+
+def test_tbn_en_hora_del_este():
+    from app.engine.tarjetas.estructura import convertir_zona
+
+    contenido = (DIR / "HTML TBN.txt").read_bytes()
+    crudo = inputs.leer(contenido, inputs.detectar(contenido))
+    t = m.ConvertirZona(id="z", tipo="convertir_zona", columna="data-timestamp-utc", hacia="America/New_York")
+    df = convertir_zona(crudo, t)
+    martes = df[(df["Fecha"] == pd.Timestamp(2026, 10, 20)) & (df["title-column"] == "Joseph Prince")]
+    assert "00:00" in [h.strftime("%H:%M") for h in martes["Hora"]]
 
 
 @pytest.mark.parametrize("archivo,ejemplo,minimo", [

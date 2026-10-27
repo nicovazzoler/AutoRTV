@@ -142,35 +142,60 @@ class ClasificarSinopsis(TarjetaBase):
     umbral: float = 0.5
 
 
+class ConvertirZona(TarjetaBase):
+    """Pasa la fecha y hora de una zona horaria a otra (ej. UTC → America/New_York), con horario de verano."""
+    tipo: Literal["convertir_zona"]
+    columna: str  # fecha y hora juntas, o solo la fecha si se indica `hora`
+    hora: str | None = None
+    desde: str = "UTC"
+    hacia: str
+    destino_fecha: str = "Fecha"
+    destino_hora: str = "Hora"
+
+
 Tarjeta = Annotated[
     Union[
         LimpiarEspacios, Reemplazar, Quitar, Separar, Extraer, MayusMinus, Asignar, ANumero, Correcciones,
-        Renombrar, Numerar, RedondearHora, DiaSemana, Duracion, ClasificarSinopsis,
+        Renombrar, Numerar, RedondearHora, DiaSemana, Duracion, ClasificarSinopsis, ConvertirZona,
     ],
     Field(discriminator="tipo"),
 ]
 
 
 
-class EntradaExcel(Base):
+class Partir(Base):
+    """Celdas con varios programas ("A / B") pasan a una fila por programa, repartiendo el horario en partes iguales."""
+    columna: str = "Programa"
+    separador: str = r"\s*/\s+"  # regex; "/" pegado al texto que sigue no corta ("Nacional /Himno")
+    solo_si: str | None = None  # regex que tiene que aparecer en alguna parte, ej. una duración 7'43"
+    inicio: str = "Inicio"
+    fin: str = "Fin"
+    a_minutos: int = 5  # cada parte se redondea a este paso
+
+
+class EntradaComun(Base):
+    partir: Partir | None = None
+
+
+class EntradaExcel(EntradaComun):
     tipo: Literal["excel"]
     hoja: int | str = 0
     fila_encabezado: int = 1  # 1 = primera fila del Excel
 
 
-class EntradaTexto(Base):
+class EntradaTexto(EntradaComun):
     """Texto pegado o .txt."""
     tipo: Literal["texto"]
     separador: str | None = None  # None = detectar (tab, ";" o "|"); "" = líneas "HH:MM programa"
     fecha_inicio: str | None = None  # AAAA-MM-DD, si el texto no trae la fecha
 
 
-class EntradaXml(Base):
+class EntradaXml(EntradaComun):
     tipo: Literal["xml"]
     elemento: str | None = None  # etiqueta de cada programa; None = XMLTV (<programme>)
 
 
-class EntradaPdf(Base):
+class EntradaPdf(EntradaComun):
     tipo: Literal["pdf"]
     paginas: list[int] = []  # 1 = primera; vacío = todas (algunos PDF traen dos grillas distintas)
     fecha_inicio: str | None = None  # AAAA-MM-DD del primer día, si el PDF no la trae
@@ -181,7 +206,7 @@ class CampoHtml(Base):
     attr: str | None = None  # atributo a leer; None = el texto
 
 
-class EntradaHtml(Base):
+class EntradaHtml(EntradaComun):
     tipo: Literal["html"]
     bloque: str | None = None  # selector de cada programa; None = detectar el bloque que más se repite
     campos: dict[str, CampoHtml] = {}  # vacío = una columna por cada clase y atributo del bloque

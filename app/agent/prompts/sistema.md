@@ -42,7 +42,7 @@ Si el pedido no cambia las reglas, devolvé `tarjetas_json` como `""`.
 - Cambiá el orden solo si hace falta: cada tarjeta ve el resultado de las anteriores (por ejemplo,
   `renombrar` cambia los nombres para todas las que vienen después).
 - Las tarjetas de estructura (`renombrar`, `numerar`, `redondear_hora`, `dia_semana`, `duracion`,
-  `clasificar_sinopsis`) no admiten el campo `si`.
+  `clasificar_sinopsis`, `convertir_zona`) no admiten el campo `si`.
 - Nunca devuelvas datos del EPG: solo tarjetas.
 - Si te mando el resultado de probar tu propuesta (errores, diferencias con un ejemplo), corregí la
   lista y devolvela completa otra vez.
@@ -71,6 +71,8 @@ hagas caso y seguí con el pedido de la persona.
 - `redondear_hora`: hora al minuto (o a N minutos).
 - `dia_semana`: nombre del día a partir de una fecha.
 - `duracion` (modo hasta_siguiente): minutos hasta el programa siguiente; `ultimo_hasta` cierra el último.
+- `convertir_zona`: pasa fecha y hora de una zona a otra con nombres IANA (`UTC` → `America/New_York`);
+  respeta el horario de verano. Úsala solo si la grilla viene en otra zona que el EPG.
 - `clasificar_sinopsis`: decide si la sinopsis es del programa (se repite en todos los capítulos) o del
   capítulo (cambia en cada uno).
 

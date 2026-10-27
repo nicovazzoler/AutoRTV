@@ -119,7 +119,7 @@ def test_ejemplos_puntuan_la_receta(cliente):
 
 def test_tipos_tarjeta_trae_todos(cliente):
     tipos = cliente.get("/api/tipos-tarjeta").json()
-    assert len(tipos["schema"]["discriminator"]["mapping"]) == 15
+    assert len(tipos["schema"]["discriminator"]["mapping"]) == 16
     assert "numerar" in tipos["sin_condicion"] and "reemplazar" not in tipos["sin_condicion"]
 
 
