@@ -152,6 +152,27 @@ Es la tabla de hoy, sin el panel de validaciones encima: los horarios están en 
 ## 8. Admin
 Tres cajas en columna: **Usuarios** (crear, nueva clave, borrar) · **Catálogo de columnas** · **Uso del asistente**.
 
+## Formatos de entrada
+Todo formato termina en la misma **tabla cruda** (filas y columnas). Desde ahí, las reglas y la base funcionan igual. Lo único que cambia es el **lector**, que se configura por señal, igual que hoy se configuran la hoja y la fila de encabezado.
+
+| Formato | Cómo se lee | Qué guarda la señal |
+|---|---|---|
+| Excel / CSV | como hoy | hoja y fila de encabezado (detectadas) |
+| XML | si es XMLTV (estándar de EPG), solo. Si es otro XML, se elige qué elemento es un programa y qué campo va a cada columna | elemento y campos |
+| PDF | si trae tablas, se leen las tablas; si es texto suelto, se trata como texto | páginas, tablas o texto |
+| Texto pegado o .txt | cada línea es una fila. Se detecta el separador (tab al copiar de Excel, `;`, `\|`) o un patrón de línea ("06:00 Programa - Capítulo"). Las líneas de día ("Lunes 2/11") ponen la fecha de las que siguen | separador o patrón, y formato del día |
+
+- **Lector de PDF y texto suelto:** lo propone el agente a partir del ejemplo, igual que con las reglas. El resultado se ve antes de aceptarlo.
+- **Fecha de inicio:** si el texto no trae la fecha en cada fila, al subirlo se pide la fecha de inicio de la semana.
+
+Cambios en las cajas:
+- **"⬆ Subir grilla"** abre un cuadro con dos pestañas:
+  - **Archivo:** se arrastra un xlsx, csv, xml, pdf, txt o html.
+  - **Pegar texto:** un cuadro de texto más la fecha de inicio.
+- **Revisar** suma una primera caja: "Cómo se leyó: grilla.pdf → 573 filas · 6 columnas [ver la tabla cruda ▸]". Si se leyó mal, ahí está el botón "Pedirle al agente que ajuste la lectura".
+- **Nueva señal ②:** la grilla cruda puede venir en cualquier formato o pegada. La macro hecha sigue siendo Excel.
+- **Nueva etapa:** los lectores van como etapa propia del backend, después de "Backend de la semana": XMLTV y XML genérico, texto y pegado, PDF.
+
 ## Qué se va de la web actual
 - El editor de tarjetas y la lista de tarjetas.
 - La sección "Títulos conocidos": se sacan solos de los programas que hay en la base.
