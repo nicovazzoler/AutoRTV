@@ -25,8 +25,7 @@ export function Login() {
       <div className="brillo dos" aria-hidden="true" />
       <div className="puntos" aria-hidden="true" />
       <form className="tarjeta-login" onSubmit={entrar}>
-        <div className="logo-placa"><img src="/logo-rtv.png" alt="rtv" width={124} height={34} /></div>
-        <h1 className="titulo" style={{ fontSize: 40, fontWeight: 600, textAlign: "center" }}>AutoRTV</h1>
+        <h1 className="titulo marca-texto" style={{ fontSize: 52, fontWeight: 600, textAlign: "center", padding: "4px 0" }}>AutoRTV</h1>
         <label className="campo">Usuario<input className="entrada" name="usuario" autoComplete="username" required autoFocus /></label>
         <label className="campo">Clave<input className="entrada" name="clave" type="password" autoComplete="current-password" required /></label>
         {error && <p className="error" role="alert">{error}</p>}
