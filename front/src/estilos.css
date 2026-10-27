@@ -15,7 +15,6 @@
   --sombra: rgba(0, 0, 0, 0.5);
   --brillo: 0.35;
   --punto: rgba(242, 237, 245, 0.07);
-  --fondo-logo: #FFFFFF;
   --tarjeta-login: var(--panel);
   color-scheme: dark;
 }
@@ -35,7 +34,6 @@
   --sombra: rgba(70, 20, 90, 0.14);
   --brillo: 0.18;
   --punto: rgba(26, 20, 32, 0.08);
-  --fondo-logo: transparent;
   --tarjeta-login: #FFFFFF;
   color-scheme: light;
 }
@@ -332,8 +330,6 @@ details.caja > summary { cursor: pointer; font-weight: 600; }
   box-shadow: 0 24px 64px var(--sombra);
 }
 .tarjeta-login .entrada { background: var(--fondo); }
-.logo-placa { align-self: center; padding: 10px 16px; border-radius: 14px; background: var(--fondo-logo); }
-.logo-placa img { display: block; width: 124px; height: auto; }
 
 /* --- Diálogo --- */
 
