@@ -12,7 +12,7 @@ import pandas as pd
 from fastapi import APIRouter, Cookie, Depends, Header, File, Form, HTTPException, Query, Response, UploadFile
 from pydantic import BaseModel, TypeAdapter, ValidationError
 
-from app import almacen, auth, catalogo, export, pautas, semana, tablas
+from app import acciones, almacen, auth, catalogo, export, pautas, semana, tablas
 from app.agent import asistente as asistente_ia
 from app.agent import cliente, uso
 from app.engine import model as m
@@ -718,20 +718,87 @@ def asistente(p: PedidoAsistente, u: auth.Usuario = Depends(auth.usuario_actual)
         ejemplos = [_leer_ejemplo(p.senal, n) for n in nombres]
     except ValueError as e:
         raise HTTPException(422, str(e))
+    semana_antes = None
     if p.ejemplo:
         objetivo = next((e for e in ejemplos if e.nombre == p.ejemplo), None)
         if objetivo is None:
             raise HTTPException(404, "No existe ese ejemplo")
         tabla = objetivo.entrada
-    else:
+    elif p.tabla_id:
         tabla = _correr_tabla(p.tabla_id, p.senal)
+        semana_antes = _semana_de(Pedido(tabla_id=p.tabla_id, senal=p.senal))
+    else:
+        tabla = pd.DataFrame()  # pedidos sobre la base o de admin no necesitan grilla
 
-    orden = [c.nombre for c in catalogo.leer()]
+    cat = catalogo.leer()
+    entorno = asistente_ia.Entorno(
+        foco=[i for i, g in enumerate(semana_antes[1]) if g["grupo"] == "revisar"] if semana_antes else [],
+        es_admin=u.admin, reglas_catalogo=[f"{c.nombre}: {c.regla or c.tipo}" for c in cat])
     propuesta = asistente_ia.pedir(p.senal, tabla, p.pedido, proveedor, ejemplos, objetivo=p.ejemplo,
-                                   orden_columnas=orden, historial=[h.model_dump() for h in p.historial])
+                                   orden_columnas=[c.nombre for c in cat],
+                                   historial=[h.model_dump() for h in p.historial], entorno=entorno)
     uso.registrar(u.usuario, p.senal.id, p.pedido, propuesta.vueltas, propuesta.tokens_entrada,
                   propuesta.tokens_salida, propuesta.logrado)
-    return asdict(propuesta)
+    respuesta = asdict(propuesta)
+    for c in respuesta["correcciones_base"]:
+        c["pautas"] = len(pautas.hashes_filtrados(p.senal.id, filtros=c["filtro"]))
+        c["descripcion"] = (f"En las pautas con {', '.join(f'{k} = {v}' for k, v in c['filtro'].items())}, "
+                            f"poner {c['columna']} = {c['valor'] if c['valor'] is not None else '(vacío)'}")
+    for a in respuesta["acciones_admin"]:
+        a["descripcion"] = acciones.describir(acciones.LISTA.validate_python([a])[0])
+    if semana_antes and propuesta.receta:
+        respuesta["efecto"] = _efecto(semana_antes, Pedido(tabla_id=p.tabla_id, senal=m.Senal(**propuesta.receta)))
+    return respuesta
+
+
+MAX_EJEMPLOS_EFECTO = 5
+
+
+def _semana_de(p: Pedido) -> tuple[Corrida, list[dict]]:
+    c = _correr(p)
+    return c, _clasificar(c, p.senal, _validar(c, p.senal))
+
+
+def _efecto(antes: tuple[Corrida, list[dict]], p: Pedido) -> dict:
+    """Qué le hace la propuesta a la semana abierta: celdas que cambian, algunas de muestra y cuántas ⚠ quedan."""
+    c_antes, grupos_antes = antes
+    c_despues, grupos_despues = _semana_de(p)
+    difs = diferencias(c_despues.salida, c_antes.salida)
+    return {
+        "celdas": len(difs),
+        "ejemplos": [{"fila": d["fila"], "columna": d["columna"], "antes": export.celda_json(d["esperado"]),
+                      "despues": export.celda_json(d["obtenido"])} for d in difs[:MAX_EJEMPLOS_EFECTO]],
+        "revisar_antes": sum(g["grupo"] == "revisar" for g in grupos_antes),
+        "revisar_despues": sum(g["grupo"] == "revisar" for g in grupos_despues),
+    }
+
+
+@api.get("/asistente/limites")
+def limites_asistente(u: auth.Usuario = Depends(auth.usuario_actual)):
+    usados, limite = uso.pedidos_de_hoy(u.usuario), uso.limite_diario()
+    return {"limite_diario": limite, "usados_hoy": usados, "quedan": max(limite - usados, 0)}
+
+
+class AccionesAdmin(BaseModel):
+    acciones: list[dict]
+
+
+@api.post("/admin/acciones", dependencies=[Depends(auth.solo_admin)])
+def aplicar_acciones(datos: AccionesAdmin, u: auth.Usuario = Depends(auth.usuario_actual)):
+    """Ejecuta acciones de admin propuestas por el agente. La clave de un usuario nuevo se muestra una sola vez."""
+    try:
+        # La web devuelve las acciones tal como las mostró, con su descripción.
+        lista = acciones.LISTA.validate_python([{k: v for k, v in a.items() if k != "descripcion"}
+                                                for a in datos.acciones])
+    except ValidationError as e:
+        raise HTTPException(422, f"Acción inválida: {e.errors()[0]['msg']}")
+    resultados = []
+    for a in lista:
+        try:
+            resultados.append(acciones.ejecutar(a, u.usuario))
+        except (ValueError, LookupError) as e:
+            resultados.append({"descripcion": acciones.describir(a), "ok": False, "error": str(e).strip("'")})
+    return resultados
 
 
 @api.get("/asistente/uso", dependencies=[Depends(auth.solo_admin)])

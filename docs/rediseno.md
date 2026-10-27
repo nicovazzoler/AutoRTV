@@ -221,7 +221,7 @@ La página termina en la misma tabla cruda, así que la base, las reglas y Revis
 ## Límites del agente
 - **No toca nada solo.** Propone y la persona aplica, y la aplicación la hace el servidor con el usuario logueado. El agente no tiene acceso a la base ni a otras señales: solo ve lo que se le manda en cada pedido.
 - **Tope de gasto:** pedidos por persona por día (`AGENTE_LIMITE_DIARIO`, 50 por defecto). Además, el límite mensual del workspace en la Console de Anthropic.
-- **Cambios de admin con el agente** (propuesta para la etapa 3):
+- **Cambios de admin con el agente** (backend hecho; falta la web):
   - el agente puede proponer acciones de admin, como "creá el usuario ana", "cambiá la regla de Año a 4 dígitos" o "subí el tope a 80";
   - el botón **Aplicar** solo aparece, y el servidor solo lo acepta, si la sesión es de un admin: es tu usuario el que lo ejecuta, no el agente;
   - las claves nunca pasan por el agente: al crear un usuario o resetear una clave, la genera el servidor y la muestra una sola vez;

@@ -103,6 +103,20 @@ pautas = Table(
     Column("texto", Text, nullable=False, default=""),  # crudo + salida sin tildes ni mayúsculas, para buscar
 )
 
+ajustes = Table(
+    "ajustes", metadata,
+    Column("clave", String(64), primary_key=True),
+    Column("valor", Text, nullable=False),
+)
+
+registro_acciones = Table(
+    "registro_acciones", metadata,
+    Column("id", Integer, primary_key=True),
+    Column("usuario", String(100), nullable=False),
+    Column("fecha", DateTime, nullable=False, index=True),
+    Column("descripcion", Text, nullable=False),
+)
+
 _motores: dict[str, Engine] = {}
 
 

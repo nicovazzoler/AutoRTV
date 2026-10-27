@@ -7,9 +7,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 import pandas as pd
-from pydantic import TypeAdapter, ValidationError
+from pydantic import BaseModel, ConfigDict, TypeAdapter, ValidationError
 
-from app import export
+from app import acciones, export
 from app.agent.cliente import Proveedor
 from app.engine import model as m
 from app.engine.comparar import diferencias, porcentaje_igual
@@ -22,6 +22,26 @@ MAX_DIFERENCIAS = 30
 MAX_HISTORIAL = 10  # mensajes previos de la conversación que se reenvían
 MAX_LARGO_MENSAJE = 1500
 LISTA_TARJETAS = TypeAdapter(list[m.Tarjeta])
+FILAS_FOCO = 12  # filas para revisar que se le muestran, además de unas pocas de referencia
+
+
+class CorreccionBase(BaseModel):
+    """"En las pautas que cumplen `filtro`, poné `valor` en `columna`." La aplica el servidor."""
+    model_config = ConfigDict(extra="forbid")
+    filtro: dict[str, str]
+    columna: str
+    valor: str | None
+
+
+LISTA_CORRECCIONES = TypeAdapter(list[CorreccionBase])
+
+
+@dataclass
+class Entorno:
+    """Lo que el servidor sabe de la persona y de la semana, y el agente no puede averiguar solo."""
+    foco: list[int] = field(default_factory=list)  # filas para revisar de la semana
+    es_admin: bool = False
+    reglas_catalogo: list[str] = field(default_factory=list)  # "Columna: regla"
 
 
 @dataclass
@@ -44,6 +64,8 @@ class Propuesta:
     explicacion: str = ""
     receta: dict | None = None
     cambios: list[dict] = field(default_factory=list)
+    correcciones_base: list[dict] = field(default_factory=list)
+    acciones_admin: list[dict] = field(default_factory=list)
     antes: Metricas | None = None
     despues: Metricas | None = None
     problemas: list[str] = field(default_factory=list)  # lo que quedó sin resolver en la última vuelta
@@ -117,10 +139,11 @@ def medir(receta: m.Senal, tabla: pd.DataFrame, ejemplos: list[Ejemplo]) -> tupl
 
 def pedir(receta: m.Senal, tabla: pd.DataFrame, pedido: str, proveedor: Proveedor,
           ejemplos: list[Ejemplo] = (), objetivo: str | None = None, orden_columnas: list[str] = (),
-          historial: list[dict] = ()) -> Propuesta:
+          historial: list[dict] = (), entorno: Entorno | None = None) -> Propuesta:
     """`objetivo` = nombre de un ejemplo que tiene que llegar al 100 % ("armar desde este ejemplo")."""
+    entorno = entorno or Entorno()
     antes, detalle = medir(receta, tabla, ejemplos)
-    contexto = _contexto(receta, tabla, detalle, antes, ejemplos, pedido, objetivo, orden_columnas, historial)
+    contexto = _contexto(receta, tabla, detalle, antes, ejemplos, pedido, objetivo, orden_columnas, historial, entorno)
     mensajes = [{"role": "user", "content": contexto}]
     effort = "medium" if objetivo else "low"
     resultado = Propuesta(logrado=False, antes=antes)
@@ -135,13 +158,16 @@ def pedir(receta: m.Senal, tabla: pd.DataFrame, pedido: str, proveedor: Proveedo
             return resultado
 
         nueva, problemas = _leer_propuesta(r.datos, receta)
+        (correcciones, admin), problemas_extras = _leer_extras(r.datos, entorno)
         if nueva is not None:
             despues, detalle_nuevo = medir(nueva, tabla, ejemplos)
             problemas = _problemas(antes, detalle["errores"], despues, detalle_nuevo, objetivo)
+            resultado.correcciones_base, resultado.acciones_admin = correcciones, admin
             resultado.explicacion = r.datos.get("explicacion", "")
             resultado.receta = nueva.model_dump(exclude_none=True)
             resultado.cambios = cambios(receta, nueva)
             resultado.despues = despues
+        problemas += problemas_extras
         resultado.problemas = problemas
         if not problemas:
             resultado.logrado = True
@@ -149,7 +175,7 @@ def pedir(receta: m.Senal, tabla: pd.DataFrame, pedido: str, proveedor: Proveedo
         mensajes += [
             {"role": "assistant", "content": r.texto or "(respuesta vacía)"},
             {"role": "user", "content": "Probé tu propuesta y pasó esto:\n- " + "\n- ".join(problemas)
-                                        + "\n\nCorregí y devolvé la lista completa de tarjetas otra vez."},
+                                        + "\n\nCorregí y devolvé la respuesta completa otra vez."},
         ]
     return resultado
 
@@ -157,8 +183,10 @@ def pedir(receta: m.Senal, tabla: pd.DataFrame, pedido: str, proveedor: Proveedo
 def _leer_propuesta(datos: dict | None, receta: m.Senal) -> tuple[m.Senal | None, list[str]]:
     if not isinstance(datos, dict):
         return None, ["La respuesta no fue un JSON válido con explicacion, tarjetas_json y columnas_salida."]
+    if not (datos.get("tarjetas_json") or "").strip():  # no cambia las reglas
+        return receta.model_copy(), []
     try:
-        tarjetas = LISTA_TARJETAS.validate_json(datos.get("tarjetas_json") or "")
+        tarjetas = LISTA_TARJETAS.validate_json(datos["tarjetas_json"])
     except ValidationError as e:
         errores = "; ".join(f"{'.'.join(map(str, x['loc']))}: {x['msg']}" for x in e.errors()[:10])
         return None, [f"tarjetas_json no cumple el schema: {errores}"]
@@ -169,6 +197,30 @@ def _leer_propuesta(datos: dict | None, receta: m.Senal) -> tuple[m.Senal | None
     if datos.get("columnas_salida") is not None:
         cambios_receta["salida"] = m.Salida(columnas=datos["columnas_salida"])
     return receta.model_copy(update=cambios_receta), []
+
+
+def _leer_extras(datos: dict | None, entorno: Entorno) -> tuple[tuple[list[dict], list[dict]], list[str]]:
+    """Correcciones en la base y acciones de admin que vinieron junto con la propuesta."""
+    if not isinstance(datos, dict):
+        return ([], []), []
+    problemas = []
+    correcciones, admin = [], []
+    try:
+        correcciones = [c.model_dump() for c in LISTA_CORRECCIONES.validate_json(datos.get("correcciones_base_json") or "[]")]
+    except ValidationError as e:
+        problemas.append(f"correcciones_base_json no cumple el formato: {_errores(e)}")
+    try:
+        admin = [a.model_dump() for a in acciones.LISTA.validate_json(datos.get("acciones_admin_json") or "[]")]
+    except ValidationError as e:
+        problemas.append(f"acciones_admin_json no cumple el formato: {_errores(e)}")
+    if admin and not entorno.es_admin:
+        problemas.append("La persona no es admin: no propongas acciones_admin, explicale que las pide un admin.")
+        admin = []
+    return (correcciones, admin), problemas
+
+
+def _errores(e: ValidationError) -> str:
+    return "; ".join(f"{'.'.join(map(str, x['loc']))}: {x['msg']}" for x in e.errors()[:10])
 
 
 def _problemas(antes: Metricas, errores_antes: list[str], despues: Metricas, detalle: dict,
@@ -210,17 +262,22 @@ def cambios(antes: m.Senal, despues: m.Senal) -> list[dict]:
 
 
 def _contexto(receta, tabla, detalle, antes: Metricas, ejemplos, pedido, objetivo, orden_columnas=(),
-              historial=()) -> str:
+              historial=(), entorno: Entorno | None = None) -> str:
+    entorno = entorno or Entorno()
+    indices = _filas_a_mostrar(len(tabla), entorno.foco)
     partes = [
         "## Receta actual",
         json.dumps({"tarjetas": [t.model_dump(exclude_none=True) for t in receta.tarjetas],
                     "columnas_salida": receta.salida.columnas,
                     "cantidad_titulos_conocidos": len(receta.titulos_conocidos)}, ensure_ascii=False),
         f"## Grilla de entrada: columnas {list(map(str, tabla.columns))}",
-        _filas(tabla),
+        _filas(tabla, indices),
         f"## Salida actual ({len(detalle['salida'])} filas)",
-        _filas(detalle["salida"]),
+        _filas(detalle["salida"], indices),
     ]
+    if entorno.foco:
+        partes.append(f"De esas filas, las que hay que revisar esta semana son: "
+                      f"{', '.join(str(i + 1) for i in entorno.foco[:FILAS_FOCO])}.")
     if detalle["errores"]:
         partes += ["## Tarjetas con error", "\n".join(detalle["errores"])]
     errores_validacion = [a.mensaje for a in detalle["validacion"] if a.nivel != "info"][:10]
@@ -238,14 +295,27 @@ def _contexto(receta, tabla, detalle, antes: Metricas, ejemplos, pedido, objetiv
     if orden_columnas:
         partes += ["## Orden general de columnas del EPG",
                    "Si agregás columnas o cambiás columnas_salida, respetá este orden: " + ", ".join(orden_columnas)]
+    partes += ["## Quién pide", "Es admin: puede aplicar acciones_admin." if entorno.es_admin
+               else "No es admin: no propongas acciones_admin."]
+    if entorno.es_admin and entorno.reglas_catalogo:
+        partes += ["## Catálogo de columnas (columna: regla)", "\n".join(entorno.reglas_catalogo)]
     partes += _conversacion(list(historial)) + ["## Pedido", pedido]
     return "\n\n".join(partes)
 
 
-def _filas(df: pd.DataFrame) -> str:
+def _filas_a_mostrar(total: int, foco: list[int]) -> list[int]:
+    """Las primeras filas para revisar y, si sobra lugar, las primeras de la grilla como referencia."""
+    elegidas = [i for i in foco if 0 <= i < total][:FILAS_FOCO]
+    resto = [i for i in range(total) if i not in elegidas][:FILAS_MUESTRA - len(elegidas)]
+    return sorted(elegidas + resto)
+
+
+def _filas(df: pd.DataFrame, indices: list[int] | None = None) -> str:
     columnas = list(map(str, df.columns))
-    return "\n".join(json.dumps(dict(zip(columnas, f)), ensure_ascii=False, default=str)
-                     for f in export.a_filas(df, FILAS_MUESTRA))
+    datos = df.head(FILAS_MUESTRA) if indices is None else df.iloc[[i for i in indices if i < len(df)]]
+    numeros = list(range(len(datos))) if indices is None else [i for i in indices if i < len(df)]
+    return "\n".join(f"fila {n + 1}: " + json.dumps(dict(zip(columnas, f)), ensure_ascii=False, default=str)
+                     for n, f in zip(numeros, export.a_filas(datos)))
 
 
 def _txt(v) -> str:

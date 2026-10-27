@@ -9,7 +9,7 @@ import unicodedata
 from dataclasses import asdict, dataclass
 
 import pandas as pd
-from sqlalchemy import delete, insert, select
+from sqlalchemy import delete, insert, select, update
 
 from app import db
 
@@ -89,6 +89,19 @@ def leer() -> list[ColumnaCatalogo]:
     with db.transaccion() as con:
         filas = con.execute(select(db.catalogo).order_by(db.catalogo.c.orden)).mappings().all()
     return [ColumnaCatalogo(**{k: v for k, v in f.items() if k != "orden"}) for f in filas]
+
+
+def cambiar_regla(nombre: str, regla: str) -> ColumnaCatalogo:
+    """Reinterpreta la regla de una columna que ya está en el catálogo; conserva su orden y significado."""
+    with db.transaccion() as con:
+        filas = con.execute(select(db.catalogo.c.orden, db.catalogo.c.nombre, db.catalogo.c.significado)).all()
+        fila = next((f for f in filas if clave(f.nombre) == clave(nombre)), None)
+        if fila is None:
+            raise LookupError(nombre)
+        nueva = interpretar(fila.nombre, regla)
+        nueva.significado = fila.significado
+        con.execute(update(db.catalogo).where(db.catalogo.c.orden == fila.orden).values(**asdict(nueva)))
+    return nueva
 
 
 def ordenar(columnas: list[str], catalogo: list[ColumnaCatalogo]) -> list[str]:
