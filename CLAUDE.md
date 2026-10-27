@@ -45,5 +45,5 @@ seg = min(round(seg / paso) * paso, 86400 - paso)
 
 - Mensajes de commit de una sola línea.
 - Reportes al usuario de máximo 5 líneas.
-- Nunca hacer push directo a la rama principal (`main` / `claude/new-session-psu3ud`).
+- La rama principal es `main`. Nunca hacer push directo a `main`.
 - Todo cambio va en una rama aparte y entra por pull request.
