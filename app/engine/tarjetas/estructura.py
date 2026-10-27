@@ -110,9 +110,7 @@ def a_hora(v) -> dt.time | None:
 def clasificar_sinopsis(df, t: m.ClasificarSinopsis):
     """Misma sinopsis en casi todos los capítulos = argumento de programa; distintas = de capítulo.
 
-    Los programas que quedan como "programa" pero tienen alguna sinopsis distinta se avisan:
-    puede ser un argumento puntual de un capítulo o dos argumentos del mismo programa,
-    y eso lo decide una persona.
+    Los programas de "programa" con alguna sinopsis distinta se avisan: eso lo decide una persona.
     """
     columnas_de(df, [t.programa, t.capitulo, t.sinopsis])
     sinopsis = df[t.sinopsis].map(_texto_o_none)

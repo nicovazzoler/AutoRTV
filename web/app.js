@@ -307,7 +307,6 @@ function itemTarjeta(t, k) {
   return item;
 }
 
-// Actualiza insignias y mensajes sin redibujar los formularios (no se pierde el foco al tipear).
 // --- Reglas en frases ---
 
 const MODOS_MAYUS = { MAYUS: "MAYÚSCULAS", minus: "minúsculas", Titulo: "Tipo Título", Oracion: "Tipo oración",
@@ -366,6 +365,7 @@ function dibujarReglas() {
     : [el("li", { className: "tenue", textContent: "Esta señal todavía no tiene reglas. Pedile al asistente que las arme." })]));
 }
 
+// Actualiza insignias y mensajes sin redibujar los formularios (no se pierde el foco al tipear).
 function pintarInformes() {
   for (const grupo of document.querySelectorAll("#lista-tarjetas > li.grupo")) {
     const informes = grupo.dataset.ids.split(" ").map((id) => estado.informes.find((i) => i.id === id)).filter(Boolean);

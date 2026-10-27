@@ -81,7 +81,6 @@ def test_flujo_basico(servidor, tmp_path):
         pagina.set_input_files("#form-senal input[name=ejemplo]", str(ejemplo))
         pagina.click("#form-senal button[type=submit]")
         pagina.wait_for_selector("#tabla td:text('joseph prince')")
-        # Queda guardada y seleccionada en la lista apenas se crea.
         assert pagina.input_value("#sel-senal") == "senal-de-prueba"
         # La grilla no tiene duración: el panel avisa qué columna falta para validar horarios.
         pagina.wait_for_selector("#resumen-validaciones:has-text('1 avisos')")
@@ -104,7 +103,6 @@ def test_flujo_basico(servidor, tmp_path):
         pagina.wait_for_selector("#estado:text('Guardado')")
         assert pagina.locator("#sel-senal option[value=senal-de-prueba]").count() == 1
 
-        # Cambiar la clave desde el cuadro y volver a entrar con la nueva.
         pagina.click("#usuario")
         pagina.fill("#form-clave input[name=actual]", "clave-segura")
         pagina.fill("#form-clave input[name=nueva]", "otra-clave-1")
@@ -133,7 +131,6 @@ def test_flujo_basico(servidor, tmp_path):
         assert pagina.locator("#lista-tarjetas > li").count() == 1
         pagina.wait_for_selector("#tabla td:text('JOSEPH PRINCE')")
 
-        # Pestaña Reglas: la tarjeta como frase, y destildarla la desactiva.
         pagina.click(".pestanas button[data-pestana=reglas]")
         assert pagina.inner_text("#lista-reglas li").startswith("Pasa Titulo a MAYÚSCULAS")
         pagina.uncheck("#lista-reglas li input[type=checkbox]")
@@ -187,7 +184,6 @@ def test_base_de_pautas_y_nombre_parecido(servidor, tmp_path):
         assert pagina.locator("#tabla td.estado-pauta").all_inner_texts() == ["✔", "●"]
         assert "1 nuevas" in pagina.inner_text("#resumen-pautas")
 
-        # Doble clic, escribir y Enter: la fila queda editada y aparece en la Base.
         pagina.dblclick("#tabla tr[data-fila='2'] td:text('—')")
         pagina.fill("#tabla input.edicion", "Praise Live")
         pagina.press("#tabla input.edicion", "Enter")
@@ -197,7 +193,6 @@ def test_base_de_pautas_y_nombre_parecido(servidor, tmp_path):
         pagina.wait_for_selector("#tabla-base td:text('Praise Live')")
         assert "2 pautas · 1 revisadas · 1 editadas" in pagina.inner_text("#base-resumen")
 
-        # Un nombre que ya existe pide confirmación y permite sumar el par como ejemplo.
         pagina.click("#btn-nueva")
         pagina.fill("#form-senal input[name=nombre]", "canal uno!")
         pagina.set_input_files("#form-senal input[name=grilla_cruda]", str(grilla))
@@ -265,7 +260,6 @@ def test_tarjetas_agrupadas_por_tema(servidor, tmp_path):
         pagina.click("#btn-cerrar-todo")
         assert pagina.locator("#lista-tarjetas li.tarjeta").count() == 1
 
-        # Exportar y volver a importar como otra señal.
         with pagina.expect_download() as descarga:
             pagina.click("#btn-exportar-receta")
         exportada = json.loads(open(descarga.value.path(), encoding="utf-8").read())
