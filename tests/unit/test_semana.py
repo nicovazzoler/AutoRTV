@@ -187,3 +187,35 @@ def test_semana_pegada_adopta_el_formato_y_una_ilegible_no_pisa_la_anterior(clie
     assert roto.status_code == 422
     assert cliente.get("/api/senales/canal/abierta").json()["semana"]["nombre"] == "texto pegado"
     assert cliente.post("/api/senales/otra/abierta/confirmar").status_code == 404
+
+
+def test_grilla_abierta_y_correccion_de_una_celda(cliente):
+    receta = {"id": "canal", "nombre": "Canal", "entrada": {"tipo": "excel"}, "tarjetas": [SEPARAR],
+              "salida": {"columnas": []}}
+    cliente.put("/api/senales/canal", json=receta)
+    assert cliente.get("/api/senales/canal/abierta/grilla").status_code == 404
+    grilla = excel(_grilla(["Memory Lane - Outkast", "Ruta Sonora - Live", "Memory Lane - Outkast"]))
+    cliente.post("/api/senales/canal/abierta", files={"archivo": ("g.xlsx", grilla)})
+
+    g = cliente.get("/api/senales/canal/abierta/grilla").json()
+    assert g["total_filas"] == 3 and len(g["filas"]) == 3 and g["programa"] == "Programa"
+    assert [x["grupo"] for x in g["grupos"]] == ["revisar"] * 3
+    col = g["columnas"].index("Capitulo")
+    assert "Capitulo" in g["contenido"] and "Fecha" not in g["contenido"]
+
+    # Corregir la fila 1 corrige también la 3, que es la misma pauta, y la deja en la base.
+    r = cliente.post("/api/senales/canal/abierta/celda", json={"fila": 0, "columna": "Capitulo", "valor": "OutKast"}).json()
+    assert [f[col] for f in r["filas"]] == ["OutKast", "Live", "OutKast"]
+    assert [x["grupo"] for x in r["grupos"]] == ["base", "revisar", "base"]
+    assert r["semana"]["resumen"]["revisar"] == 1
+    assert cliente.post("/api/senales/canal/abierta/celda",
+                        json={"fila": 0, "columna": "Fecha", "valor": "x"}).status_code == 422
+
+
+def test_columnas_de_la_base_en_orden_y_con_programa(cliente):
+    receta = {"id": "canal", "nombre": "Canal", "entrada": {"tipo": "excel"}, "tarjetas": [SEPARAR],
+              "salida": {"columnas": []}}
+    cliente.put("/api/senales/canal", json=receta)
+    cliente.post("/api/senales/canal/semana/confirmar", json=_semana(cliente, ["Memory Lane - Outkast"]))
+    r = cliente.get("/api/senales/canal/pautas/columnas").json()
+    assert set(r["columnas"]) == {"Titulo", "Programa", "Capitulo"} and r["programa"] == "Programa"

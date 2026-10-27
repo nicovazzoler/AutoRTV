@@ -9,6 +9,8 @@ import { Inicio } from "./pantallas/Inicio";
 import { Revisar } from "./pantallas/Revisar";
 import { Subir } from "./pantallas/Subir";
 import { Pronto } from "./pantallas/Pronto";
+import { Grilla } from "./pantallas/Grilla";
+import { Base } from "./pantallas/Base";
 
 const ULTIMA_SENAL = "autortv.senal";
 
@@ -73,7 +75,9 @@ export function App() {
         {destino.pantalla === "inicio" && <Inicio />}
         {destino.pantalla === "revisar" && <Revisar key={destino.senal} senalId={destino.senal} />}
         {destino.pantalla === "subir" && <Subir key={destino.senal} senalId={destino.senal} />}
-        {["grilla", "base", "senal", "nueva", "admin"].includes(destino.pantalla) && <Pronto />}
+        {destino.pantalla === "grilla" && <Grilla key={destino.senal} senalId={destino.senal} />}
+        {destino.pantalla === "base" && <Base key={destino.senal} senalId={destino.senal} />}
+        {["senal", "nueva", "admin"].includes(destino.pantalla) && <Pronto />}
       </div>
     </ContextoSesion.Provider>
   );

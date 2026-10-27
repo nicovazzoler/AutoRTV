@@ -90,3 +90,47 @@ def test_semana_de_punta_a_punta(servidor, tmp_path):  # noqa: F811
         pagina.get_by_role("button", name="Salir", exact=True).click()
         pagina.wait_for_url("**/login")
         navegador.close()
+
+
+def test_grilla_y_base(servidor, tmp_path):  # noqa: F811
+    with playwright.sync_playwright() as p:
+        try:
+            navegador = p.chromium.launch(executable_path=os.environ.get("CHROMIUM"))
+        except playwright.Error as e:
+            pytest.skip(f"No hay Chromium para Playwright: {str(e).splitlines()[0]}")
+        pagina = navegador.new_page()
+        pagina.on("dialog", lambda d: d.accept())
+        pagina.goto(servidor + "/login")
+        pagina.fill("input[name=usuario]", "admin")
+        pagina.fill("input[name=clave]", "clave-segura")
+        pagina.click("button[type=submit]")
+        pagina.wait_for_url(servidor + "/")
+        receta = {"id": "canal", "nombre": "Canal Demo", "entrada": {"tipo": "excel"}, "tarjetas": [SEPARAR],
+                  "salida": {"columnas": []}}
+        assert pagina.request.put(servidor + "/api/senales/canal", data=receta).ok
+        grilla = _grilla(tmp_path).read_bytes()
+        assert pagina.request.post(servidor + "/api/senales/canal/abierta", multipart={
+            "archivo": {"name": "g.xlsx", "mimeType": "application/octet-stream", "buffer": grilla}}).ok
+
+        # Grilla: doble clic en el capítulo, se corrige y la fila pasa a salir de la base.
+        pagina.goto(servidor + "/s/canal/grilla")
+        celda = pagina.locator("tbody tr").first.get_by_role("cell", name="Outkast", exact=True)
+        celda.dblclick()
+        pagina.fill("input[aria-label='Corregir Capitulo']", "OutKast")
+        pagina.keyboard.press("Enter")
+        primera = pagina.locator("tbody tr").first
+        primera.locator(".marca-estado", has_text="base").wait_for()
+        assert primera.get_by_role("cell", name="OutKast", exact=True).count() == 1
+
+        # Base: la pauta corregida está; se marca y se le cambia una columna a todas las marcadas.
+        pagina.get_by_role("link", name="Base").click()
+        pagina.wait_for_url("**/s/canal/base")
+        pagina.get_by_role("cell", name="OutKast", exact=True).wait_for()
+        pagina.check("input[aria-label='Marcar todas las que se ven']")
+        barra = pagina.locator("[aria-label='Cambiar las marcadas']")
+        barra.locator("select").select_option("Capitulo")
+        barra.locator("input").fill("Live in Atlanta")
+        barra.get_by_role("button", name="Aplicar").click()
+        pagina.wait_for_selector("text=Listo: 1 pautas")
+        pagina.get_by_role("cell", name="Live in Atlanta", exact=True).wait_for()
+        navegador.close()

@@ -357,3 +357,38 @@ dialog.dialogo h2 { margin: 0; font-family: "Fraunces Variable", serif; font-siz
   .apilable tr { display: block; padding: 14px 0; border-bottom: 1px solid var(--borde); }
   .apilable td { display: block; padding: 4px 0 !important; border: 0; text-align: left !important; }
 }
+
+/* --- Grilla y Base --- */
+
+.filtros { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 16px; padding-bottom: 16px; border-bottom: 2px solid var(--texto); }
+.filtros .campo { font-size: 12px; }
+.filtros .entrada, .barra-acciones .entrada { min-height: 36px; border-radius: 999px; font-size: 13px; }
+.filtros select.entrada, .barra-acciones select.entrada { padding: 0 12px; }
+
+.tabla-datos { border-collapse: collapse; font-size: 14px; font-variant-numeric: tabular-nums; }
+.tabla-datos th { text-align: left; font-weight: 400; color: var(--tenue); padding: 8px 12px; white-space: nowrap; border-bottom: 1px solid var(--borde); }
+.tabla-datos td { padding: 9px 12px; border-bottom: 1px solid var(--borde); vertical-align: top; }
+.tabla-datos td.editable { cursor: text; }
+.tabla-datos td.editable:hover { background: var(--panel); }
+.tabla-datos td.invalida { color: var(--revisar); text-decoration: underline wavy; text-underline-offset: 4px; }
+.tabla-datos td.programa { font-family: "Fraunces Variable", serif; font-size: 16px; white-space: nowrap; }
+.tabla-datos .celda-entrada { width: 100%; min-width: 140px; min-height: 32px; padding: 0 8px; border-radius: 8px; border: 1px solid var(--acento); background: var(--fondo); color: var(--texto); }
+
+.marca-estado { display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: 11px; font-weight: 600; border: 1px solid transparent; white-space: nowrap; }
+.marca-estado.base { color: var(--tenue); }
+.marca-estado.nueva_lista { color: var(--nueva); border-color: var(--nueva); }
+.marca-estado.revisar { color: var(--fondo); background: var(--revisar); border-color: var(--revisar); }
+
+.barra-acciones {
+  position: sticky;
+  bottom: 16px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 18px;
+  border-radius: 16px;
+  background: var(--panel);
+  border: 1px solid var(--borde);
+  box-shadow: 0 12px 32px var(--sombra);
+}

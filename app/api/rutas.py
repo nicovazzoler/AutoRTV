@@ -502,6 +502,16 @@ def listar_pautas(senal_id: str, estado: str | None = None, q: str = "", desde: 
     return pautas.listar(senal_id, estado or None, q, max(desde, 0), _filtros(filtro))
 
 
+@api.get("/senales/{senal_id}/pautas/columnas")
+def columnas_pautas(senal_id: str):
+    """Las columnas que guarda la base, en el orden del catálogo, y cuál es la del programa."""
+    receta = _receta(senal_id)
+    vistas = list(dict.fromkeys(c for pauta in pautas.base(senal_id).values() for c in pauta["salida"]))
+    cat = catalogo.leer()
+    columnas = catalogo.ordenar(vistas, cat) if cat else vistas
+    return {"columnas": columnas, "programa": semana.columna_programa(columnas, receta.validaciones)}
+
+
 @api.get("/senales/{senal_id}/pautas/valores")
 def valores_pautas(senal_id: str, columna: str):
     return pautas.valores(senal_id, columna)
@@ -566,17 +576,21 @@ class EdicionCelda(Pedido):
 @api.post("/senales/{senal_id}/pautas/editar-celda")
 def editar_celda(senal_id: str, p: EdicionCelda, u: auth.Usuario = Depends(auth.usuario_actual)):
     """Edita una celda de la vista previa: la pauta de esa fila queda en la base como editada."""
-    c = _correr(p)
-    contenido = pautas.columnas_de_contenido(c.salida, p.senal.validaciones)
-    if p.columna not in contenido:
+    return {"ok": True, "hash": _editar_celda(senal_id, _correr(p), p.senal, p.fila, p.columna, p.valor, u.usuario)}
+
+
+def _editar_celda(senal_id: str, c: Corrida, receta: m.Senal, fila: int, columna: str, valor: str | None,
+                  usuario: str) -> str:
+    contenido = pautas.columnas_de_contenido(c.salida, receta.validaciones)
+    if columna not in contenido:
         raise HTTPException(422, "Esta columna sale de las reglas (horario o numeración) y no se edita en la base")
-    if not 0 <= p.fila < len(c.salida):
+    if not 0 <= fila < len(c.salida):
         raise HTTPException(422, "Esa fila no existe")
-    salida = {col: pautas.valor_json(c.salida.iloc[p.fila][col]) for col in contenido}
-    salida[p.columna] = _convertir(p.valor, p.columna, c.catalogo)
-    h = c.hashes[p.fila]
-    pautas.guardar(senal_id, {h: {"crudo": c.crudas[p.fila], "salida": salida}}, "editada", u.usuario, pisar=True)
-    return {"ok": True, "hash": h}
+    salida = {col: pautas.valor_json(c.salida.iloc[fila][col]) for col in contenido}
+    salida[columna] = _convertir(valor, columna, c.catalogo)
+    h = c.hashes[fila]
+    pautas.guardar(senal_id, {h: {"crudo": c.crudas[fila], "salida": salida}}, "editada", usuario, pisar=True)
+    return h
 
 
 def _convertir(valor: str | None, columna: str, cat: list):
@@ -748,6 +762,51 @@ def confirmar_abierta(senal_id: str, u: auth.Usuario = Depends(auth.usuario_actu
     _guardar_nuevas(senal_id, p, u.usuario)
     semanas.confirmar(senal_id, u.usuario)
     return _semana_abierta(senal_id, receta)
+
+
+MAX_FILAS_GRILLA = 5000
+
+
+def _grilla_abierta(senal_id: str) -> dict:
+    """La semana abierta fila por fila, con el grupo y los avisos de cada una. De paso actualiza el resumen."""
+    receta, p = _pedido_abierta(senal_id)
+    c = _correr(p)
+    armado = _armar_semana(c, receta)
+    resumen = armado["resumen"] | _fechas(c.salida, receta)
+    semanas.guardar_resumen(senal_id, resumen)
+    avisos = _validar(c, receta)
+    grupos = _clasificar(c, receta, avisos)
+    n = min(len(c.salida), MAX_FILAS_GRILLA)
+    return {
+        "semana": {**semanas.leer(senal_id), "resumen": resumen},
+        "columnas": [str(x) for x in c.salida.columns],
+        "filas": export.a_filas(c.salida, n),
+        "grupos": grupos[:n],
+        "hashes": c.hashes[:n],
+        "contenido": armado["contenido"],
+        "programa": armado["programa"],
+        "validaciones": [asdict(a) for a in avisos if a.fila and a.fila <= n],
+        "total_filas": len(c.salida),
+    }
+
+
+@api.get("/senales/{senal_id}/abierta/grilla")
+def grilla_abierta(senal_id: str):
+    return _grilla_abierta(senal_id)
+
+
+class Celda(BaseModel):
+    fila: int  # índice en la salida completa
+    columna: str
+    valor: str | None
+
+
+@api.post("/senales/{senal_id}/abierta/celda")
+def editar_celda_abierta(senal_id: str, datos: Celda, u: auth.Usuario = Depends(auth.usuario_actual)):
+    """Corrige una celda de la semana: la pauta de esa fila queda así en la base para todas las semanas."""
+    receta, p = _pedido_abierta(senal_id)
+    _editar_celda(senal_id, _correr(p), receta, datos.fila, datos.columna, datos.valor, u.usuario)
+    return _grilla_abierta(senal_id)
 
 
 @api.get("/senales/{senal_id}/abierta/export")

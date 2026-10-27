@@ -40,7 +40,7 @@ usuarios se crean desde la pestaña **Admin**.
 ### La web
 
 La web nueva está en `front/` (React + Vite). Se va armando por etapas: hoy tiene Login, Inicio,
-Subir grilla y Revisar. Mientras tanto, la web anterior sigue entera en `/viejo`.
+Subir grilla, Revisar, Grilla completa y Base. Mientras tanto, la web anterior sigue entera en `/viejo`.
 
 ```bash
 cd front && npm ci
