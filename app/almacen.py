@@ -81,12 +81,25 @@ def guardar(senal: m.Senal, usuario: str, esperada: str | None = None) -> str:
     return nueva
 
 
-def historial(senal_id: str) -> list[dict]:
+def historial(senal_id: str, limite: int | None = None) -> list[dict]:
+    """Versiones guardadas, de la más vieja a la más nueva (las últimas `limite`)."""
+    h = db.senales_historial.c
+    consulta = select(h.id, h.usuario, h.fecha, h.receta).where(h.senal_id == _validar_id(senal_id))
     with db.transaccion() as con:
-        filas = con.execute(select(db.senales_historial.c.usuario, db.senales_historial.c.fecha)
-                            .where(db.senales_historial.c.senal_id == _validar_id(senal_id))
-                            .order_by(db.senales_historial.c.fecha)).all()
-    return [{"usuario": u, "fecha": f} for u, f in filas]
+        if limite:
+            filas = con.execute(consulta.order_by(h.fecha.desc(), h.id.desc()).limit(limite)).all()[::-1]
+        else:
+            filas = con.execute(consulta.order_by(h.fecha, h.id)).all()
+    return [{"id": i, "usuario": u, "fecha": f, "receta": r} for i, u, f, r in filas]
+
+
+def leer_version(senal_id: str, version_id: int) -> m.Senal:
+    h = db.senales_historial.c
+    with db.transaccion() as con:
+        receta = con.execute(select(h.receta).where(h.senal_id == _validar_id(senal_id), h.id == version_id)).scalar()
+    if receta is None:
+        raise NoExiste(f"{senal_id}#{version_id}")
+    return m.Senal.model_validate(receta)
 
 
 def guardar_ejemplo(senal_id: str, nombre: str, entrada: bytes, esperado: bytes, usuario: str = "") -> None:

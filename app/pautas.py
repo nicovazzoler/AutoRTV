@@ -45,7 +45,7 @@ def columnas_de_contenido(columnas: list[str], v: m.Validaciones | None = None) 
     return [c for c in columnas if clave(c) not in NO_CONTENIDO and c not in horario]
 
 
-def _norma(v) -> str:
+def normalizar(v) -> str:
     if v is None or (isinstance(v, float) and pd.isna(v)):
         return ""
     if isinstance(v, float) and v.is_integer():
@@ -55,7 +55,7 @@ def _norma(v) -> str:
 
 
 def hash_pauta(fila: dict) -> str:
-    return hashlib.sha1("|".join(_norma(v) for v in fila.values()).encode()).hexdigest()[:16]
+    return hashlib.sha1("|".join(normalizar(v) for v in fila.values()).encode()).hexdigest()[:16]
 
 
 def valor_json(v):
@@ -210,21 +210,81 @@ def olvidar(senal_id: str, h: str) -> None:
         con.execute(delete(db.pautas).where(db.pautas.c.senal_id == senal_id, db.pautas.c.hash == h))
 
 
-def listar(senal_id: str, estado: str | None = None, q: str = "", desde: int = 0) -> dict:
+def _filtro_sql(senal_id: str, estado: str | None, q: str) -> list:
     c = db.pautas.c
     filtro = [c.senal_id == senal_id]
     if estado:
         filtro.append(c.estado == estado)
     for palabra in _texto({}, {"q": q}).split():
         filtro.append(c.texto.contains(palabra, autoescape=True))
+    return filtro
+
+
+def _cumple(salida: dict, filtros: dict[str, str]) -> bool:
+    return all(normalizar(salida.get(col)) == normalizar(valor) for col, valor in filtros.items())
+
+
+def listar(senal_id: str, estado: str | None = None, q: str = "", desde: int = 0,
+           filtros: dict[str, str] | None = None) -> dict:
+    """Pautas de la señal. `filtros` = {columna: valor} sobre la salida, sin importar mayúsculas ni signos."""
+    c = db.pautas.c
+    consulta = (select(c.hash, c.crudo, c.salida, c.estado, c.usuario, c.actualizado)
+                .where(*_filtro_sql(senal_id, estado, q)).order_by(c.actualizado.desc(), c.hash))
     with db.transaccion() as con:
-        total = con.execute(select(func.count()).select_from(db.pautas).where(*filtro)).scalar()
-        filas = con.execute(select(c.hash, c.crudo, c.salida, c.estado, c.usuario, c.actualizado).where(*filtro)
-                            .order_by(c.actualizado.desc(), c.hash).offset(desde).limit(POR_PAGINA)).all()
+        if filtros:
+            # La salida es JSON: filtrar por columna en SQL depende del motor, y una señal tiene pocas miles.
+            todas = [f for f in con.execute(consulta).all() if _cumple(f.salida, filtros)]
+            total, filas = len(todas), todas[desde:desde + POR_PAGINA]
+        else:
+            total = con.execute(select(func.count()).select_from(db.pautas)
+                                .where(*_filtro_sql(senal_id, estado, q))).scalar()
+            filas = con.execute(consulta.offset(desde).limit(POR_PAGINA)).all()
         por_estado = dict(con.execute(select(c.estado, func.count()).where(c.senal_id == senal_id)
                                       .group_by(c.estado)).all())
     return {"total": total, "por_estado": por_estado,
             "pautas": [{**f._mapping, "actualizado": f.actualizado.isoformat(timespec="minutes")} for f in filas]}
+
+
+def hashes_filtrados(senal_id: str, estado: str | None = None, q: str = "",
+                     filtros: dict[str, str] | None = None) -> list[str]:
+    c = db.pautas.c
+    with db.transaccion() as con:
+        filas = con.execute(select(c.hash, c.salida).where(*_filtro_sql(senal_id, estado, q))).all()
+    return [h for h, salida in filas if _cumple(salida, filtros or {})]
+
+
+def valores(senal_id: str, columna: str) -> list[dict]:
+    """Valores distintos de una columna de salida, con cuántas pautas tienen cada uno, para los filtros."""
+    with db.transaccion() as con:
+        salidas = con.execute(select(db.pautas.c.salida).where(db.pautas.c.senal_id == senal_id)).scalars()
+        cuenta: dict[str, dict] = {}
+        for salida in salidas:
+            v = salida.get(columna)
+            if v is None or v == "":
+                continue
+            g = cuenta.setdefault(normalizar(v), {"valor": v, "pautas": 0})
+            g["pautas"] += 1
+    return sorted(cuenta.values(), key=lambda g: (-g["pautas"], str(g["valor"])))
+
+
+def editar_varias(senal_id: str, hashes: list[str], columna: str, valor, usuario: str) -> int:
+    """Pone `valor` en `columna` de todas esas pautas, que quedan como editadas."""
+    c = db.pautas.c
+    ahora = dt.datetime.now()
+    with db.transaccion() as con:
+        filas = con.execute(select(c.hash, c.crudo, c.salida)
+                            .where(c.senal_id == senal_id, c.hash.in_(hashes))).all()
+        for h, crudo, salida in filas:
+            nueva = {**salida, columna: valor}
+            con.execute(update(db.pautas).where(c.senal_id == senal_id, c.hash == h).values(
+                salida=nueva, estado="editada", usuario=usuario, actualizado=ahora, texto=_texto(crudo, nueva)))
+    return len(filas)
+
+
+def olvidar_varias(senal_id: str, hashes: list[str]) -> int:
+    with db.transaccion() as con:
+        return con.execute(delete(db.pautas).where(db.pautas.c.senal_id == senal_id,
+                                                   db.pautas.c.hash.in_(hashes))).rowcount
 
 
 def cargar_ejemplo(receta: m.Senal, entrada: bytes, esperado: bytes, usuario: str) -> dict:

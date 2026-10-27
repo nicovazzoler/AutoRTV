@@ -195,6 +195,38 @@ La página termina en la misma tabla cruda, así que la base, las reglas y Revis
   - **Señal → Configuración** suma la caja **Fuente web**: URL, nivel, la última descarga y "Pedirle al agente que la configure".
 - **Etapa:** va después de los lectores de PDF, XML y texto, y se avanza señal por señal. Para arrancar me pasás 2 o 3 señales: una que ande con el outerHTML y una que no.
 
+## Rutina de un usuario con el agente
+1. **Elige la señal y sube la grilla de la semana** (archivo, texto pegado o "Bajar ahora").
+2. **Mira Revisar.** Arriba ve cuántas filas salen de la base, cuántas son nuevas listas y cuántas hay que revisar.
+   - Si "Para revisar" está en cero, va directo a **Confirmar y exportar**.
+3. **Si algo salió mal, le escribe al agente** desde la fila o en general: "este capítulo quedó cortado", "el año viene pegado al título".
+   - El agente propone un cambio de reglas y muestra las filas antes → después y cuántas ⚠ resuelve.
+   - La persona lo aplica o lo descarta.
+4. **Lo puntual lo corrige a mano:** doble clic en la celda, o en la Base filtra por programa y cambia todas juntas.
+5. **Lo que queda bien, le da "Está bien".**
+6. **Confirma y exporta:** todo lo nuevo de la semana entra a la base. La semana siguiente esas filas salen solas.
+
+## Cómo quedan guardados los datos (Postgres)
+| Qué | Dónde | Cuándo cambia |
+|---|---|---|
+| Receta de la señal (las reglas) | `senales`, con cada versión en `senales_historial` (quién y cuándo) | al aplicar una propuesta del agente o al restaurar una versión |
+| Base de pautas | `pautas`: por señal, la fila cruda sin horario (su hash) → cómo queda en el EPG, estado (`revisada` / `editada`), quién y cuándo | al confirmar la semana, con "Está bien", al editar una celda o varias juntas, al olvidar |
+| Ejemplos (grilla cruda + macro hecha) | `ejemplos` | al crear la señal o agregar una semana terminada |
+| Grilla subida | `tablas_subidas` | se borra sola a las 24 h |
+| Conversación con el agente | no se guarda: vive en el navegador y se reenvían los últimos 10 mensajes | — |
+| Uso del agente | `uso_agente`: quién, cuándo, qué pidió y cuántos tokens usó | en cada mensaje |
+
+- La semana no se guarda como tal. Lo que queda es la base (el contenido) y la receta (las reglas); con eso, cualquier grilla futura se rearma igual.
+
+## Límites del agente
+- **No toca nada solo.** Propone y la persona aplica, y la aplicación la hace el servidor con el usuario logueado. El agente no tiene acceso a la base ni a otras señales: solo ve lo que se le manda en cada pedido.
+- **Tope de gasto:** pedidos por persona por día (`AGENTE_LIMITE_DIARIO`, 50 por defecto). Además, el límite mensual del workspace en la Console de Anthropic.
+- **Cambios de admin con el agente** (propuesta para la etapa 3):
+  - el agente puede proponer acciones de admin, como "creá el usuario ana", "cambiá la regla de Año a 4 dígitos" o "subí el tope a 80";
+  - el botón **Aplicar** solo aparece, y el servidor solo lo acepta, si la sesión es de un admin: es tu usuario el que lo ejecuta, no el agente;
+  - las claves nunca pasan por el agente: al crear un usuario o resetear una clave, la genera el servidor y la muestra una sola vez;
+  - cada acción queda registrada con quién la aplicó.
+
 ## Qué se va de la web actual
 - El editor de tarjetas y la lista de tarjetas.
 - La sección "Títulos conocidos": se sacan solos de los programas que hay en la base.
