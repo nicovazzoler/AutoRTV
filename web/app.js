@@ -53,7 +53,7 @@ const el = (tag, props = {}, ...hijos) => {
 
 async function api(ruta, opciones = {}) {
   const r = await fetch(ruta, opciones);
-  if (r.status === 401) { location.href = "/login"; throw new Error("sin sesión"); }
+  if (r.status === 401) { location.href = "/viejo/login"; throw new Error("sin sesión"); }
   if (!r.ok) {
     let detalle = r.statusText;
     try { const j = await r.json(); detalle = typeof j.detail === "string" ? j.detail : JSON.stringify(j.detail); } catch {}
@@ -841,7 +841,7 @@ async function guardar(forzar = false) {
       }
       return abrirSenal(estado.receta.id);
     }
-    if (r.status === 401) { location.href = "/login"; return; }
+    if (r.status === 401) { location.href = "/viejo/login"; return; }
     if (!r.ok) throw new Error((await r.json()).detail || r.statusText);
     estado.version = r.headers.get("ETag");
     estado.guardada = JSON.stringify(estado.receta);
@@ -1105,7 +1105,7 @@ function enlazarNuevaSenal() {
       datos.append(...(eleccion === "crear" ? ["confirmar", "true"] : ["agregar_a", eleccion]));
       r = await fetch("/api/senales/crear", { method: "POST", body: datos });
     }
-    if (r.status === 401) { location.href = "/login"; return; }
+    if (r.status === 401) { location.href = "/viejo/login"; return; }
     if (!r.ok) {
       const j = await r.json().catch(() => ({}));
       error.textContent = typeof j.detail === "string" ? j.detail : "No se pudo crear la señal";
@@ -1324,7 +1324,7 @@ async function iniciar() {
   $("#btn-csv").onclick = () => exportar("csv");
   $("#btn-exportar-receta").onclick = exportarReceta;
   $("#in-receta").onchange = (e) => { if (e.target.files[0]) importarReceta(e.target.files[0]); e.target.value = ""; };
-  $("#btn-salir").onclick = async () => { await fetch("/api/logout", { method: "POST" }); location.href = "/login"; };
+  $("#btn-salir").onclick = async () => { await fetch("/api/logout", { method: "POST" }); location.href = "/viejo/login"; };
   $("#btn-agregar").onclick = () => {
     const t = tarjetaNueva($("#sel-tipo").value);
     estado.receta.tarjetas.push(t);

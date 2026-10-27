@@ -79,6 +79,19 @@ tablas_subidas = Table(
     Column("creada", DateTime, nullable=False, index=True),
 )
 
+semanas = Table(
+    "semanas", metadata,
+    Column("senal_id", String(64), primary_key=True),
+    Column("tabla_id", String(32), nullable=False),
+    Column("contenido", LargeBinary, nullable=False),
+    Column("nombre", String(200), nullable=False),
+    Column("subida_por", String(100), nullable=False),
+    Column("subida", DateTime, nullable=False),
+    Column("resumen", JSON),  # grupos y fechas de la última vez que alguien la abrió, para el Inicio
+    Column("confirmada_por", String(100)),
+    Column("confirmada", DateTime),
+)
+
 catalogo = Table(
     "catalogo", metadata,
     Column("orden", Integer, primary_key=True),

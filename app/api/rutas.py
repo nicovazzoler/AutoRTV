@@ -12,7 +12,7 @@ import pandas as pd
 from fastapi import APIRouter, Cookie, Depends, Header, File, Form, HTTPException, Query, Response, UploadFile
 from pydantic import BaseModel, TypeAdapter, ValidationError
 
-from app import acciones, almacen, auth, catalogo, export, inputs, pautas, semana, tablas
+from app import acciones, almacen, auth, catalogo, export, inputs, pautas, semana, semanas, tablas
 from app.agent import asistente as asistente_ia
 from app.agent import cliente, uso
 from app.engine import model as m
@@ -345,10 +345,13 @@ def preview(p: Pedido):
 @api.post("/semana")
 def ver_semana(p: Pedido):
     """La semana subida armada para revisar: cómo se leyó, cuántas filas hay en cada grupo y las pautas a mirar."""
-    c = _correr(p)
-    avisos = _validar(c, p.senal)
-    grupos = _clasificar(c, p.senal, avisos)
-    contenido = pautas.columnas_de_contenido(c.salida, p.senal.validaciones)
+    return _armar_semana(_correr(p), p.senal)
+
+
+def _armar_semana(c: Corrida, receta: m.Senal) -> dict:
+    avisos = _validar(c, receta)
+    grupos = _clasificar(c, receta, avisos)
+    contenido = pautas.columnas_de_contenido(c.salida, receta.validaciones)
 
     def detalle(g: dict) -> dict:
         i = g["filas"][0]
@@ -362,6 +365,7 @@ def ver_semana(p: Pedido):
         "lectura": {"filas": len(c.crudo), "columnas": [str(x) for x in c.crudo.columns]},
         "resumen": {"filas": len(c.salida), **cuenta, "pautas_revisar": len(revisar)},
         "contenido": contenido,
+        "programa": semana.columna_programa(contenido, receta.validaciones),
         "revisar": revisar,
         "nuevas": nuevas,
         "horarios": [asdict(a) for a in avisos if a.regla not in ("catalogo", "titulo_nuevo")],
@@ -618,6 +622,138 @@ class Aceptar(Pedido):
 def aceptar_pautas(senal_id: str, p: Aceptar, u: auth.Usuario = Depends(auth.usuario_actual)):
     """"Está bien así" sobre pautas para revisar: entran a la base como están."""
     return {"aceptadas": _guardar_nuevas(senal_id, p, u.usuario, set(p.hashes))}
+
+
+# --- Semana abierta de cada señal ---
+
+def _receta(senal_id: str) -> m.Senal:
+    try:
+        return almacen.leer(senal_id)
+    except (almacen.NoExiste, ValueError):
+        raise HTTPException(404, "No existe la señal")
+
+
+def _con_entrada(receta: m.Senal, detectada) -> m.Senal:
+    """Si la grilla llegó en otro formato que la anterior, la señal pasa a leerla así."""
+    entrada = receta.entrada
+    if entrada.tipo != detectada.tipo:
+        entrada = detectada
+    elif entrada.tipo == "texto" and entrada.fecha_inicio != detectada.fecha_inicio:
+        entrada = entrada.model_copy(update={"fecha_inicio": detectada.fecha_inicio})
+    return receta if entrada is receta.entrada else receta.model_copy(update={"entrada": entrada})
+
+
+def _detectar(contenido: bytes):
+    try:
+        return inputs.detectar(contenido)
+    except Exception as e:  # un Excel roto ya falla al buscar el encabezado
+        raise HTTPException(422, f"No se pudo leer la grilla: {e}")
+
+
+def _abrir(receta: m.Senal, contenido: bytes, detectada, nombre: str, usuario: str) -> dict:
+    """Abre la semana con esta grilla. Si no se puede leer, la semana anterior queda como estaba."""
+    nueva = _con_entrada(receta, detectada)
+    try:
+        inputs.leer(contenido, nueva.entrada)
+    except Exception as e:
+        raise HTTPException(422, f"No se pudo leer la grilla: {e}")
+    if nueva is not receta:
+        almacen.guardar(nueva, usuario)
+    semanas.abrir(receta.id, contenido, nombre, usuario)
+    return _semana_abierta(receta.id, nueva)
+
+
+def _fechas(salida: pd.DataFrame, receta: m.Senal) -> dict:
+    col = grilla.detectar_columnas(list(salida.columns), receta.validaciones).get("fecha")
+    if not col or col not in salida.columns:
+        return {"desde": None, "hasta": None}
+    fechas = pd.to_datetime(salida[col], errors="coerce", dayfirst=True).dropna()
+    if fechas.empty:
+        return {"desde": None, "hasta": None}
+    return {"desde": fechas.min().date().isoformat(), "hasta": fechas.max().date().isoformat()}
+
+
+def _semana_abierta(senal_id: str, receta: m.Senal) -> dict:
+    """La semana abierta armada para revisar, con quién la subió. De paso deja el resumen al día para el Inicio."""
+    meta = semanas.leer(senal_id)
+    if meta is None:
+        return {"semana": None}
+    c = _correr(Pedido(tabla_id=meta["tabla_id"], senal=receta))
+    armado = _armar_semana(c, receta)
+    armado["resumen"] |= _fechas(c.salida, receta)
+    semanas.guardar_resumen(senal_id, armado["resumen"])
+    return {"semana": {**meta, "resumen": armado["resumen"]}, **armado}
+
+
+def _pedido_abierta(senal_id: str) -> tuple[m.Senal, Pedido]:
+    meta = semanas.leer(senal_id)
+    if meta is None:
+        raise HTTPException(404, "Esta señal no tiene una semana abierta: subí la grilla")
+    receta = _receta(senal_id)
+    return receta, Pedido(tabla_id=meta["tabla_id"], senal=receta)
+
+
+@api.get("/inicio")
+def inicio(u: auth.Usuario = Depends(auth.usuario_actual)):
+    """Todas las señales con su semana abierta, y las últimas que tocó esta persona."""
+    abiertas, formatos = semanas.todas(), almacen.formatos()
+    lista = [{**s, "formato": formatos.get(s["id"], "excel"), "semana": abiertas.get(s["id"])} for s in almacen.listar()]
+    mias = [s for s in lista if s["semana"] and u.usuario in (s["semana"]["subida_por"], s["semana"]["confirmada_por"])]
+    mias.sort(key=lambda s: max(s["semana"]["subida"], s["semana"]["confirmada"] or ""), reverse=True)
+    return {"senales": lista, "recientes": [s["id"] for s in mias[:3]]}
+
+
+@api.get("/senales/{senal_id}/abierta")
+def ver_semana_abierta(senal_id: str):
+    return _semana_abierta(senal_id, _receta(senal_id))
+
+
+@api.post("/senales/{senal_id}/abierta")
+async def abrir_semana(senal_id: str, archivo: UploadFile = File(...), u: auth.Usuario = Depends(auth.usuario_actual)):
+    receta = _receta(senal_id)
+    contenido = await _leer_archivo(archivo)
+    return _abrir(receta, contenido, _detectar(contenido), archivo.filename or "grilla", u.usuario)
+
+
+@api.post("/senales/{senal_id}/abierta/texto")
+def abrir_semana_texto(senal_id: str, datos: TextoPegado, u: auth.Usuario = Depends(auth.usuario_actual)):
+    """Texto o HTML pegado. Se detecta qué es igual que con un archivo."""
+    receta = _receta(senal_id)
+    if not datos.texto.strip():
+        raise HTTPException(422, "El texto está vacío")
+    contenido = datos.texto.encode("utf-8")
+    if len(contenido) > MAX_ARCHIVO:
+        raise HTTPException(413, "El texto pasa los 20 MB")
+    detectada = _detectar(contenido)
+    if detectada.tipo == "texto":
+        detectada = detectada.model_copy(update={"fecha_inicio": datos.fecha_inicio or None})
+    return _abrir(receta, contenido, detectada, "HTML pegado" if detectada.tipo == "html" else "texto pegado",
+                  u.usuario)
+
+
+class Hashes(BaseModel):
+    hashes: list[str]
+
+
+@api.post("/senales/{senal_id}/abierta/aceptar")
+def aceptar_abierta(senal_id: str, datos: Hashes, u: auth.Usuario = Depends(auth.usuario_actual)):
+    receta, p = _pedido_abierta(senal_id)
+    _guardar_nuevas(senal_id, p, u.usuario, set(datos.hashes))
+    return _semana_abierta(senal_id, receta)
+
+
+@api.post("/senales/{senal_id}/abierta/confirmar")
+def confirmar_abierta(senal_id: str, u: auth.Usuario = Depends(auth.usuario_actual)):
+    receta, p = _pedido_abierta(senal_id)
+    _guardar_nuevas(senal_id, p, u.usuario)
+    semanas.confirmar(senal_id, u.usuario)
+    return _semana_abierta(senal_id, receta)
+
+
+@api.get("/senales/{senal_id}/abierta/export")
+def exportar_abierta(senal_id: str, formato: str = "xlsx"):
+    _, p = _pedido_abierta(senal_id)
+    return exportar(PedidoExport(**p.model_dump(), formato=formato))
 
 
 @api.post("/senales/{senal_id}/pautas/desde-ejemplos")

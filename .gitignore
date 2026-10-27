@@ -8,3 +8,7 @@ senales/
 datos/
 muestras/
 .env
+
+# Web nueva: dependencias y compilado
+front/node_modules/
+front/dist/

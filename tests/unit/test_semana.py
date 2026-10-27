@@ -1,4 +1,5 @@
 import datetime as dt
+import io
 
 import pandas as pd
 
@@ -140,3 +141,49 @@ def test_historial_y_restaurar(cliente):
     assert cliente.get("/api/senales/canal").json()["tarjetas"][0]["id"] == "s1"
     assert len(cliente.get("/api/senales/canal/historial").json()) == 3
     assert cliente.post("/api/senales/canal/historial/99999/restaurar").status_code == 404
+
+
+def test_semana_abierta_queda_guardada_para_todos(cliente):
+    receta = {"id": "canal", "nombre": "Canal", "entrada": {"tipo": "excel"}, "tarjetas": [SEPARAR],
+              "salida": {"columnas": []}}
+    cliente.put("/api/senales/canal", json=receta)
+    assert cliente.get("/api/senales/canal/abierta").json() == {"semana": None}
+    grilla = excel(_grilla(["Memory Lane - Outkast", "Ruta Sonora - Live"]))
+    r = cliente.post("/api/senales/canal/abierta", files={"archivo": ("noviembre.xlsx", grilla)}).json()
+    assert r["semana"]["nombre"] == "noviembre.xlsx" and r["semana"]["subida_por"] == "admin"
+    assert r["resumen"]["revisar"] == 2 and (r["resumen"]["desde"], r["resumen"]["hasta"]) == ("2026-11-02", "2026-11-02")
+    assert r["programa"] == "Programa"
+
+    # Otra réplica, otro día: la grilla sigue aunque haya vencido como tabla subida.
+    from app import db, tablas
+    with db.transaccion() as con:
+        con.execute(db.tablas_subidas.delete())
+    tablas.olvidar_cache()
+    h = cliente.get("/api/senales/canal/abierta").json()["revisar"][0]["hash"]
+    r = cliente.post("/api/senales/canal/abierta/aceptar", json={"hashes": [h]}).json()
+    assert r["resumen"]["revisar"] == 1
+
+    inicio = cliente.get("/api/inicio").json()
+    assert inicio["recientes"] == ["canal"]
+    (canal,) = inicio["senales"]
+    assert canal["formato"] == "excel" and canal["semana"]["resumen"]["revisar"] == 1
+
+    r = cliente.post("/api/senales/canal/abierta/confirmar").json()
+    assert r["resumen"]["revisar"] == 0 and r["semana"]["confirmada_por"] == "admin"
+    xlsx = cliente.get("/api/senales/canal/abierta/export", params={"formato": "xlsx"})
+    assert pd.read_excel(io.BytesIO(xlsx.content))["Programa"].tolist() == ["Memory Lane", "Ruta Sonora"]
+
+
+def test_semana_pegada_adopta_el_formato_y_una_ilegible_no_pisa_la_anterior(cliente):
+    receta = {"id": "canal", "nombre": "Canal", "entrada": {"tipo": "excel"}, "tarjetas": [], "salida": {"columnas": []}}
+    cliente.put("/api/senales/canal", json=receta)
+    texto = "LUNES 2\n06:00 Memory Lane\n07:00 Koko Pop\n"
+    r = cliente.post("/api/senales/canal/abierta/texto", json={"texto": texto, "fecha_inicio": "2026-11-02"})
+    assert r.status_code == 200, r.text
+    assert r.json()["semana"]["nombre"] == "texto pegado" and r.json()["resumen"]["filas"] == 2
+    assert cliente.get("/api/senales/canal").json()["entrada"] == {"tipo": "texto", "fecha_inicio": "2026-11-02"}
+
+    roto = cliente.post("/api/senales/canal/abierta", files={"archivo": ("roto.xlsx", b"PK no es un excel")})
+    assert roto.status_code == 422
+    assert cliente.get("/api/senales/canal/abierta").json()["semana"]["nombre"] == "texto pegado"
+    assert cliente.post("/api/senales/otra/abierta/confirmar").status_code == 404

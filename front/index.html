@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="es" data-tema="oscuro">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AutoRTV</title>
+  <link rel="icon" href="/logo-rtv.png">
+  <script>
+    // Antes de pintar, para que el tema claro no parpadee en oscuro.
+    try { const t = localStorage.getItem("autortv.tema"); if (t) document.documentElement.dataset.tema = t; } catch {}
+  </script>
+</head>
+<body>
+  <div id="raiz"></div>
+  <script type="module" src="/src/main.tsx"></script>
+</body>
+</html>

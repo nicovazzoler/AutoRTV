@@ -42,6 +42,13 @@ def listar() -> list[dict]:
     return [{"id": i, "nombre": n} for i, n in filas]
 
 
+def formatos() -> dict[str, str]:
+    """Cómo llega la grilla de cada señal (excel, pdf, texto…), según su receta."""
+    with db.transaccion() as con:
+        filas = con.execute(select(db.senales.c.id, db.senales.c.receta)).all()
+    return {i: (r.get("entrada") or {}).get("tipo", "excel") for i, r in filas}
+
+
 def leer(senal_id: str) -> m.Senal:
     with db.transaccion() as con:
         receta = con.execute(select(db.senales.c.receta).where(db.senales.c.id == _validar_id(senal_id))).scalar()
