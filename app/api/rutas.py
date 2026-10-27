@@ -917,7 +917,7 @@ def charla_asistente(p: PedidoAsistente, u: auth.Usuario = Depends(auth.usuario_
     proveedor = _proveedor_disponible(u, p.pedido)
     tabla = _correr_tabla(p.tabla_id, p.senal) if p.tabla_id else None
     c = asistente_ia.charlar(p.senal, tabla, [h.model_dump() for h in p.historial], p.pedido, proveedor)
-    uso.registrar(u.usuario, p.senal.id, "[charla] " + p.pedido, 1, c.tokens_entrada, c.tokens_salida, True)
+    uso.registrar(u.usuario, p.senal.id, "[charla] " + p.pedido, 1, c.tokens_entrada, c.tokens_salida, True, c.modelo)
     return asdict(c)
 
 
@@ -953,7 +953,7 @@ def asistente(p: PedidoAsistente, u: auth.Usuario = Depends(auth.usuario_actual)
                                    historial=[h.model_dump() for h in p.historial], entorno=entorno,
                                    fuerte=p.fuerte)
     uso.registrar(u.usuario, p.senal.id, p.pedido, propuesta.vueltas, propuesta.tokens_entrada,
-                  propuesta.tokens_salida, propuesta.logrado)
+                  propuesta.tokens_salida, propuesta.logrado, propuesta.modelo)
     respuesta = asdict(propuesta)
     for c in respuesta["correcciones_base"]:
         c["pautas"] = len(pautas.hashes_filtrados(p.senal.id, filtros=c["filtro"]))

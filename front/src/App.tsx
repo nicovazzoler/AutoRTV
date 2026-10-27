@@ -8,7 +8,8 @@ import { Login } from "./pantallas/Login";
 import { Inicio } from "./pantallas/Inicio";
 import { Revisar } from "./pantallas/Revisar";
 import { Subir } from "./pantallas/Subir";
-import { Pronto } from "./pantallas/Pronto";
+import { Admin } from "./pantallas/Admin";
+import { Nueva } from "./pantallas/Nueva";
 import { Grilla } from "./pantallas/Grilla";
 import { Base } from "./pantallas/Base";
 import { Senal } from "./pantallas/Senal";
@@ -91,7 +92,8 @@ export function App() {
         {destino.pantalla === "grilla" && <Grilla key={clave} senalId={destino.senal} />}
         {destino.pantalla === "base" && <Base key={clave} senalId={destino.senal} />}
         {destino.pantalla === "senal" && <Senal key={clave} senalId={destino.senal} />}
-        {["nueva", "admin"].includes(destino.pantalla) && <Pronto />}
+        {destino.pantalla === "nueva" && <Nueva />}
+        {destino.pantalla === "admin" && <Admin key={revision} />}
         {conAgente && <Agente key={destino.senal} senalId={destino.senal} />}
       </div>
     </ContextoSesion.Provider>

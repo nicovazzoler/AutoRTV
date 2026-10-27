@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent } from "react";
 import { api, ErrorApi, textoDeError } from "../api";
 import { frase, fraseCambio, fraseEntrada, fraseIdiomas } from "../frases";
 import { haceCuanto } from "../fechas";
+import { ConfigSenal, RecetaArchivo } from "../piezas/ConfigSenal";
 import { useSesion } from "../sesion";
 import type { Evaluacion, Receta, Version } from "../tipos";
 
@@ -30,6 +31,7 @@ export function Senal({ senalId }: { senalId: string }) {
   const [error, setError] = useState("");
   const [aviso, setAviso] = useState("");
   const [subiendo, setSubiendo] = useState(false);
+  const [editando, setEditando] = useState(false);
 
   const cargar = async () => {
     const { datos, version: v } = await api.conVersion<Receta>(`/senales/${senalId}`);
@@ -181,19 +183,23 @@ export function Senal({ senalId }: { senalId: string }) {
       </div>
 
       <div className="dos-columnas" style={{ gap: 40 }}>
-        <section aria-label="Configuración" className="seccion">
-          <div className="seccion-cabeza"><h2 style={{ fontSize: 22 }}>Configuración</h2></div>
+        <section aria-label="Configuración" className="seccion" style={editando ? { gridColumn: "1 / -1" } : undefined}>
+          <div className="seccion-cabeza">
+            <h2 style={{ fontSize: 22 }}>Configuración</h2>
+            <span style={{ flexGrow: 1 }} />
+            {yo.admin && !editando && <button type="button" className="boton chico" onClick={() => setEditando(true)}>Editar</button>}
+          </div>
+          {editando ? (
+            <ConfigSenal receta={receta} version={version} alCancelar={() => setEditando(false)} alGuardar={() => { setEditando(false); tocar(); }} />
+          ) : (
           <dl className="datos-config" style={{ marginTop: 12 }}>
             <div><dt>Cómo se lee la grilla</dt><dd>{fraseEntrada(receta)}</dd></div>
             <div><dt>Idiomas</dt><dd>{fraseIdiomas(receta)}</dd></div>
             <div><dt>Celdas con varios programas</dt><dd>{receta.entrada.partir ? `Se parten en «${receta.entrada.partir.separador}»` : "No se parten"}</dd></div>
             <div><dt>Columnas de salida</dt><dd>{receta.salida.columnas.length ? receta.salida.columnas.join(", ") : "Las del catálogo, en su orden"}</dd></div>
           </dl>
-          {yo.admin && (
-            <p className="chico tenue" style={{ marginTop: 12 }}>
-              Validaciones y exportar o importar la receta: por ahora en la <a href="/viejo" style={{ color: "var(--acento)" }}>web anterior</a>.
-            </p>
           )}
+          {yo.admin && !editando && <div style={{ marginTop: 16 }}><RecetaArchivo receta={receta} version={version} alGuardar={tocar} /></div>}
         </section>
         <section aria-label="Fuente web" className="seccion">
           <div className="seccion-cabeza"><h2 style={{ fontSize: 22 }}>Fuente web</h2></div>

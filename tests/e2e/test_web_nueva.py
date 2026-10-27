@@ -6,7 +6,9 @@ import subprocess
 
 import pytest
 
-from tests.e2e.test_web import RAIZ, playwright, servidor  # noqa: F401 (servidor es un fixture)
+from tests.e2e.conftest import RAIZ
+
+playwright = pytest.importorskip("playwright.sync_api")
 
 FRONT = RAIZ / "front"
 SEPARAR = {"id": "s1", "tipo": "separar", "columna": "Titulo", "modo": "separador", "valor": " - ",
@@ -36,7 +38,7 @@ def _grilla(tmp_path):
     return archivo
 
 
-def test_semana_de_punta_a_punta(servidor, tmp_path):  # noqa: F811
+def test_semana_de_punta_a_punta(servidor, tmp_path):
     with playwright.sync_playwright() as p:
         try:
             navegador = p.chromium.launch(executable_path=os.environ.get("CHROMIUM"))
@@ -92,7 +94,7 @@ def test_semana_de_punta_a_punta(servidor, tmp_path):  # noqa: F811
         navegador.close()
 
 
-def test_grilla_y_base(servidor, tmp_path):  # noqa: F811
+def test_grilla_y_base(servidor, tmp_path):
     with playwright.sync_playwright() as p:
         try:
             navegador = p.chromium.launch(executable_path=os.environ.get("CHROMIUM"))
@@ -136,7 +138,7 @@ def test_grilla_y_base(servidor, tmp_path):  # noqa: F811
         navegador.close()
 
 
-def test_agente_aplica_y_senal_deshace(servidor, tmp_path):  # noqa: F811
+def test_agente_aplica_y_senal_deshace(servidor, tmp_path):
     with playwright.sync_playwright() as p:
         try:
             navegador = p.chromium.launch(executable_path=os.environ.get("CHROMIUM"))
@@ -175,4 +177,81 @@ def test_agente_aplica_y_senal_deshace(servidor, tmp_path):  # noqa: F811
         pagina.locator("main .regla", has_text="Parte Titulo en Programa y Capitulo").wait_for()
         # La conversación sigue en el panel al cambiar de pantalla.
         assert agente.get_by_text("¡Hola! Decime qué querés cambiar.").count() == 1
+        navegador.close()
+
+
+def _ejemplo(tmp_path):
+    from openpyxl import Workbook
+
+    wb = Workbook()
+    wb.active.append(["FECHA", "HORA", "Programa", "Capitulo"])
+    wb.active.append([dt.datetime(2026, 11, 2), dt.time(6), "Memory Lane", "Outkast"])
+    wb.active.append([dt.datetime(2026, 11, 3), dt.time(6), "Ruta Sonora", "Live"])
+    archivo = tmp_path / "ejemplo.xlsx"
+    wb.save(archivo)
+    return archivo
+
+
+def _entrar(p, servidor):
+    try:
+        navegador = p.chromium.launch(executable_path=os.environ.get("CHROMIUM"))
+    except playwright.Error as e:
+        pytest.skip(f"No hay Chromium para Playwright: {str(e).splitlines()[0]}")
+    pagina = navegador.new_page()
+    pagina.on("dialog", lambda d: d.accept())
+    pagina.goto(servidor + "/login")
+    pagina.fill("input[name=usuario]", "admin")
+    pagina.fill("input[name=clave]", "clave-segura")
+    pagina.click("button[type=submit]")
+    pagina.wait_for_url(servidor + "/")
+    return navegador, pagina
+
+
+def test_nueva_senal_y_parecida(servidor, tmp_path):
+    with playwright.sync_playwright() as p:
+        navegador, pagina = _entrar(p, servidor)
+        grilla, ejemplo = str(_grilla(tmp_path)), str(_ejemplo(tmp_path))
+
+        def completar(nombre):
+            pagina.goto(servidor + "/nueva")
+            pagina.get_by_label("Nombre de la señal").fill(nombre)
+            pagina.locator("section[aria-label='Paso 2'] input[type=file]").first.set_input_files(grilla)
+            pagina.locator("section[aria-label='Paso 2'] input[type=file]").nth(1).set_input_files(ejemplo)
+            pagina.get_by_role("button", name="Crear la señal").click()
+
+        completar("Canal Demo")
+        pagina.get_by_text("Base cargada:").wait_for()
+        pagina.get_by_role("link", name="Ver la señal").wait_for()
+        assert pagina.request.get(servidor + "/api/senales/canal-demo").ok
+
+        # Un nombre casi igual pide confirmación; se puede sumar como ejemplo de la que ya está.
+        completar("Canal Demo 2")
+        pagina.get_by_role("button", name="Agregar como ejemplo de Canal Demo").click()
+        pagina.get_by_text("quedó como ejemplo de").wait_for()
+        assert len(pagina.request.get(servidor + "/api/senales/canal-demo/ejemplos").json()) == 2
+        navegador.close()
+
+
+def test_admin_usuarios_y_tope(servidor):
+    with playwright.sync_playwright() as p:
+        navegador, pagina = _entrar(p, servidor)
+        pagina.locator(".menu-item", has_text="Admin").click()
+        pagina.wait_for_url("**/admin")
+        pagina.get_by_label("Usuario nuevo").fill("lucia")
+        pagina.get_by_role("button", name="Crear", exact=True).click()
+        pagina.get_by_text("La clave es").wait_for()
+        clave = pagina.locator("[role=status]").inner_text().split("La clave es ")[1].split(" ")[0]
+        assert pagina.request.post(servidor + "/api/login", data={"usuario": "lucia", "clave": clave}).ok
+
+        # El login de lucia cambió la cookie de esta pestaña: se vuelve a entrar como admin.
+        pagina.request.post(servidor + "/api/login", data={"usuario": "admin", "clave": "clave-segura"})
+        pagina.reload()
+        pagina.get_by_label("pedidos por persona y día").fill("12")
+        pagina.get_by_role("button", name="Cambiar").click()
+        pagina.get_by_text("Listo: cambiar el tope").wait_for()
+        assert pagina.request.get(servidor + "/api/asistente/limites").json()["limite_diario"] == 12
+
+        fila = pagina.locator("tr", has_text="lucia")
+        fila.get_by_role("button", name="Borrar").click()
+        fila.wait_for(state="detached")
         navegador.close()

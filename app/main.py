@@ -3,13 +3,11 @@ from pathlib import Path
 
 from fastapi import Cookie, FastAPI, HTTPException
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
-from fastapi.staticfiles import StaticFiles
 
 from app import auth, db
 from app.api.rutas import api, publico
 
 RAIZ = Path(__file__).resolve().parents[1]
-WEB_VIEJA = RAIZ / "web"
 WEB = RAIZ / "front" / "dist"
 
 
@@ -36,22 +34,6 @@ def _con_sesion(token: str | None) -> bool:
         return True
     except HTTPException:
         return False
-
-
-# La web vieja queda en /viejo mientras la nueva no tenga todas las pantallas.
-@app.get("/viejo")
-def web_vieja(autortv_sesion: str | None = Cookie(default=None)):
-    if not _con_sesion(autortv_sesion):
-        return RedirectResponse("/viejo/login")
-    return FileResponse(WEB_VIEJA / "index.html")
-
-
-@app.get("/viejo/login")
-def login_viejo():
-    return FileResponse(WEB_VIEJA / "login.html")
-
-
-app.mount("/web", StaticFiles(directory=WEB_VIEJA), name="web")
 
 
 # La web es estática; los datos los protege /api con la sesión.

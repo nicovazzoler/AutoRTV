@@ -4,7 +4,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 
 from sqlalchemy import (Boolean, Column, DateTime, Float, ForeignKey, Index, Integer, LargeBinary, MetaData,
-                        String, Table, Text, create_engine, event, text)
+                        String, Table, Text, create_engine, event, inspect, text)
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.engine import Connection, Engine
 from sqlalchemy.types import JSON
@@ -40,6 +40,7 @@ uso_agente = Table(
     Column("tokens_entrada", Integer, nullable=False),
     Column("tokens_salida", Integer, nullable=False),
     Column("logrado", Boolean, nullable=False),
+    Column("costo_usd", Float),  # estimado con el precio del modelo que respondió; vacío en pedidos viejos
 )
 
 senales = Table(
@@ -169,7 +170,14 @@ def inicializar(m: Engine) -> None:
             # Si arrancan dos réplicas juntas, una espera a la otra en vez de crear/migrar dos veces.
             con.execute(text("SELECT pg_advisory_xact_lock(424242)"))
         metadata.create_all(con)
+        _agregar_columnas(con)
         migrar.desde_volumen(con)
+
+
+def _agregar_columnas(con: Connection) -> None:
+    """create_all no toca tablas que ya existen: las columnas nuevas se agregan acá."""
+    if "costo_usd" not in {c["name"] for c in inspect(con).get_columns("uso_agente")}:
+        con.execute(text("ALTER TABLE uso_agente ADD COLUMN costo_usd FLOAT"))
 
 
 @contextmanager

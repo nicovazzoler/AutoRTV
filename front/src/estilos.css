@@ -407,7 +407,8 @@ dialog.dialogo h2 { margin: 0; font-family: "Fraunces Variable", serif; font-siz
   border-left: 1px solid var(--borde);
   position: sticky;
   top: 0;
-  max-height: 100vh;
+  align-self: flex-start;
+  height: 100vh;
 }
 .agente.plegado { flex-basis: auto; padding: 24px 12px; }
 .agente-cabeza { display: flex; align-items: center; gap: 8px; }
@@ -430,7 +431,7 @@ dialog.dialogo h2 { margin: 0; font-family: "Fraunces Variable", serif; font-siz
 }
 
 @media (max-width: 1100px) {
-  .agente { flex-basis: 100%; max-width: none; position: static; max-height: none; border-left: 0; border-top: 1px solid var(--borde); }
+  .agente { flex-basis: 100%; max-width: none; position: static; height: auto; border-left: 0; border-top: 1px solid var(--borde); }
 }
 
 /* --- Señal --- */
@@ -443,3 +444,23 @@ dialog.dialogo h2 { margin: 0; font-family: "Fraunces Variable", serif; font-siz
 .datos-config { margin: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 24px; font-size: 14px; }
 .datos-config dt { color: var(--tenue); font-size: 12px; }
 .datos-config dd { margin: 4px 0 0; }
+
+/* --- Nueva señal --- */
+
+.paso-nueva { display: flex; gap: 24px; padding-top: 18px; border-top: 1px solid var(--borde); }
+.numero-paso { font-family: "Fraunces Variable", serif; font-size: 32px; color: var(--acento); width: 40px; flex: 0 0 40px; }
+.caja-archivo {
+  display: flex; flex-direction: column; gap: 10px; min-height: 160px; padding: 22px;
+  border-radius: 18px; border: 1.5px dashed var(--borde); background: var(--panel);
+}
+.barra-progreso { height: 8px; max-width: 480px; border-radius: 999px; background: var(--panel); border: 1px solid var(--borde); overflow: hidden; }
+.barra-progreso > div { height: 100%; background: var(--acento); }
+
+/* --- Configuración de la señal (admin) --- */
+
+.form-config { display: flex; flex-direction: column; gap: 16px; margin-top: 12px; }
+.form-config fieldset { border: 1px solid var(--borde); border-radius: 14px; padding: 14px 16px; display: flex; flex-wrap: wrap; gap: 12px 20px; }
+.form-config legend { padding: 0 6px; font-size: 13px; color: var(--tenue); }
+.form-config .entrada { min-height: 38px; font-size: 14px; }
+.form-config .tilde { display: flex; align-items: center; gap: 8px; font-size: 14px; color: var(--texto); }
+.form-config .tilde input { width: 18px; height: 18px; accent-color: var(--acento); }
