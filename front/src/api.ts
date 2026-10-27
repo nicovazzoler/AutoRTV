@@ -35,6 +35,10 @@ export const api = {
     const r = await pedir(ruta, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(datos) });
     return r.json();
   },
+  async put<T>(ruta: string, datos: unknown): Promise<T> {
+    const r = await pedir(ruta, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(datos) });
+    return r.json();
+  },
   async subir<T>(ruta: string, formulario: FormData): Promise<T> {
     return (await pedir(ruta, { method: "POST", body: formulario })).json();
   },

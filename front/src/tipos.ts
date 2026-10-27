@@ -65,3 +65,45 @@ export interface SemanaAbierta {
   nuevas?: Pauta[];
   horarios?: Aviso[];
 }
+
+export interface Grupo {
+  grupo: "base" | "nueva_lista" | "revisar";
+  motivos: string[];
+}
+
+export interface GrillaAbierta {
+  semana: MetaSemana;
+  columnas: string[];
+  filas: unknown[][];
+  grupos: Grupo[];
+  hashes: string[];
+  contenido: string[];
+  programa: string | null;
+  validaciones: Aviso[];
+  total_filas: number;
+}
+
+export interface PautaBase {
+  hash: string;
+  crudo: Celdas;
+  salida: Celdas;
+  estado: "revisada" | "editada";
+  usuario: string;
+  actualizado: string;
+}
+
+export interface ListaPautas {
+  total: number;
+  por_estado: Record<string, number>;
+  pautas: PautaBase[];
+}
+
+export interface ColumnasBase {
+  columnas: string[];
+  programa: string | null;
+}
+
+export interface ValorColumna {
+  valor: string | number;
+  pautas: number;
+}

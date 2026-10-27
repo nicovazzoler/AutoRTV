@@ -89,3 +89,10 @@ def test_acciones_admin_por_api(cliente, monkeypatch):
     assert ana.post("/api/admin/acciones", json={"acciones": [
         {"tipo": "cambiar_limite_diario", "valor": 999}]}).status_code == 403
     assert cliente.post("/api/admin/acciones", json={"acciones": [{"tipo": "borrar_todo"}]}).status_code == 422
+
+
+def test_el_modelo_fuerte_solo_si_se_pide():
+    proveedor = Grabado([SIN_REGLAS])
+    pedir(RECETA, TABLA, "x", proveedor)
+    pedir(RECETA, TABLA, "x", proveedor, fuerte=True)
+    assert proveedor.fuertes == [False, True]
