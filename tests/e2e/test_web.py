@@ -1,4 +1,4 @@
-"""Humo de la web en un Chromium real: login, subir grilla, agregar tarjeta, ver la tabla cambiar."""
+"""Humo de la web vieja (/viejo) en un Chromium real: login, subir grilla, agregar tarjeta, ver la tabla cambiar."""
 import json
 import os
 import socket
@@ -68,12 +68,12 @@ def test_flujo_basico(servidor, tmp_path):
             pytest.skip(f"No hay Chromium para Playwright: {str(e).splitlines()[0]}")
         pagina = navegador.new_page()
         pagina.on("dialog", lambda d: d.accept())
-        pagina.goto(servidor + "/")
-        pagina.wait_for_url("**/login")
+        pagina.goto(servidor + "/viejo")
+        pagina.wait_for_url("**/viejo/login")
         pagina.fill("input[name=usuario]", "admin")
         pagina.fill("input[name=clave]", "clave-segura")
         pagina.click("button[type=submit]")
-        pagina.wait_for_url(servidor + "/")
+        pagina.wait_for_url(servidor + "/viejo")
 
         pagina.click("#btn-nueva")
         pagina.fill("#form-senal input[name=nombre]", "Señal de prueba")
@@ -145,11 +145,11 @@ def _entrar(p, servidor):
     except playwright.Error as e:
         pytest.skip(f"No hay Chromium para Playwright: {str(e).splitlines()[0]}")
     pagina = navegador.new_page()
-    pagina.goto(servidor + "/login")
+    pagina.goto(servidor + "/viejo/login")
     pagina.fill("input[name=usuario]", "admin")
     pagina.fill("input[name=clave]", "clave-segura")
     pagina.click("button[type=submit]")
-    pagina.wait_for_url(servidor + "/")
+    pagina.wait_for_url(servidor + "/viejo")
     return navegador, pagina
 
 
@@ -232,11 +232,11 @@ def test_tarjetas_agrupadas_por_tema(servidor, tmp_path):
         except playwright.Error as e:
             pytest.skip(f"No hay Chromium para Playwright: {str(e).splitlines()[0]}")
         pagina = navegador.new_page()
-        pagina.goto(servidor + "/login")
+        pagina.goto(servidor + "/viejo/login")
         pagina.fill("input[name=usuario]", "admin")
         pagina.fill("input[name=clave]", "clave-segura")
         pagina.click("button[type=submit]")
-        pagina.wait_for_url(servidor + "/")
+        pagina.wait_for_url(servidor + "/viejo")
         assert pagina.request.put(servidor + "/api/senales/grupos", data=receta).ok
         pagina.reload()
         pagina.select_option("#sel-senal", "grupos")

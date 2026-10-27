@@ -26,6 +26,13 @@ def subir(contenido: bytes) -> str:
     return tabla_id
 
 
+def asegurar(tabla_id: str, contenido: bytes) -> None:
+    """Vuelve a guardar una grilla que venció, con el mismo id: la semana abierta de una señal dura más de 24 h."""
+    with db.transaccion() as con:
+        if con.execute(select(db.tablas_subidas.c.id).where(db.tablas_subidas.c.id == tabla_id)).first() is None:
+            con.execute(insert(db.tablas_subidas).values(id=tabla_id, contenido=contenido, creada=dt.datetime.now()))
+
+
 def tabla(tabla_id: str, entrada) -> pd.DataFrame:
     """La tabla leída con esa config de entrada. KeyError si el archivo no existe o venció."""
     clave = (tabla_id, entrada.model_dump_json())

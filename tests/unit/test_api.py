@@ -125,8 +125,11 @@ def test_tipos_tarjeta_trae_todos(cliente):
 
 def test_web_se_sirve():
     c = TestClient(app)
-    assert "AutoRTV" in c.get("/").text and "form-login" in c.get("/login").text
-    assert c.get("/web/app.js").status_code == 200
+    assert "form-login" in c.get("/viejo/login").text and c.get("/web/app.js").status_code == 200
+    # La web nueva resuelve sus rutas sola: cualquier dirección que no sea de la API devuelve la página.
+    assert c.get("/api/no-existe").status_code == 404
+    pagina = c.get("/s/canal/revisar")
+    assert pagina.status_code == 503 or 'id="raiz"' in pagina.text
 
 
 def test_guardar_no_pisa_a_otro(cliente):

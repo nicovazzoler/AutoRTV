@@ -37,6 +37,17 @@ ADMIN_USUARIO=admin ADMIN_CLAVE=una-clave-larga .venv/bin/uvicorn app.main:app -
 Abrir http://127.0.0.1:8000. El admin se crea solo la primera vez (si no hay usuarios). Los demás
 usuarios se crean desde la pestaña **Admin**.
 
+### La web
+
+La web nueva está en `front/` (React + Vite). Se va armando por etapas: hoy tiene Login, Inicio,
+Subir grilla y Revisar. Mientras tanto, la web anterior sigue entera en `/viejo`.
+
+```bash
+cd front && npm ci
+npm run build   # deja la web en front/dist, que es lo que sirve FastAPI
+npm run dev     # o con recarga en vivo en http://127.0.0.1:5173, contra el uvicorn del 8000
+```
+
 ## Tests
 
 ```bash
@@ -47,10 +58,12 @@ CHROMIUM=/ruta/a/chrome .venv/bin/python -m pytest tests/e2e  # navegador real (
 
 - Contra Postgres, las tablas se vacían antes de cada test: usar una base solo para eso.
 - El test golden de Concert Channel corre solo si existe `privado/`.
+- El e2e de la web nueva compila `front/` si hace falta (necesita npm).
 
 ## Deploy en Railway
 
-1. **New Project → Deploy from GitHub repo**, con este repo (usa el `Dockerfile`).
+1. **New Project → Deploy from GitHub repo**, con este repo (usa el `Dockerfile`, que también
+   compila la web).
 2. **New → Database → Add PostgreSQL**. En el servicio de la app → **Variables**:
    `DATABASE_URL` = `${{Postgres.DATABASE_URL}}`.
 3. Variables `ADMIN_USUARIO` y `ADMIN_CLAVE` (solo se usan si todavía no hay usuarios) y

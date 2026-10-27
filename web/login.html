@@ -21,7 +21,7 @@
       const r = await fetch("/api/login", {
         method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(datos),
       });
-      if (r.ok) { location.href = "/"; return; }
+      if (r.ok) { location.href = "/viejo"; return; }
       const error = document.getElementById("error-login");
       error.textContent = "Usuario o clave incorrectos";
       error.hidden = false;
