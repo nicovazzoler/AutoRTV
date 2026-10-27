@@ -1,10 +1,12 @@
 import datetime as dt
 
 import pandas as pd
+import pytest
 from pydantic import TypeAdapter
 
 from app.engine import model as m
 from app.engine.pipeline import aplicar
+from app.engine.util import ErrorTarjeta
 
 tarjeta = TypeAdapter(m.Tarjeta).validate_python
 D = dt.datetime(2026, 10, 31)
@@ -54,3 +56,15 @@ def test_estructural_rechaza_condicion():
 def test_tarjeta_inactiva_no_corre():
     r = aplicar(pd.DataFrame({"a": [" x "]}), [tarjeta({"id": "a", "tipo": "limpiar_espacios", "activa": False})])
     assert r.tabla["a"][0] == " x "
+
+
+def test_convertir_zona_con_horario_de_verano():
+    from app.engine.tarjetas.estructura import convertir_zona
+
+    df = pd.DataFrame({"utc": ["2026-10-20T04:00:00", "2026-12-01T05:00:00", None]}, dtype=object)
+    t = m.ConvertirZona(id="z", tipo="convertir_zona", columna="utc", desde="UTC", hacia="America/New_York")
+    salida = convertir_zona(df, t)
+    assert list(salida["Hora"]) == [dt.time(0), dt.time(0), None]
+    assert salida["Fecha"][0] == dt.datetime(2026, 10, 20)
+    with pytest.raises(ErrorTarjeta):
+        convertir_zona(df, t.model_copy(update={"hacia": "Marte/Base"}))

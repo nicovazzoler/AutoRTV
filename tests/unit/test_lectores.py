@@ -110,7 +110,7 @@ def test_pdf_grilla_semanal_con_celdas_unidas():
 
 def test_subir_grilla_dice_el_formato_y_texto_pegado(cliente):
     r = cliente.post("/api/tablas", files={"archivo": ("g.xml", XMLTV)}).json()
-    assert r["entrada"] == {"tipo": "xml", "elemento": None}
+    assert r["entrada"] == {"tipo": "xml", "elemento": None, "partir": None}
     receta = {"id": "x", "nombre": "x", "entrada": r["entrada"], "tarjetas": [], "salida": {"columnas": []}}
     assert cliente.post("/api/preview", json={"tabla_id": r["tabla_id"], "senal": receta}).json()["total_filas"] == 2
 
@@ -120,3 +120,21 @@ def test_subir_grilla_dice_el_formato_y_texto_pegado(cliente):
     preview = cliente.post("/api/preview", json={"tabla_id": pegado["tabla_id"], "senal": receta}).json()
     assert preview["total_filas"] == 2 and preview["filas"][0][:2] == ["02/11/2026", "06:00"]
     assert cliente.post("/api/tablas/texto", json={"texto": "  "}).status_code == 422
+
+
+def test_partir_celdas_con_varios_programas():
+    from app.inputs.partir import partir_filas
+
+    tabla = __import__("pandas").DataFrame({
+        "Fecha": [dt.datetime(2026, 10, 27)] * 3,
+        "Inicio": [dt.time(17), dt.time(18), dt.time(23, 30)],
+        "Fin": [dt.time(18), dt.time(18, 10), dt.time(0, 30)],
+        "Programa": ["HONORES Ep. 22 / GATIPEDIA. Ep. 9, 7'43\"", "Himno Nacional /Himno del Estado",
+                     "Cine 90'00\" / Noticias"],
+    }, dtype=object)
+    df = partir_filas(tabla, m.Partir(solo_si=r"\d+'\d+\""))
+    assert list(df["Programa"]) == ["HONORES Ep. 22", "GATIPEDIA. Ep. 9, 7'43\"", "Himno Nacional /Himno del Estado",
+                                    "Cine 90'00\"", "Noticias"]
+    assert [(i.strftime("%H:%M"), f.strftime("%H:%M")) for i, f in zip(df["Inicio"], df["Fin"])] == [
+        ("17:00", "17:30"), ("17:30", "18:00"), ("18:00", "18:10"), ("23:30", "00:00"), ("00:00", "00:30")]
+    assert df["Fecha"][4] == dt.datetime(2026, 10, 28)  # la segunda parte ya es del día siguiente
