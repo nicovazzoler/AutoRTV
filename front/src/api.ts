@@ -35,9 +35,17 @@ export const api = {
     const r = await pedir(ruta, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(datos) });
     return r.json();
   },
-  async put<T>(ruta: string, datos: unknown): Promise<T> {
-    const r = await pedir(ruta, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(datos) });
+  async put<T>(ruta: string, datos: unknown, cabeceras: Record<string, string> = {}): Promise<T> {
+    const r = await pedir(ruta, { method: "PUT", headers: { "Content-Type": "application/json", ...cabeceras }, body: JSON.stringify(datos) });
     return r.json();
+  },
+  /** Con la versión del ETag, para devolverla en If-Match y no pisar lo que guardó otro. */
+  async conVersion<T>(ruta: string, metodo = "GET", cabeceras: Record<string, string> = {}): Promise<{ datos: T; version: string }> {
+    const r = await pedir(ruta, { method: metodo, headers: cabeceras });
+    return { datos: await r.json(), version: r.headers.get("ETag") ?? "" };
+  },
+  async borrar<T>(ruta: string): Promise<T> {
+    return (await pedir(ruta, { method: "DELETE" })).json();
   },
   async subir<T>(ruta: string, formulario: FormData): Promise<T> {
     return (await pedir(ruta, { method: "POST", body: formulario })).json();

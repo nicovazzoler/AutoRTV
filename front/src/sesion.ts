@@ -8,6 +8,9 @@ export interface Sesion {
   refrescarSenales: () => Promise<void>;
   /** Lo que una pantalla sabe de la semana abierta, para que el menú y el Inicio lo muestren sin volver a pedirlo. */
   actualizarSemana: (senal: string, semana: MetaSemana | null) => void;
+  /** Sube cada vez que cambian las reglas o la base desde el agente: las pantallas se vuelven a armar. */
+  revision: number;
+  tocar: () => void;
 }
 
 export const ContextoSesion = createContext<Sesion | null>(null);

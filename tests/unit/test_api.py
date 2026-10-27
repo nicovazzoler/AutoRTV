@@ -125,7 +125,6 @@ def test_tipos_tarjeta_trae_todos(cliente):
 
 def test_web_se_sirve():
     c = TestClient(app)
-    assert "form-login" in c.get("/viejo/login").text and c.get("/web/app.js").status_code == 200
     assert c.get("/api/no-existe").status_code == 404
 
 
@@ -134,7 +133,6 @@ def test_sin_sesion_ninguna_pantalla_se_entrega(cliente):
     for ruta in ("/", "/s/canal/revisar", "/admin"):
         r = anonimo.get(ruta)
         assert (r.status_code, r.headers["location"]) == (307, "/login"), ruta
-    assert anonimo.get("/viejo").headers["location"] == "/viejo/login"
     assert anonimo.get("/login").status_code in (200, 503)  # 503 si la web no está compilada
 
     # Con sesión, la web resuelve sus rutas sola y el login manda al Inicio.
@@ -142,7 +140,7 @@ def test_sin_sesion_ninguna_pantalla_se_entrega(cliente):
     pagina = cliente.get("/s/canal/revisar")
     assert pagina.status_code == 503 or 'id="raiz"' in pagina.text
     assert cliente.get("/login").headers["location"] == "/"
-    assert cliente.get("/viejo").status_code == 200
+    assert cliente.get("/viejo").status_code in (200, 503)  # la web vieja ya no existe: es una ruta más de la nueva
 
 
 def test_guardar_no_pisa_a_otro(cliente):

@@ -72,6 +72,7 @@ class Propuesta:
     vueltas: int = 0
     tokens_entrada: int = 0
     tokens_salida: int = 0
+    modelo: str = ""
 
 
 @dataclass
@@ -80,6 +81,7 @@ class Charla:
     proponer_cambios: bool
     tokens_entrada: int = 0
     tokens_salida: int = 0
+    modelo: str = ""
 
 
 def sistema() -> str:
@@ -108,10 +110,10 @@ def charlar(receta: m.Senal, tabla: pd.DataFrame | None, historial: list[dict], 
     partes += _conversacion(historial) + ["## Mensaje nuevo", mensaje]
     r = proveedor.charlar(sistema_charla(), [{"role": "user", "content": "\n\n".join(partes)}])
     if r.rechazo:
-        return Charla(f"No puedo responder eso ({r.rechazo}).", False, r.tokens_entrada, r.tokens_salida)
+        return Charla(f"No puedo responder eso ({r.rechazo}).", False, r.tokens_entrada, r.tokens_salida, r.modelo)
     datos = r.datos if isinstance(r.datos, dict) else {}
     return Charla(str(datos.get("respuesta", "")), bool(datos.get("proponer_cambios", not datos)),
-                  r.tokens_entrada, r.tokens_salida)
+                  r.tokens_entrada, r.tokens_salida, r.modelo)
 
 
 def _conversacion(historial: list[dict]) -> list[str]:
@@ -156,6 +158,7 @@ def pedir(receta: m.Senal, tabla: pd.DataFrame, pedido: str, proveedor: Proveedo
         resultado.vueltas = vuelta
         resultado.tokens_entrada += r.tokens_entrada
         resultado.tokens_salida += r.tokens_salida
+        resultado.modelo = r.modelo
         if r.rechazo:
             resultado.problemas = [f"El asistente no quiso responder este pedido ({r.rechazo})."]
             return resultado

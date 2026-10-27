@@ -1,30 +1,24 @@
 # AutoRTV
 
-Convierte grillas de programación de TV (Excel, HTML, PDF) en un EPG normalizado usando
-**tarjetas**: reglas chicas y editables sin código (separar, reemplazar, quitar, duración…)
-que se aplican en orden, con vista previa en vivo en la web.
+Convierte grillas de programación de TV (Excel, PDF, XML, HTML o texto pegado) en un EPG
+normalizado. Lo que ya pasó sale de una base; lo nuevo lo arman reglas que propone un agente, y
+la web muestra solo lo que hay que mirar.
 
 ## Qué hace
 
-- **Señales:** cada una tiene su receta de tarjetas, su vista previa y validaciones de grilla
-  (huecos, superposiciones, días de 24 h, duraciones de más de 720 min).
-- **Nueva señal:** se crea con nombre, la grilla cruda y la macro hecha (el EPG terminado). Si ya
-  hay una señal con un nombre igual o parecido, pide confirmación.
-- **Base de pautas:** cada fila cruda sin fecha, hora ni duración se reconoce cuando vuelve. Lo que
-  se corrigió a mano (doble clic en la tabla o en la pestaña Base) queda corregido las próximas
-  semanas. La base se carga sola con los ejemplos.
-- **Catálogo de columnas:** el admin sube el Excel con el orden y las reglas de cada columna (largo
-  máximo, números, valores permitidos, obligatorias según los idiomas de la señal).
-- **Reglas:** la receta se lee como frases, con un interruptor por regla.
-- **Ejemplos:** pares "como vino → como quedó". La receta se prueba contra ellos y sugiere
-  correcciones.
-- **Asistente:** se le pide en castellano y propone cambios en las tarjetas (ver abajo).
-
-### Roles
-
-- **Admin:** pestaña Admin (usuarios, catálogo, uso del asistente), editor de tarjetas,
-  validaciones y exportar/importar receta.
-- **Resto:** trabaja con el asistente y las pestañas Tabla, Reglas, Base y Ejemplos.
+- **Inicio:** todas las señales con su semana: cuántas filas hay para revisar, si se confirmó, quién la subió.
+- **Subir grilla:** archivo, texto pegado o el HTML de una página. La semana queda guardada para todos.
+- **Revisar:** cada fila cae en *de la base*, *nueva lista* (capítulo nuevo de un programa conocido) o
+  *para revisar* (programa nuevo, celda fuera del catálogo, horario con error). Se confirma y exporta.
+- **Grilla y Base:** la semana fila por fila y todas las pautas guardadas, con filtros. Doble clic
+  corrige una celda; en la Base se cambian varias juntas.
+- **Señal:** ejemplos "como vino → como quedó" con el % que aciertan las reglas, las reglas como
+  frases, deshacer, y (admin) la configuración y exportar o importar la receta.
+- **Agente:** panel a la derecha. Charla, propone reglas o correcciones en la base, el servidor las
+  prueba y la persona aplica o descarta (ver abajo).
+- **Nueva señal:** nombre, la grilla como vino y la macro hecha; la base se carga sola y el agente
+  arma las reglas desde el ejemplo.
+- **Admin:** usuarios (la clave la genera el servidor), catálogo de columnas y gasto del agente.
 
 ## Correr local
 
@@ -39,8 +33,7 @@ usuarios se crean desde la pestaña **Admin**.
 
 ### La web
 
-La web nueva está en `front/` (React + Vite). Se va armando por etapas: hoy tiene Login, Inicio,
-Subir grilla, Revisar, Grilla completa y Base. Mientras tanto, la web anterior sigue entera en `/viejo`.
+La web está en `front/` (React + Vite).
 
 ```bash
 cd front && npm ci
@@ -58,7 +51,7 @@ CHROMIUM=/ruta/a/chrome .venv/bin/python -m pytest tests/e2e  # navegador real (
 
 - Contra Postgres, las tablas se vacían antes de cada test: usar una base solo para eso.
 - El test golden de Concert Channel corre solo si existe `privado/`.
-- El e2e de la web nueva compila `front/` si hace falta (necesita npm).
+- El e2e compila `front/` si hace falta (necesita npm).
 
 ## Deploy en Railway
 

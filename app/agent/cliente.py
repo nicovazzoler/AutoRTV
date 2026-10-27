@@ -42,6 +42,7 @@ class Respuesta:
     rechazo: str | None = None
     tokens_entrada: int = 0
     tokens_salida: int = 0
+    modelo: str = ""  # el que respondió de verdad, para calcular el costo
 
 
 class Proveedor(Protocol):
@@ -86,13 +87,13 @@ def _leer(r) -> Respuesta:
            + (r.usage.cache_creation_input_tokens or 0), r.usage.output_tokens)
     if r.stop_reason == "refusal":
         motivo = getattr(r.stop_details, "explanation", None) or "sin detalle"
-        return Respuesta("", rechazo=motivo, tokens_entrada=uso[0], tokens_salida=uso[1])
+        return Respuesta("", rechazo=motivo, tokens_entrada=uso[0], tokens_salida=uso[1], modelo=r.model)
     texto = next((b.text for b in r.content if b.type == "text"), "")
     try:
         datos = json.loads(texto)
     except json.JSONDecodeError:
         datos = None  # se corta por max_tokens; el bucle lo reintenta
-    return Respuesta(texto, datos, tokens_entrada=uso[0], tokens_salida=uso[1])
+    return Respuesta(texto, datos, tokens_entrada=uso[0], tokens_salida=uso[1], modelo=r.model)
 
 
 class Grabado:

@@ -12,7 +12,6 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 COPY app ./app
 COPY ejemplos ./ejemplos
-COPY web ./web
 COPY --from=web /front/dist ./front/dist
 # Sin DATABASE_URL, los datos van a SQLite en /data.
 ENV DATA_DIR=/data

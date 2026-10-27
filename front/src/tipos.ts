@@ -107,3 +107,101 @@ export interface ValorColumna {
   valor: string | number;
   pautas: number;
 }
+
+export interface Condicion {
+  columna: string;
+  op: string;
+  valor?: string;
+}
+
+export interface Tarjeta {
+  id: string;
+  tipo: string;
+  activa?: boolean;
+  nota?: string;
+  si?: Condicion | null;
+  [campo: string]: unknown;
+}
+
+export interface Receta {
+  id: string;
+  nombre: string;
+  entrada: { tipo: string; partir?: { separador: string; solo_si?: string } | null; [campo: string]: unknown };
+  tarjetas: Tarjeta[];
+  salida: { columnas: string[] };
+  idiomas?: string[];
+  titulos_conocidos?: string[];
+  [campo: string]: unknown;
+}
+
+export interface Metricas {
+  errores_tarjetas: number;
+  validaciones: Record<string, number>;
+  ejemplos: Record<string, number>;
+}
+
+export interface Cambio {
+  tipo: "agregada" | "modificada" | "borrada" | "salida" | "orden";
+  id: string;
+  tarjeta?: Tarjeta;
+  campos?: string[];
+  columnas?: string[];
+}
+
+export interface CorreccionBase {
+  filtro: Record<string, string>;
+  columna: string;
+  valor: string | number | null;
+  pautas: number;
+  descripcion: string;
+}
+
+export interface AccionAdmin {
+  tipo: string;
+  descripcion: string;
+  [campo: string]: unknown;
+}
+
+export interface Propuesta {
+  logrado: boolean;
+  explicacion: string;
+  receta: Receta | null;
+  cambios: Cambio[];
+  correcciones_base: CorreccionBase[];
+  acciones_admin: AccionAdmin[];
+  antes: Metricas | null;
+  despues: Metricas | null;
+  problemas: string[];
+  vueltas: number;
+  efecto?: {
+    celdas: number;
+    ejemplos: { fila: number; columna: string; antes: unknown; despues: unknown }[];
+    revisar_antes: number;
+    revisar_despues: number;
+  };
+}
+
+export interface Charla {
+  respuesta: string;
+  proponer_cambios: boolean;
+}
+
+export interface Limites {
+  limite_diario: number;
+  usados_hoy: number;
+  quedan: number;
+}
+
+export interface Evaluacion {
+  nombre: string;
+  porcentaje?: number;
+  error?: string;
+  total_diferencias?: number;
+}
+
+export interface Version {
+  id: number;
+  usuario: string;
+  fecha: string;
+  cambios: Cambio[];
+}
