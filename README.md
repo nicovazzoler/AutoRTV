@@ -79,7 +79,8 @@ Un volumen en `/data` solo hace falta para migrar datos del formato anterior (ve
 | `DATABASE_URL` | Postgres. Sin ella, SQLite en `DATA_DIR`. |
 | `ADMIN_USUARIO`, `ADMIN_CLAVE` | Primer admin, si no hay usuarios. |
 | `ANTHROPIC_API_KEY` | Activa el asistente. Conviene un workspace aparte con límite de gasto. |
-| `AGENTE_MODELO` | Modelo de las propuestas (por defecto `claude-opus-5-5`). |
+| `AGENTE_MODELO` | Modelo de las propuestas (por defecto `claude-haiku-5-5`, el más barato). |
+| `AGENTE_MODELO_FUERTE` | Modelo para cuando se pide "con el modelo fuerte" (por defecto `claude-sonnet-5-5`). |
 | `AGENTE_MODELO_RAPIDO` | Modelo de la charla (por defecto `claude-haiku-5-5`). |
 | `AGENTE_LIMITE_DIARIO` | Pedidos al asistente por persona por día (por defecto 50). |
 | `COOKIE_SEGURA` | `1`/`0` fuerza la cookie solo-HTTPS. En Railway se activa sola. |
@@ -88,9 +89,11 @@ Un volumen en `/data` solo hace falta para migrar datos del formato anterior (ve
 ## Asistente (IA)
 
 - Cada mensaje va primero a Claude Haiku: si es una pregunta o charla, responde ahí mismo.
-- Si pide cambiar reglas o columnas, el pedido pasa a Claude Opus, que propone tarjetas, las prueba
-  contra la grilla y los ejemplos, y corrige hasta 3 veces. El botón **Proponer cambios** va
-  directo a Opus.
+- Si pide cambiar reglas o columnas, el pedido pasa a armar una propuesta: también con Haiku, que
+  propone tarjetas, el servidor las prueba contra la grilla y los ejemplos, y se corrige hasta 3
+  veces. El botón **Proponer cambios** va directo a ese paso.
+- Si Haiku no lo logra, se puede pedir de nuevo con el modelo fuerte (`fuerte` en `/api/asistente`,
+  Sonnet por defecto), que cuesta unas 20 veces más.
 - Nunca aplica nada solo: la persona ve los cambios y el % de los ejemplos, y decide.
 - Se reenvían los últimos 10 mensajes de la conversación. A Claude le llega solo la señal abierta,
   15 filas de muestra y esa conversación.

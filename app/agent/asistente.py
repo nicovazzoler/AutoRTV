@@ -139,8 +139,11 @@ def medir(receta: m.Senal, tabla: pd.DataFrame, ejemplos: list[Ejemplo]) -> tupl
 
 def pedir(receta: m.Senal, tabla: pd.DataFrame, pedido: str, proveedor: Proveedor,
           ejemplos: list[Ejemplo] = (), objetivo: str | None = None, orden_columnas: list[str] = (),
-          historial: list[dict] = (), entorno: Entorno | None = None) -> Propuesta:
-    """`objetivo` = nombre de un ejemplo que tiene que llegar al 100 % ("armar desde este ejemplo")."""
+          historial: list[dict] = (), entorno: Entorno | None = None, fuerte: bool = False) -> Propuesta:
+    """`objetivo` = nombre de un ejemplo que tiene que llegar al 100 % ("armar desde este ejemplo").
+
+    `fuerte` usa el modelo más capaz (y más caro), para cuando el barato no lo logró.
+    """
     entorno = entorno or Entorno()
     antes, detalle = medir(receta, tabla, ejemplos)
     contexto = _contexto(receta, tabla, detalle, antes, ejemplos, pedido, objetivo, orden_columnas, historial, entorno)
@@ -149,7 +152,7 @@ def pedir(receta: m.Senal, tabla: pd.DataFrame, pedido: str, proveedor: Proveedo
     resultado = Propuesta(logrado=False, antes=antes)
 
     for vuelta in range(1, MAX_VUELTAS + 1):
-        r = proveedor.pedir(sistema(), mensajes, effort)
+        r = proveedor.pedir(sistema(), mensajes, effort, fuerte)
         resultado.vueltas = vuelta
         resultado.tokens_entrada += r.tokens_entrada
         resultado.tokens_salida += r.tokens_salida

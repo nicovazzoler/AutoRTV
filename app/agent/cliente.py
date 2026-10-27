@@ -5,7 +5,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
 
-MODELO = os.environ.get("AGENTE_MODELO", "claude-opus-5-5")
+# Las propuestas van al modelo barato: el servidor prueba cada una y le devuelve lo que falló.
+MODELO = os.environ.get("AGENTE_MODELO", "claude-haiku-5-5")
+# Solo si la persona lo pide, para lo que el barato no resuelve.
+MODELO_FUERTE = os.environ.get("AGENTE_MODELO_FUERTE", "claude-sonnet-5-5")
 # Modelo rápido y barato para charlar y decidir si hace falta armar una propuesta.
 MODELO_RAPIDO = os.environ.get("AGENTE_MODELO_RAPIDO", "claude-haiku-5-5")
 
@@ -42,7 +45,7 @@ class Respuesta:
 
 
 class Proveedor(Protocol):
-    def pedir(self, sistema: str, mensajes: list[dict], effort: str) -> Respuesta: ...
+    def pedir(self, sistema: str, mensajes: list[dict], effort: str, fuerte: bool = False) -> Respuesta: ...
 
     def charlar(self, sistema: str, mensajes: list[dict]) -> Respuesta: ...
 
@@ -52,21 +55,22 @@ class Claude:
         import anthropic  # solo hace falta si el asistente está configurado
         self._cliente = anthropic.Anthropic()
 
-    def pedir(self, sistema: str, mensajes: list[dict], effort: str) -> Respuesta:
+    def pedir(self, sistema: str, mensajes: list[dict], effort: str, fuerte: bool = False) -> Respuesta:
+        modelo = MODELO_FUERTE if fuerte else MODELO
+        # Haiku no tiene fallback del lado del servidor: un rechazo vuelve como tal.
+        respaldo = {} if "haiku" in modelo else {"betas": ["server-side-fallback-2026-07-01"], "fallbacks": "default"}
         r = self._cliente.beta.messages.create(
-            model=MODELO,
+            model=modelo,
             max_tokens=16000,
             # El system prompt no cambia entre pedidos: se cachea y cada llamada sale más barata.
             system=[{"type": "text", "text": sistema, "cache_control": {"type": "ephemeral"}}],
             messages=mensajes,
             output_config={"effort": effort, "format": {"type": "json_schema", "schema": FORMATO}},
-            betas=["server-side-fallback-2026-07-01"],
-            fallbacks="default",
+            **respaldo,
         )
         return _leer(r)
 
     def charlar(self, sistema: str, mensajes: list[dict]) -> Respuesta:
-        # Haiku no tiene fallback del lado del servidor: un rechazo vuelve como tal.
         r = self._cliente.messages.create(
             model=MODELO_RAPIDO,
             max_tokens=4000,
@@ -99,8 +103,10 @@ class Grabado:
         self.charlas = [r for r in respuestas if isinstance(r, dict) and "respuesta" in r]
         self.respuestas = [r for r in respuestas if not (isinstance(r, dict) and "respuesta" in r)]
         self.pedidos: list[list[dict]] = []
+        self.fuertes: list[bool] = []
 
-    def pedir(self, sistema: str, mensajes: list[dict], effort: str) -> Respuesta:
+    def pedir(self, sistema: str, mensajes: list[dict], effort: str, fuerte: bool = False) -> Respuesta:
+        self.fuertes.append(fuerte)
         return self._siguiente(self.respuestas, mensajes)
 
     def charlar(self, sistema: str, mensajes: list[dict]) -> Respuesta:

@@ -897,6 +897,7 @@ class PedidoAsistente(BaseModel):
     tabla_id: str | None = None
     ejemplo: str | None = None  # "armar desde este ejemplo": la grilla es la entrada del ejemplo
     historial: list[MensajeHilo] = []
+    fuerte: bool = False  # modelo más caro, solo para lo que el barato no resolvió
 
 
 def _proveedor_disponible(u: auth.Usuario, pedido: str):
@@ -949,7 +950,8 @@ def asistente(p: PedidoAsistente, u: auth.Usuario = Depends(auth.usuario_actual)
         es_admin=u.admin, reglas_catalogo=[f"{c.nombre}: {c.regla or c.tipo}" for c in cat])
     propuesta = asistente_ia.pedir(p.senal, tabla, p.pedido, proveedor, ejemplos, objetivo=p.ejemplo,
                                    orden_columnas=[c.nombre for c in cat],
-                                   historial=[h.model_dump() for h in p.historial], entorno=entorno)
+                                   historial=[h.model_dump() for h in p.historial], entorno=entorno,
+                                   fuerte=p.fuerte)
     uso.registrar(u.usuario, p.senal.id, p.pedido, propuesta.vueltas, propuesta.tokens_entrada,
                   propuesta.tokens_salida, propuesta.logrado)
     respuesta = asdict(propuesta)
