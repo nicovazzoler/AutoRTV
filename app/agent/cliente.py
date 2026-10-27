@@ -17,8 +17,10 @@ FORMATO = {
         "explicacion": {"type": "string"},
         "tarjetas_json": {"type": "string"},
         "columnas_salida": {"anyOf": [{"type": "array", "items": {"type": "string"}}, {"type": "null"}]},
+        "correcciones_base_json": {"type": "string"},
+        "acciones_admin_json": {"type": "string"},
     },
-    "required": ["explicacion", "tarjetas_json", "columnas_salida"],
+    "required": ["explicacion", "tarjetas_json", "columnas_salida", "correcciones_base_json", "acciones_admin_json"],
     "additionalProperties": False,
 }
 

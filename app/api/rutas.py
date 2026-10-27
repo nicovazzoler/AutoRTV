@@ -9,10 +9,10 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 
 import pandas as pd
-from fastapi import APIRouter, Cookie, Depends, Header, File, Form, HTTPException, Response, UploadFile
+from fastapi import APIRouter, Cookie, Depends, Header, File, Form, HTTPException, Query, Response, UploadFile
 from pydantic import BaseModel, TypeAdapter, ValidationError
 
-from app import almacen, auth, catalogo, export, pautas, tablas
+from app import acciones, almacen, auth, catalogo, export, pautas, semana, tablas
 from app.agent import asistente as asistente_ia
 from app.agent import cliente, uso
 from app.engine import model as m
@@ -163,6 +163,39 @@ def guardar_senal(senal_id: str, receta: m.Senal, response: Response,
     return {"ok": True}
 
 
+@api.get("/senales/{senal_id}/historial")
+def historial_senal(senal_id: str):
+    """Últimas versiones de la receta, la más nueva primero, con qué cambió cada una."""
+    try:
+        versiones = almacen.historial(senal_id, limite=51)
+    except ValueError as e:
+        raise HTTPException(422, str(e))
+    lista = []
+    for anterior, actual in zip([None, *versiones], versiones):
+        cambios = (asistente_ia.cambios(m.Senal.model_validate(anterior["receta"]), m.Senal.model_validate(actual["receta"]))
+                   if anterior else [])
+        lista.append({"id": actual["id"], "usuario": actual["usuario"],
+                      "fecha": actual["fecha"].isoformat(timespec="minutes"), "cambios": cambios})
+    # La primera de las 51 solo sirve para calcular los cambios de la segunda.
+    return lista[::-1][:50]
+
+
+@api.post("/senales/{senal_id}/historial/{version_id}/restaurar")
+def restaurar_version(senal_id: str, version_id: int, response: Response,
+                      u: auth.Usuario = Depends(auth.usuario_actual), if_match: str | None = Header(default=None)):
+    """Vuelve la receta a esa versión. Queda como un guardado más, así también se puede deshacer."""
+    try:
+        receta = almacen.leer_version(senal_id, version_id)
+        response.headers["ETag"] = almacen.guardar(receta, u.usuario, esperada=if_match)
+    except almacen.NoExiste:
+        raise HTTPException(404, "No existe esa versión")
+    except almacen.Conflicto as c:
+        raise HTTPException(409, f"{c.usuario} guardó cambios el {c.fecha:%d/%m a las %H:%M}")
+    except ValueError as e:
+        raise HTTPException(422, str(e))
+    return receta.model_dump(exclude_none=True)
+
+
 @api.post("/senales/validar", dependencies=[Depends(auth.solo_admin)])
 def validar_receta(receta: dict):
     """Valida una receta importada; devuelve los errores en castellano en vez de un 422 crudo."""
@@ -228,6 +261,8 @@ class Corrida:
     estados: list[str]
     hashes: list[str]
     crudas: list[dict]
+    crudo: pd.DataFrame
+    programas: list[str]
 
 
 def _correr(p: Pedido) -> Corrida:
@@ -238,13 +273,25 @@ def _correr(p: Pedido) -> Corrida:
         raise HTTPException(410, "El archivo ya no está en memoria: volvé a subirlo")
     except Exception as e:  # Excel roto o config de entrada que no corresponde
         raise HTTPException(422, f"No se pudo leer el Excel: {e}")
-    r = aplicar(tabla, p.senal.tarjetas, p.senal.titulos_conocidos)
-    df, estados, hashes = pautas.aplicar(tabla, r.tabla, pautas.base(p.senal.id))
+    base = pautas.base(p.senal.id)
+    columnas_base = sorted({c for pauta in base.values() for c in pauta["salida"]})
+    programas = semana.programas_de_la_base(base, semana.columna_programa(columnas_base, p.senal.validaciones))
+    r = aplicar(tabla, p.senal.tarjetas, [*p.senal.titulos_conocidos, *programas])
+    df, estados, hashes = pautas.aplicar(tabla, r.tabla, base)
     salida = armar_salida(df, p.senal.salida)
     cat = catalogo.leer()
     if cat and not p.senal.salida.columnas:
         salida = salida[catalogo.ordenar(list(salida.columns), cat)]
-    return Corrida(salida, r.informes, cat, estados, hashes, pautas.crudas(tabla))
+    return Corrida(salida, r.informes, cat, estados, hashes, pautas.crudas(tabla), tabla, programas)
+
+
+def _validar(c: Corrida, receta: m.Senal) -> list:
+    return grilla.validar(c.salida, receta.validaciones, receta.titulos_conocidos, c.catalogo, receta.idiomas)
+
+
+def _clasificar(c: Corrida, receta: m.Senal, avisos: list) -> list[dict]:
+    columna = semana.columna_programa(list(c.salida.columns), receta.validaciones)
+    return semana.clasificar(c.salida, c.estados, avisos, c.informes, c.programas, columna)
 
 
 def _resumen_pautas(estados: list[str]) -> dict:
@@ -255,7 +302,8 @@ def _resumen_pautas(estados: list[str]) -> dict:
 def preview(p: Pedido):
     c = _correr(p)
     salida = c.salida
-    avisos = grilla.validar(salida, p.senal.validaciones, p.senal.titulos_conocidos, c.catalogo, p.senal.idiomas)
+    avisos = _validar(c, p.senal)
+    grupos = _clasificar(c, p.senal, avisos)
     indices = [i for i, e in enumerate(c.estados) if e == "nueva"] if p.solo_nuevas else list(range(len(salida)))
     indices = indices[:p.filas]
     return {
@@ -264,6 +312,7 @@ def preview(p: Pedido):
         "indices": indices,
         "estados": [c.estados[i] for i in indices],
         "hashes": [c.hashes[i] for i in indices],
+        "grupos": [grupos[i] for i in indices],
         "resumen_pautas": _resumen_pautas(c.estados),
         "contenido": pautas.columnas_de_contenido(list(salida.columns), p.senal.validaciones),
         "total_filas": len(salida),
@@ -271,6 +320,32 @@ def preview(p: Pedido):
         "validaciones": [asdict(a) for a in avisos],
         "resumen_validaciones": grilla.resumen(avisos),
         "columnas_validadas": grilla.detectar_columnas(list(salida.columns), p.senal.validaciones),
+    }
+
+
+@api.post("/semana")
+def ver_semana(p: Pedido):
+    """La semana subida armada para revisar: cómo se leyó, cuántas filas hay en cada grupo y las pautas a mirar."""
+    c = _correr(p)
+    avisos = _validar(c, p.senal)
+    grupos = _clasificar(c, p.senal, avisos)
+    contenido = pautas.columnas_de_contenido(list(c.salida.columns), p.senal.validaciones)
+
+    def detalle(g: dict) -> dict:
+        i = g["filas"][0]
+        return {**g, "veces": len(g["filas"]), "crudo": c.crudas[i],
+                "salida": {col: pautas.valor_json(c.salida.iloc[i][col]) for col in contenido}}
+
+    revisar = [detalle(g) for g in semana.agrupar(grupos, c.hashes, "revisar")]
+    nuevas = [detalle(g) for g in semana.agrupar(grupos, c.hashes, "nueva_lista")]
+    cuenta = {k: sum(g["grupo"] == k for g in grupos) for k in ("base", "nueva_lista", "revisar")}
+    return {
+        "lectura": {"filas": len(c.crudo), "columnas": [str(x) for x in c.crudo.columns]},
+        "resumen": {"filas": len(c.salida), **cuenta, "pautas_revisar": len(revisar)},
+        "contenido": contenido,
+        "revisar": revisar,
+        "nuevas": nuevas,
+        "horarios": [asdict(a) for a in avisos if a.regla not in ("catalogo", "titulo_nuevo")],
     }
 
 
@@ -391,9 +466,54 @@ def _slug(nombre: str) -> str:
 
 # --- Base de pautas ---
 
+def _filtros(filtro: list[str]) -> dict[str, str]:
+    """`columna=valor` de la URL, repetible."""
+    pares = [f.split("=", 1) for f in filtro]
+    if any(len(par) != 2 or not par[0] for par in pares):
+        raise HTTPException(422, "Cada filtro va como columna=valor")
+    return {col: valor for col, valor in pares}
+
+
 @api.get("/senales/{senal_id}/pautas")
-def listar_pautas(senal_id: str, estado: str | None = None, q: str = "", desde: int = 0):
-    return pautas.listar(senal_id, estado or None, q, max(desde, 0))
+def listar_pautas(senal_id: str, estado: str | None = None, q: str = "", desde: int = 0,
+                  filtro: list[str] = Query(default=[])):
+    return pautas.listar(senal_id, estado or None, q, max(desde, 0), _filtros(filtro))
+
+
+@api.get("/senales/{senal_id}/pautas/valores")
+def valores_pautas(senal_id: str, columna: str):
+    return pautas.valores(senal_id, columna)
+
+
+class Seleccion(BaseModel):
+    """Pautas elegidas a mano (`hashes`) o todas las que cumplen un filtro de la Base."""
+    hashes: list[str] | None = None
+    estado: str | None = None
+    q: str = ""
+    filtro: dict[str, str] = {}
+
+    def resolver(self, senal_id: str) -> list[str]:
+        if self.hashes is not None:
+            return self.hashes
+        if not (self.estado or self.q.strip() or self.filtro):
+            raise HTTPException(422, "Elegí pautas o filtrá la base antes de cambiar todo junto")
+        return pautas.hashes_filtrados(senal_id, self.estado or None, self.q, self.filtro)
+
+
+class EdicionVarias(Seleccion):
+    columna: str
+    valor: str | None
+
+
+@api.post("/senales/{senal_id}/pautas/editar-varias")
+def editar_varias(senal_id: str, datos: EdicionVarias, u: auth.Usuario = Depends(auth.usuario_actual)):
+    valor = _convertir(datos.valor, datos.columna, catalogo.leer())
+    return {"editadas": pautas.editar_varias(senal_id, datos.resolver(senal_id), datos.columna, valor, u.usuario)}
+
+
+@api.post("/senales/{senal_id}/pautas/olvidar-varias")
+def olvidar_varias(senal_id: str, datos: Seleccion):
+    return {"olvidadas": pautas.olvidar_varias(senal_id, datos.resolver(senal_id))}
 
 
 class EdicionPauta(BaseModel):
@@ -448,17 +568,38 @@ def _convertir(valor: str | None, columna: str, cat: list):
     return valor
 
 
-@api.post("/senales/{senal_id}/pautas/revisar")
-def revisar_pautas(senal_id: str, p: Pedido, u: auth.Usuario = Depends(auth.usuario_actual)):
-    """Guarda como revisadas las pautas nuevas de esta grilla, tal como las arman hoy las reglas."""
+def _guardar_nuevas(senal_id: str, p: Pedido, usuario: str, solo: set[str] | None = None) -> int:
+    """Pasa a la base, como revisadas, las pautas nuevas de la grilla tal como las arman hoy las reglas."""
     c = _correr(p)
     contenido = pautas.columnas_de_contenido(list(c.salida.columns), p.senal.validaciones)
     nuevas = {}
     for i, estado in enumerate(c.estados):
-        if estado == "nueva" and c.hashes[i] not in nuevas:
-            nuevas[c.hashes[i]] = {"crudo": c.crudas[i],
-                                   "salida": {col: pautas.valor_json(c.salida.iloc[i][col]) for col in contenido}}
-    return {"revisadas": pautas.guardar(senal_id, nuevas, "revisada", u.usuario)}
+        h = c.hashes[i]
+        if estado == "nueva" and h not in nuevas and (solo is None or h in solo):
+            nuevas[h] = {"crudo": c.crudas[i],
+                         "salida": {col: pautas.valor_json(c.salida.iloc[i][col]) for col in contenido}}
+    return pautas.guardar(senal_id, nuevas, "revisada", usuario)
+
+
+@api.post("/senales/{senal_id}/pautas/revisar")
+def revisar_pautas(senal_id: str, p: Pedido, u: auth.Usuario = Depends(auth.usuario_actual)):
+    return {"revisadas": _guardar_nuevas(senal_id, p, u.usuario)}
+
+
+@api.post("/senales/{senal_id}/semana/confirmar")
+def confirmar_semana(senal_id: str, p: Pedido, u: auth.Usuario = Depends(auth.usuario_actual)):
+    """Las nuevas listas y las ya revisadas entran a la base: la semana que viene salen de ahí."""
+    return {"guardadas": _guardar_nuevas(senal_id, p, u.usuario)}
+
+
+class Aceptar(Pedido):
+    hashes: list[str]
+
+
+@api.post("/senales/{senal_id}/pautas/aceptar")
+def aceptar_pautas(senal_id: str, p: Aceptar, u: auth.Usuario = Depends(auth.usuario_actual)):
+    """"Está bien así" sobre pautas para revisar: entran a la base como están."""
+    return {"aceptadas": _guardar_nuevas(senal_id, p, u.usuario, set(p.hashes))}
 
 
 @api.post("/senales/{senal_id}/pautas/desde-ejemplos")
@@ -577,20 +718,87 @@ def asistente(p: PedidoAsistente, u: auth.Usuario = Depends(auth.usuario_actual)
         ejemplos = [_leer_ejemplo(p.senal, n) for n in nombres]
     except ValueError as e:
         raise HTTPException(422, str(e))
+    semana_antes = None
     if p.ejemplo:
         objetivo = next((e for e in ejemplos if e.nombre == p.ejemplo), None)
         if objetivo is None:
             raise HTTPException(404, "No existe ese ejemplo")
         tabla = objetivo.entrada
-    else:
+    elif p.tabla_id:
         tabla = _correr_tabla(p.tabla_id, p.senal)
+        semana_antes = _semana_de(Pedido(tabla_id=p.tabla_id, senal=p.senal))
+    else:
+        tabla = pd.DataFrame()  # pedidos sobre la base o de admin no necesitan grilla
 
-    orden = [c.nombre for c in catalogo.leer()]
+    cat = catalogo.leer()
+    entorno = asistente_ia.Entorno(
+        foco=[i for i, g in enumerate(semana_antes[1]) if g["grupo"] == "revisar"] if semana_antes else [],
+        es_admin=u.admin, reglas_catalogo=[f"{c.nombre}: {c.regla or c.tipo}" for c in cat])
     propuesta = asistente_ia.pedir(p.senal, tabla, p.pedido, proveedor, ejemplos, objetivo=p.ejemplo,
-                                   orden_columnas=orden, historial=[h.model_dump() for h in p.historial])
+                                   orden_columnas=[c.nombre for c in cat],
+                                   historial=[h.model_dump() for h in p.historial], entorno=entorno)
     uso.registrar(u.usuario, p.senal.id, p.pedido, propuesta.vueltas, propuesta.tokens_entrada,
                   propuesta.tokens_salida, propuesta.logrado)
-    return asdict(propuesta)
+    respuesta = asdict(propuesta)
+    for c in respuesta["correcciones_base"]:
+        c["pautas"] = len(pautas.hashes_filtrados(p.senal.id, filtros=c["filtro"]))
+        c["descripcion"] = (f"En las pautas con {', '.join(f'{k} = {v}' for k, v in c['filtro'].items())}, "
+                            f"poner {c['columna']} = {c['valor'] if c['valor'] is not None else '(vacío)'}")
+    for a in respuesta["acciones_admin"]:
+        a["descripcion"] = acciones.describir(acciones.LISTA.validate_python([a])[0])
+    if semana_antes and propuesta.receta:
+        respuesta["efecto"] = _efecto(semana_antes, Pedido(tabla_id=p.tabla_id, senal=m.Senal(**propuesta.receta)))
+    return respuesta
+
+
+MAX_EJEMPLOS_EFECTO = 5
+
+
+def _semana_de(p: Pedido) -> tuple[Corrida, list[dict]]:
+    c = _correr(p)
+    return c, _clasificar(c, p.senal, _validar(c, p.senal))
+
+
+def _efecto(antes: tuple[Corrida, list[dict]], p: Pedido) -> dict:
+    """Qué le hace la propuesta a la semana abierta: celdas que cambian, algunas de muestra y cuántas ⚠ quedan."""
+    c_antes, grupos_antes = antes
+    c_despues, grupos_despues = _semana_de(p)
+    difs = diferencias(c_despues.salida, c_antes.salida)
+    return {
+        "celdas": len(difs),
+        "ejemplos": [{"fila": d["fila"], "columna": d["columna"], "antes": export.celda_json(d["esperado"]),
+                      "despues": export.celda_json(d["obtenido"])} for d in difs[:MAX_EJEMPLOS_EFECTO]],
+        "revisar_antes": sum(g["grupo"] == "revisar" for g in grupos_antes),
+        "revisar_despues": sum(g["grupo"] == "revisar" for g in grupos_despues),
+    }
+
+
+@api.get("/asistente/limites")
+def limites_asistente(u: auth.Usuario = Depends(auth.usuario_actual)):
+    usados, limite = uso.pedidos_de_hoy(u.usuario), uso.limite_diario()
+    return {"limite_diario": limite, "usados_hoy": usados, "quedan": max(limite - usados, 0)}
+
+
+class AccionesAdmin(BaseModel):
+    acciones: list[dict]
+
+
+@api.post("/admin/acciones", dependencies=[Depends(auth.solo_admin)])
+def aplicar_acciones(datos: AccionesAdmin, u: auth.Usuario = Depends(auth.usuario_actual)):
+    """Ejecuta acciones de admin propuestas por el agente. La clave de un usuario nuevo se muestra una sola vez."""
+    try:
+        # La web devuelve las acciones tal como las mostró, con su descripción.
+        lista = acciones.LISTA.validate_python([{k: v for k, v in a.items() if k != "descripcion"}
+                                                for a in datos.acciones])
+    except ValidationError as e:
+        raise HTTPException(422, f"Acción inválida: {e.errors()[0]['msg']}")
+    resultados = []
+    for a in lista:
+        try:
+            resultados.append(acciones.ejecutar(a, u.usuario))
+        except (ValueError, LookupError) as e:
+            resultados.append({"descripcion": acciones.describir(a), "ok": False, "error": str(e).strip("'")})
+    return resultados
 
 
 @api.get("/asistente/uso", dependencies=[Depends(auth.solo_admin)])

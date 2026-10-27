@@ -2,13 +2,22 @@
 import datetime as dt
 import os
 
-from sqlalchemy import Integer, func, insert, select
+from sqlalchemy import Integer, delete, func, insert, select
 
 from app import db
 
 
 def limite_diario() -> int:
-    return int(os.environ.get("AGENTE_LIMITE_DIARIO", "50"))
+    """El que puso un admin desde la app; si no hay, el de la variable de entorno."""
+    with db.transaccion() as con:
+        propio = con.execute(select(db.ajustes.c.valor).where(db.ajustes.c.clave == "limite_diario")).scalar()
+    return int(propio if propio is not None else os.environ.get("AGENTE_LIMITE_DIARIO", "50"))
+
+
+def poner_limite_diario(valor: int) -> None:
+    with db.transaccion() as con:
+        con.execute(delete(db.ajustes).where(db.ajustes.c.clave == "limite_diario"))
+        con.execute(insert(db.ajustes).values(clave="limite_diario", valor=str(valor)))
 
 
 def pedidos_de_hoy(usuario: str) -> int:
