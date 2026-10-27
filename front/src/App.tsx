@@ -11,6 +11,9 @@ import { Subir } from "./pantallas/Subir";
 import { Pronto } from "./pantallas/Pronto";
 import { Grilla } from "./pantallas/Grilla";
 import { Base } from "./pantallas/Base";
+import { Senal } from "./pantallas/Senal";
+import { Agente } from "./piezas/Agente";
+import { olvidarSemana } from "./semanaReciente";
 
 const ULTIMA_SENAL = "autortv.senal";
 
@@ -52,9 +55,16 @@ export function App() {
     setInicio((i) => i && { ...i, senales: i.senales.map((s) => (s.id === senal ? { ...s, semana } : s)) });
   }, []);
 
+  const [revision, setRevision] = useState(0);
+  const tocar = useCallback(() => {
+    olvidarSemana();
+    setRevision((r) => r + 1);
+  }, []);
+
   const sesion = useMemo<Sesion | null>(
-    () => yo && { yo, senales: inicio?.senales ?? null, recientes: inicio?.recientes ?? [], refrescarSenales, actualizarSemana },
-    [yo, inicio, refrescarSenales, actualizarSemana],
+    () => yo && { yo, senales: inicio?.senales ?? null, recientes: inicio?.recientes ?? [], refrescarSenales, actualizarSemana,
+      revision, tocar },
+    [yo, inicio, refrescarSenales, actualizarSemana, revision, tocar],
   );
 
   if (destino.pantalla === "login") return <Login />;
@@ -67,17 +77,22 @@ export function App() {
     navegar("/login");
   };
   const senal = sesion.senales?.find((s) => s.id === senalId);
+  // Cuando el agente cambia reglas o la base, la pantalla se vuelve a armar con lo nuevo.
+  const clave = `${senalDeRuta}-${revision}`;
+  const conAgente = "senal" in destino && destino.pantalla !== "subir";
 
   return (
     <ContextoSesion.Provider value={sesion}>
       <div className="marco">
         <Menu destino={destino} senalId={senal ? senalId : null} senal={senal} alSalir={salir} />
         {destino.pantalla === "inicio" && <Inicio />}
-        {destino.pantalla === "revisar" && <Revisar key={destino.senal} senalId={destino.senal} />}
-        {destino.pantalla === "subir" && <Subir key={destino.senal} senalId={destino.senal} />}
-        {destino.pantalla === "grilla" && <Grilla key={destino.senal} senalId={destino.senal} />}
-        {destino.pantalla === "base" && <Base key={destino.senal} senalId={destino.senal} />}
-        {["senal", "nueva", "admin"].includes(destino.pantalla) && <Pronto />}
+        {destino.pantalla === "revisar" && <Revisar key={clave} senalId={destino.senal} />}
+        {destino.pantalla === "subir" && <Subir key={clave} senalId={destino.senal} />}
+        {destino.pantalla === "grilla" && <Grilla key={clave} senalId={destino.senal} />}
+        {destino.pantalla === "base" && <Base key={clave} senalId={destino.senal} />}
+        {destino.pantalla === "senal" && <Senal key={clave} senalId={destino.senal} />}
+        {["nueva", "admin"].includes(destino.pantalla) && <Pronto />}
+        {conAgente && <Agente key={destino.senal} senalId={destino.senal} />}
       </div>
     </ContextoSesion.Provider>
   );

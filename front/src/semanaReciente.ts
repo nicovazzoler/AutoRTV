@@ -12,3 +12,7 @@ export function tomarSemana(senal: string): SemanaAbierta | null {
   const g = guardada;
   return g && g.senal === senal && Date.now() - g.cuando < 30_000 ? g.datos : null;
 }
+
+export function olvidarSemana() {
+  guardada = null;
+}
