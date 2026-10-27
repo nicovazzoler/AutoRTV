@@ -13,26 +13,32 @@ from app import db, export
 from app.catalogo import clave
 from app.engine import model as m
 from app.engine.tarjetas.estructura import a_fecha, a_hora
-from app.inputs import excel
+from app import inputs
 from app.validate import grilla
 
 # Palabras de un nombre de columna cruda que indican horario. "end" y "fin" van enteras (no "Legend", "Final").
 PREFIJOS_HORARIO = ("fecha", "hora", "dur", "date", "time", "start", "inicio")
-PALABRAS_HORARIO = {"end", "fin"}
+PALABRAS_HORARIO = {"end", "fin", "dia", "day"}
+# Identificadores de cada emisión (event_id, data-schedule-id): cambian en cada salida y no dicen qué programa es.
+PALABRAS_ID = {"id", "uid", "key"}
+TEXTO_DE_HORARIO = re.compile(r"^\s*(\d{4}-\d{2}-\d{2}|\d{1,2}/\d{1,2}(/\d{2,4})?|\d{1,2}:\d{2})")
 # Columnas de salida que siempre salen de las reglas, nunca de la base.
 NO_CONTENIDO = {"n", "dia", "fecha", "hora", "duracion", "dur"}
 POR_PAGINA = 200
 
 
 def _es_de_horario(v) -> bool:
+    if isinstance(v, str):
+        return bool(TEXTO_DE_HORARIO.match(v))
     return isinstance(v, (dt.date, dt.time, dt.timedelta, pd.Timestamp))
 
 
 def columnas_de_horario(tabla: pd.DataFrame) -> list[str]:
+    """Columnas crudas que no identifican a la pauta: horario, día e identificadores de cada emisión."""
     elegidas = []
     for c in tabla.columns:
         palabras = re.findall(r"[a-z]+", clave(c))
-        por_nombre = any(p.startswith(PREFIJOS_HORARIO) or p in PALABRAS_HORARIO for p in palabras)
+        por_nombre = any(p.startswith(PREFIJOS_HORARIO) or p in PALABRAS_HORARIO | PALABRAS_ID for p in palabras)
         valores = [v for v in tabla[c] if v is not None and not (isinstance(v, float) and pd.isna(v))]
         por_tipo = bool(valores) and sum(map(_es_de_horario, valores)) > len(valores) / 2
         if por_nombre or por_tipo:
@@ -40,9 +46,24 @@ def columnas_de_horario(tabla: pd.DataFrame) -> list[str]:
     return elegidas
 
 
-def columnas_de_contenido(columnas: list[str], v: m.Validaciones | None = None) -> list[str]:
-    horario = {c for c in grilla.detectar_columnas(columnas, v or m.Validaciones()).values() if c}
-    return [c for c in columnas if clave(c) not in NO_CONTENIDO and c not in horario]
+def columnas_de_contenido(tabla: pd.DataFrame | list[str], v: m.Validaciones | None = None) -> list[str]:
+    """Columnas de salida que guarda la base. Con la tabla, también descarta fecha, hora y día por su contenido."""
+    columnas = list(tabla.columns) if isinstance(tabla, pd.DataFrame) else list(tabla)
+    fuera = {c for c in grilla.detectar_columnas(columnas, v or m.Validaciones()).values() if c}
+    if isinstance(tabla, pd.DataFrame):
+        fuera |= set(_columnas_por_tipo(tabla).values()) | set(_columnas_de_dia(tabla))
+    return [c for c in columnas if clave(c) not in NO_CONTENIDO and c not in fuera]
+
+
+def _columnas_de_dia(df: pd.DataFrame) -> list[str]:
+    from app.inputs.pdf import dia_de
+
+    elegidas = []
+    for c in df.columns:
+        valores = [x for x in df[c] if isinstance(x, str) and x.strip()]
+        if valores and sum(dia_de(x) is not None and len(x.split()) == 1 for x in valores) > len(valores) * 0.9:
+            elegidas.append(c)
+    return elegidas
 
 
 def normalizar(v) -> str:
@@ -96,10 +117,20 @@ def aplicar(crudo: pd.DataFrame, procesada: pd.DataFrame, base: dict[str, dict]
     return df, estados, hashes
 
 
+def _como_fecha(v):
+    """Un texto con fecha ("2026-10-23 00:00:00", "2026-10-19T21:00:00") pasa a fecha; lo demás queda igual."""
+    if isinstance(v, str) and re.match(r"^\s*\d{4}-\d{2}-\d{2}", v):
+        convertida = pd.to_datetime(v.strip(), errors="coerce")
+        return None if pd.isna(convertida) else convertida.to_pydatetime()
+    if isinstance(v, str):
+        return a_hora(v) or v
+    return v
+
+
 def _clave_horario(fila: pd.Series, columnas: list[str]) -> tuple | None:
     fecha = hora = None
     for c in columnas:
-        v = fila[c]
+        v = _como_fecha(fila[c])
         if isinstance(v, (dt.datetime, pd.Timestamp)) and v.time() != dt.time(0):
             fecha, hora = fecha or v.date(), hora or v.time()
         elif fecha is None and isinstance(v, (dt.date, dt.datetime)):
@@ -109,6 +140,22 @@ def _clave_horario(fila: pd.Series, columnas: list[str]) -> tuple | None:
     return (fecha, hora.strftime("%H:%M")) if fecha and hora else None
 
 
+def _columnas_por_tipo(df: pd.DataFrame) -> dict[str, str]:
+    """Fecha y hora del EPG terminado cuando sus columnas no tienen un nombre conocido ("f", "h")."""
+    elegidas = {}
+    for c in df.columns:
+        valores = [x for x in df[c] if x is not None]
+        if not valores:
+            continue
+        fechas = sum(isinstance(x, (dt.date, dt.datetime)) and a_hora(x) in (None, dt.time(0)) for x in valores)
+        horas = sum(isinstance(x, dt.time) for x in valores)
+        if fechas > len(valores) / 2:
+            elegidas.setdefault("fecha", c)
+        elif horas > len(valores) / 2:
+            elegidas.setdefault("hora", c)
+    return elegidas
+
+
 def desde_ejemplo(crudo: pd.DataFrame, esperado: pd.DataFrame, v: m.Validaciones | None = None
                   ) -> tuple[dict[str, dict], int]:
     """Pautas del par grilla cruda → EPG terminado: {hash: {crudo, salida}} y cuántos conflictos hubo.
@@ -116,13 +163,14 @@ def desde_ejemplo(crudo: pd.DataFrame, esperado: pd.DataFrame, v: m.Validaciones
     Empareja la fila i con la fila i; si las cantidades no coinciden, por fecha y hora.
     Si un mismo hash aparece con dos salidas distintas, queda la primera.
     """
-    contenido = columnas_de_contenido(list(esperado.columns), v)
+    contenido = columnas_de_contenido(esperado, v)
     filas_crudas = crudas(crudo)
     if len(crudo) == len(esperado):
         pares = list(range(len(crudo)))
     else:
         cols = grilla.detectar_columnas(list(esperado.columns), v or m.Validaciones())
-        if not cols["fecha"] or not cols["hora"]:
+        cols = {**_columnas_por_tipo(esperado), **{k: c for k, c in cols.items() if c}}
+        if not cols.get("fecha") or not cols.get("hora"):
             return {}, 0
         por_horario = {}
         for j, f in esperado.iterrows():
@@ -289,7 +337,7 @@ def olvidar_varias(senal_id: str, hashes: list[str]) -> int:
 
 def cargar_ejemplo(receta: m.Senal, entrada: bytes, esperado: bytes, usuario: str) -> dict:
     """Suma a la base las pautas de un ejemplo, sin pisar las que ya están."""
-    crudo = excel.leer(io.BytesIO(entrada), receta.entrada)
+    crudo = inputs.leer(entrada, receta.entrada)
     terminado = pd.read_excel(io.BytesIO(esperado), dtype=object)
     terminado = terminado.astype(object).where(terminado.notna(), None)
     pautas, conflictos = desde_ejemplo(crudo, terminado, receta.validaciones)

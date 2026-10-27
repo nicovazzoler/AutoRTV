@@ -158,6 +158,39 @@ class EntradaExcel(Base):
     fila_encabezado: int = 1  # 1 = primera fila del Excel
 
 
+class EntradaTexto(Base):
+    """Texto pegado o .txt."""
+    tipo: Literal["texto"]
+    separador: str | None = None  # None = detectar (tab, ";" o "|"); "" = líneas "HH:MM programa"
+    fecha_inicio: str | None = None  # AAAA-MM-DD, si el texto no trae la fecha
+
+
+class EntradaXml(Base):
+    tipo: Literal["xml"]
+    elemento: str | None = None  # etiqueta de cada programa; None = XMLTV (<programme>)
+
+
+class EntradaPdf(Base):
+    tipo: Literal["pdf"]
+    paginas: list[int] = []  # 1 = primera; vacío = todas (algunos PDF traen dos grillas distintas)
+    fecha_inicio: str | None = None  # AAAA-MM-DD del primer día, si el PDF no la trae
+
+
+class CampoHtml(Base):
+    css: str | None = None  # selector dentro del bloque; None = el bloque mismo
+    attr: str | None = None  # atributo a leer; None = el texto
+
+
+class EntradaHtml(Base):
+    tipo: Literal["html"]
+    bloque: str | None = None  # selector de cada programa; None = detectar el bloque que más se repite
+    campos: dict[str, CampoHtml] = {}  # vacío = una columna por cada clase y atributo del bloque
+
+
+Entrada = Annotated[Union[EntradaExcel, EntradaTexto, EntradaXml, EntradaPdf, EntradaHtml],
+                    Field(discriminator="tipo")]
+
+
 class Salida(Base):
     columnas: list[str]
 
@@ -183,7 +216,7 @@ class Senal(Base):
     schema_version: Literal[1] = 1
     id: str
     nombre: str
-    entrada: EntradaExcel
+    entrada: Entrada
     tarjetas: list[Tarjeta]
     salida: Salida
     validaciones: Validaciones = Validaciones()
