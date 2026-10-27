@@ -7,3 +7,6 @@ python-multipart
 anthropic==2.2.0
 sqlalchemy==2.1.6
 psycopg[binary]==3.3.6
+pdfplumber==0.11.4
+beautifulsoup4==4.12.3
+defusedxml==0.7.1

@@ -11,7 +11,7 @@
     <strong class="marca">AutoRTV</strong>
     <select id="sel-senal" title="Señal"></select>
     <button id="btn-nueva">Nueva señal</button>
-    <label class="boton">Subir grilla<input id="in-archivo" type="file" accept=".xlsx,.xls" hidden></label>
+    <label class="boton">Subir grilla<input id="in-archivo" type="file" accept=".xlsx,.xls,.csv,.pdf,.xml,.txt,.html,.htm" hidden></label>
     <span id="nombre-archivo" class="tenue"></span>
     <span class="espacio"></span>
     <span id="estado" class="tenue"></span>
@@ -172,7 +172,7 @@
           los ejemplos de la señal y se ve qué tan parecido sale.</p>
         <form id="form-ejemplo" class="fila">
           <label>Nombre <input name="nombre" placeholder="semana-2026-10-01" pattern="[a-z0-9][a-z0-9_\-]*" required></label>
-          <label>Como vino <input name="entrada" type="file" accept=".xlsx,.xls" required></label>
+          <label>Como vino <input name="entrada" type="file" accept=".xlsx,.xls,.csv,.pdf,.xml,.txt,.html,.htm" required></label>
           <label>Como quedó <input name="esperado" type="file" accept=".xlsx,.xls" required></label>
           <button type="submit">Agregar ejemplo</button>
         </form>
@@ -207,7 +207,7 @@
     <form id="form-senal" method="dialog" class="caja-login">
       <h2>Nueva señal</h2>
       <label>Nombre de la señal <input name="nombre" required autocomplete="off" placeholder="Ej.: Concert Channel"></label>
-      <label>Grilla cruda (como viene) <input name="grilla_cruda" type="file" accept=".xlsx,.xls" required></label>
+      <label>Grilla cruda (como viene) <input name="grilla_cruda" type="file" accept=".xlsx,.xls,.csv,.pdf,.xml,.txt,.html,.htm" required></label>
       <label>Ejemplo (macro hecha) <input name="ejemplo" type="file" accept=".xlsx,.xls" required></label>
       <p id="error-senal" class="error" hidden></p>
       <div class="fila">

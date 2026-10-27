@@ -12,14 +12,13 @@ import pandas as pd
 from fastapi import APIRouter, Cookie, Depends, Header, File, Form, HTTPException, Query, Response, UploadFile
 from pydantic import BaseModel, TypeAdapter, ValidationError
 
-from app import acciones, almacen, auth, catalogo, export, pautas, semana, tablas
+from app import acciones, almacen, auth, catalogo, export, inputs, pautas, semana, tablas
 from app.agent import asistente as asistente_ia
 from app.agent import cliente, uso
 from app.engine import model as m
 from app.engine import titulos
 from app.engine.comparar import diferencias, porcentaje_igual, sugerir_correcciones
 from app.engine.pipeline import DE_ESTRUCTURA, aplicar, armar_salida, correr
-from app.inputs import excel
 from app.validate import grilla
 
 publico = APIRouter(prefix="/api")
@@ -243,7 +242,27 @@ async def _leer_archivo(archivo: UploadFile) -> bytes:
 
 @api.post("/tablas")
 async def subir_tabla(archivo: UploadFile = File(...)):
-    return {"tabla_id": tablas.subir(await _leer_archivo(archivo)), "nombre": archivo.filename}
+    """Guarda la grilla y dice qué formato parece, para que la señal sepa cómo leerla."""
+    contenido = await _leer_archivo(archivo)
+    return {"tabla_id": tablas.subir(contenido), "nombre": archivo.filename,
+            "entrada": inputs.detectar(contenido).model_dump()}
+
+
+class TextoPegado(BaseModel):
+    texto: str
+    fecha_inicio: str | None = None
+
+
+@api.post("/tablas/texto")
+def subir_texto(datos: TextoPegado):
+    """Texto pegado de un mail o una web: se guarda como si fuera un .txt."""
+    if not datos.texto.strip():
+        raise HTTPException(422, "El texto está vacío")
+    contenido = datos.texto.encode("utf-8")
+    if len(contenido) > MAX_ARCHIVO:
+        raise HTTPException(413, "El texto pasa los 20 MB")
+    entrada = m.EntradaTexto(tipo="texto", fecha_inicio=datos.fecha_inicio)
+    return {"tabla_id": tablas.subir(contenido), "nombre": "texto pegado", "entrada": entrada.model_dump()}
 
 
 class Pedido(BaseModel):
@@ -272,7 +291,7 @@ def _correr(p: Pedido) -> Corrida:
     except KeyError:
         raise HTTPException(410, "El archivo ya no está en memoria: volvé a subirlo")
     except Exception as e:  # Excel roto o config de entrada que no corresponde
-        raise HTTPException(422, f"No se pudo leer el Excel: {e}")
+        raise HTTPException(422, f"No se pudo leer la grilla: {e}")
     base = pautas.base(p.senal.id)
     columnas_base = sorted({c for pauta in base.values() for c in pauta["salida"]})
     programas = semana.programas_de_la_base(base, semana.columna_programa(columnas_base, p.senal.validaciones))
@@ -314,7 +333,7 @@ def preview(p: Pedido):
         "hashes": [c.hashes[i] for i in indices],
         "grupos": [grupos[i] for i in indices],
         "resumen_pautas": _resumen_pautas(c.estados),
-        "contenido": pautas.columnas_de_contenido(list(salida.columns), p.senal.validaciones),
+        "contenido": pautas.columnas_de_contenido(salida, p.senal.validaciones),
         "total_filas": len(salida),
         "tarjetas": [asdict(i) for i in c.informes],
         "validaciones": [asdict(a) for a in avisos],
@@ -329,7 +348,7 @@ def ver_semana(p: Pedido):
     c = _correr(p)
     avisos = _validar(c, p.senal)
     grupos = _clasificar(c, p.senal, avisos)
-    contenido = pautas.columnas_de_contenido(list(c.salida.columns), p.senal.validaciones)
+    contenido = pautas.columnas_de_contenido(c.salida, p.senal.validaciones)
 
     def detalle(g: dict) -> dict:
         i = g["filas"][0]
@@ -431,8 +450,7 @@ async def crear_senal(nombre: str = Form(""), grilla_cruda: UploadFile = File(..
                 mensaje = (f'Ya existe la señal "{nombre}"' if identica
                            else f'Hay señales con un nombre parecido a "{nombre}"')
                 raise HTTPException(409, {"mensaje": mensaje, "parecidas": parecidas, "identica": identica})
-            fila = excel.detectar_fila_encabezado(io.BytesIO(crudo))
-            receta = m.Senal(id=senal_id, nombre=nombre, entrada=m.EntradaExcel(tipo="excel", fila_encabezado=fila),
+            receta = m.Senal(id=senal_id, nombre=nombre, entrada=inputs.detectar(crudo),
                              tarjetas=[], salida=m.Salida(columnas=[]))
             almacen.guardar(receta, u.usuario)
         existentes, base, n = set(almacen.listar_ejemplos(senal_id)), sello, 2
@@ -545,7 +563,7 @@ class EdicionCelda(Pedido):
 def editar_celda(senal_id: str, p: EdicionCelda, u: auth.Usuario = Depends(auth.usuario_actual)):
     """Edita una celda de la vista previa: la pauta de esa fila queda en la base como editada."""
     c = _correr(p)
-    contenido = pautas.columnas_de_contenido(list(c.salida.columns), p.senal.validaciones)
+    contenido = pautas.columnas_de_contenido(c.salida, p.senal.validaciones)
     if p.columna not in contenido:
         raise HTTPException(422, "Esta columna sale de las reglas (horario o numeración) y no se edita en la base")
     if not 0 <= p.fila < len(c.salida):
@@ -571,7 +589,7 @@ def _convertir(valor: str | None, columna: str, cat: list):
 def _guardar_nuevas(senal_id: str, p: Pedido, usuario: str, solo: set[str] | None = None) -> int:
     """Pasa a la base, como revisadas, las pautas nuevas de la grilla tal como las arman hoy las reglas."""
     c = _correr(p)
-    contenido = pautas.columnas_de_contenido(list(c.salida.columns), p.senal.validaciones)
+    contenido = pautas.columnas_de_contenido(c.salida, p.senal.validaciones)
     nuevas = {}
     for i, estado in enumerate(c.estados):
         h = c.hashes[i]
@@ -651,7 +669,7 @@ def evaluar_ejemplos(senal_id: str, receta: m.Senal):
     for nombre in nombres:
         entrada, esperado_xlsx = almacen.leer_ejemplo(senal_id, nombre)
         try:
-            salida, _ = correr(receta, excel.leer(io.BytesIO(entrada), receta.entrada))
+            salida, _ = correr(receta, inputs.leer(entrada, receta.entrada))
             esperado = pd.read_excel(io.BytesIO(esperado_xlsx), dtype=object)
         except Exception as e:
             resultados.append({"nombre": nombre, "error": f"No se pudo correr: {e}"})
@@ -809,7 +827,7 @@ def uso_asistente():
 
 def _leer_ejemplo(receta: m.Senal, nombre: str) -> asistente_ia.Ejemplo:
     entrada, esperado = almacen.leer_ejemplo(receta.id, nombre)
-    return asistente_ia.Ejemplo(nombre, excel.leer(io.BytesIO(entrada), receta.entrada),
+    return asistente_ia.Ejemplo(nombre, inputs.leer(entrada, receta.entrada),
                                 pd.read_excel(io.BytesIO(esperado), dtype=object))
 
 

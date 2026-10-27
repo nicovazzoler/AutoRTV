@@ -459,8 +459,8 @@ function cargarReceta(receta, guardada, version = null) {
   estado.hilo = [];
   dibujarHilo();
   $("#principal").hidden = false;
-  $("#in-hoja").value = receta.entrada.hoja;
-  $("#in-fila").value = receta.entrada.fila_encabezado;
+  $("#in-hoja").value = receta.entrada.hoja ?? "";
+  $("#in-fila").value = receta.entrada.fila_encabezado ?? "";
   $("#in-idioma-ing").checked = receta.idiomas.includes("ing");
   $("#in-idioma-port").checked = receta.idiomas.includes("port");
   $("#in-salida").value = receta.salida.columnas.join("\n");
@@ -490,7 +490,10 @@ function cargarReceta(receta, guardada, version = null) {
 
 function resumirEntradaYSalida() {
   const e = estado.receta.entrada;
-  $("#res-entrada").textContent = `hoja ${e.hoja}, encabezado en la fila ${e.fila_encabezado}`;
+  const formatos = { pdf: "PDF", xml: "XML", html: "HTML", texto: "texto" };
+  $("#res-entrada").textContent = e.tipo === "excel" ? `hoja ${e.hoja}, encabezado en la fila ${e.fila_encabezado}`
+    : `${formatos[e.tipo] || e.tipo}, se lee solo`;
+  $("#in-hoja").closest(".fila").hidden = e.tipo !== "excel";
   const n = estado.receta.salida.columnas.length;
   $("#res-salida").textContent = n ? `${n} columnas` : "todas";
 }
@@ -979,6 +982,12 @@ async function subirGrilla(archivo) {
     estado.tablaId = r.tabla_id;
     $("#nombre-archivo").textContent = r.nombre;
     $("#btn-xlsx").disabled = $("#btn-csv").disabled = false;
+    // Una señal que venía en Excel y ahora llega en PDF (o al revés) pasa a leerse en el formato nuevo.
+    if (r.entrada.tipo !== estado.receta.entrada.tipo) {
+      estado.receta.entrada = r.entrada;
+      resumirEntradaYSalida();
+      cambioReceta();
+    }
     avisar("");
     previsualizar();
   } catch (e) { avisar(e.message, true); }

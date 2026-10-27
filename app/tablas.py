@@ -1,9 +1,8 @@
-"""Excel subidos para la vista previa. Viven en la base, así cualquier réplica los encuentra.
+"""Grillas subidas para la vista previa (Excel, PDF, XML, HTML o texto). Viven en la base, así cualquier réplica los encuentra.
 
 Cada proceso guarda además un cache chico de tablas ya leídas, para no releer el Excel en cada tecla.
 """
 import datetime as dt
-import io
 import secrets
 from collections import OrderedDict
 
@@ -11,8 +10,7 @@ import pandas as pd
 from sqlalchemy import delete, insert, select
 
 from app import db
-from app.engine import model as m
-from app.inputs import excel
+from app import inputs
 
 MAXIMO_EN_MEMORIA = 20
 VIGENCIA = dt.timedelta(hours=24)
@@ -28,7 +26,7 @@ def subir(contenido: bytes) -> str:
     return tabla_id
 
 
-def tabla(tabla_id: str, entrada: m.EntradaExcel) -> pd.DataFrame:
+def tabla(tabla_id: str, entrada) -> pd.DataFrame:
     """La tabla leída con esa config de entrada. KeyError si el archivo no existe o venció."""
     clave = (tabla_id, entrada.model_dump_json())
     if clave not in _leidas:
@@ -37,7 +35,7 @@ def tabla(tabla_id: str, entrada: m.EntradaExcel) -> pd.DataFrame:
                                     .where(db.tablas_subidas.c.id == tabla_id)).scalar()
         if contenido is None:
             raise KeyError(tabla_id)
-        _leidas[clave] = excel.leer(io.BytesIO(bytes(contenido)), entrada)
+        _leidas[clave] = inputs.leer(bytes(contenido), entrada)
         while len(_leidas) > MAXIMO_EN_MEMORIA:
             _leidas.popitem(last=False)
     _leidas.move_to_end(clave)
