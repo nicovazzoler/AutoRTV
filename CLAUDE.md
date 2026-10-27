@@ -40,3 +40,10 @@ Bien:
 # 23:59:30 redondearía a 24:00, que no existe sin cambiar la fecha: se topea en el último paso del día.
 seg = min(round(seg / paso) * paso, 86400 - paso)
 ```
+
+## Trabajo con git y reportes
+
+- Mensajes de commit de una sola línea.
+- Reportes al usuario de máximo 5 líneas.
+- La rama principal es `main`. Nunca hacer push directo a `main`.
+- Todo cambio va en una rama aparte y entra por pull request.
