@@ -173,6 +173,28 @@ Cambios en las cajas:
 - **Nueva señal ②:** la grilla cruda puede venir en cualquier formato o pegada. La macro hecha sigue siendo Excel.
 - **Nueva etapa:** los lectores van como etapa propia del backend, después de "Backend de la semana": XMLTV y XML genérico, texto y pegado, PDF.
 
+## Señales que se sacan de la web
+Muchas señales publican su grilla en una página web. Para algunas alcanza con copiar el outerHTML, pero otras cargan los datos con JavaScript, por día o con paginado. Cada señal es distinta, y el agente tiene que hacer buena parte del trabajo de configurar cada una.
+
+La página termina en la misma tabla cruda, así que la base, las reglas y Revisar no cambian. Lo propio de cada señal es su **fuente web**, que tiene tres niveles. Se usa el más simple que funcione:
+
+| Nivel | Cuándo | Cómo |
+|---|---|---|
+| 1. Pegar el HTML | páginas que ya muestran la grilla (OWN, TBN) | La persona pega el outerHTML. Un **extractor** declarativo (qué bloque es un programa y qué selector va a cada columna) lo pasa a tabla. Ya estaba pensado así para OWN/TBN. |
+| 2. Descarga por URL | la página trae los datos en el HTML o en un JSON público | La señal guarda la URL, con `{fecha}` si va por día. El servidor la baja a pedido, con una lista de dominios permitidos y sin descargas en loop. |
+| 3. Navegador | la grilla aparece recién después de correr JavaScript o de hacer clics | Playwright abre la página, espera el bloque y saca el HTML. Pesa en Railway: se abre solo al pedir y se cierra al terminar. |
+
+- **Lo que hace el agente por señal:**
+  1. la persona pega la URL y, si puede, el HTML o un ejemplo terminado;
+  2. el agente propone el nivel y el extractor. Muchas veces conviene el JSON que la página usa por detrás, si lo encuentra;
+  3. el servidor lo prueba y muestra la tabla;
+  4. si algo falta (un día, el capítulo), se lo dice y corrige, como con las reglas.
+- **Cada descarga queda guardada con fecha.** Si la página cambia, se ve contra la anterior y avisa: "0 programas encontrados" o "faltan días".
+- **Cajas:**
+  - **Subir grilla** suma una tercera pestaña, **Web**: "Bajar ahora" o pegar el HTML, según la señal.
+  - **Señal → Configuración** suma la caja **Fuente web**: URL, nivel, la última descarga y "Pedirle al agente que la configure".
+- **Etapa:** va después de los lectores de PDF, XML y texto, y se avanza señal por señal. Para arrancar me pasás 2 o 3 señales: una que ande con el outerHTML y una que no.
+
 ## Qué se va de la web actual
 - El editor de tarjetas y la lista de tarjetas.
 - La sección "Títulos conocidos": se sacan solos de los programas que hay en la base.
