@@ -45,12 +45,12 @@ def _mayoria_de_horario(valores, parte: float) -> bool:
 
 
 def columnas_de_horario(tabla: pd.DataFrame) -> list[str]:
-    """Columnas crudas que no identifican a la pauta: horario, día e identificadores de cada emisión."""
+    """Columnas crudas que no identifican a la pauta: horario, día, identificadores de cada emisión y los Extras del EPG crudo."""
     elegidas = []
     for c in tabla.columns:
         palabras = re.findall(r"[a-z]+", clave(c))
         por_nombre = any(p.startswith(PREFIJOS_HORARIO) or p in PALABRAS_HORARIO | PALABRAS_ID for p in palabras)
-        if por_nombre or _mayoria_de_horario(tabla[c], 0.5):
+        if por_nombre or clave(c) == "extras" or _mayoria_de_horario(tabla[c], 0.5):
             elegidas.append(c)
     return elegidas
 
@@ -245,32 +245,49 @@ def limpiar(senal_id: str) -> dict:
 
     Si dos pautas quedan con el mismo hash se queda una: la editada a mano, y si no la más nueva.
     """
+    def sin_horario(filas) -> tuple[list[dict], set[str]]:
+        sacar = set(columnas_de_horario(pd.DataFrame([f.crudo for f in filas])))
+        return [{c: v for c, v in f.crudo.items() if c not in sacar} for f in filas], sacar
+
     with db.transaccion() as con:
-        return _rehacer(con, senal_id, sacar_horario=True)
+        return _rehacer(con, senal_id, sin_horario, limpiar_salida=True)
 
 
-def _rehacer(con, senal_id: str, sacar_horario: bool) -> dict:
+def pasar_a_epg(senal_id: str, mapa: dict[str, str]) -> dict:
+    """La base de una señal web, con el hash calculado sobre el EPG crudo en vez de la tabla de la página."""
+    from app.inputs import epg
+
+    def a_epg(filas) -> tuple[list[dict], set[str]]:
+        crudos = pd.DataFrame([f.crudo for f in filas]).astype(object).where(lambda d: d.notna(), None)
+        return crudas(epg.armar(crudos, mapa, exigir=False)), set()
+
+    with db.transaccion() as con:
+        return _rehacer(con, senal_id, a_epg)
+
+
+def _rehacer(con, senal_id: str, transformar=None, limpiar_salida: bool = False) -> dict:
+    """Vuelve a guardar las pautas con el crudo que da `transformar` (y las columnas que sacó) y su hash recalculado."""
     filas = con.execute(select(db.pautas).where(db.pautas.c.senal_id == senal_id)).all()
     if not filas:
         return {"antes": 0, "despues": 0, "columnas": []}
-    sacar_crudo, sacar_salida = set(), set()
-    if sacar_horario:
-        sacar_crudo = set(columnas_de_horario(pd.DataFrame([f.crudo for f in filas])))
+    nuevos, sacadas = transformar(filas) if transformar else ([f.crudo for f in filas], set())
+    sacar_salida = set()
+    if limpiar_salida:
         salidas = pd.DataFrame([f.salida for f in filas])
         sacar_salida = set(salidas.columns) - set(columnas_de_contenido(salidas))
-    nuevas = {}
-    for f in sorted(filas, key=lambda f: (f.estado != "editada", -f.actualizado.timestamp())):
-        crudo = {c: v for c, v in f.crudo.items() if c not in sacar_crudo}
+    orden = sorted(range(len(filas)), key=lambda i: (filas[i].estado != "editada", -filas[i].actualizado.timestamp()))
+    juntas = {}
+    for i in orden:
+        f, crudo = filas[i], nuevos[i]
         salida = {c: v for c, v in f.salida.items() if c not in sacar_salida}
         h = hash_pauta(crudo)
-        nuevas.setdefault(h, {"senal_id": senal_id, "hash": h, "crudo": crudo, "salida": salida,
-                              "estado": f.estado, "usuario": f.usuario, "actualizado": f.actualizado,
-                              "texto": _texto(crudo, salida)})
+        juntas.setdefault(h, {"senal_id": senal_id, "hash": h, "crudo": crudo, "salida": salida, "estado": f.estado,
+                              "usuario": f.usuario, "actualizado": f.actualizado, "texto": _texto(crudo, salida)})
     con.execute(delete(db.pautas).where(db.pautas.c.senal_id == senal_id))
-    filas_nuevas = list(nuevas.values())
+    filas_nuevas = list(juntas.values())
     for k in range(0, len(filas_nuevas), 500):
         _insertar(con, filas_nuevas[k:k + 500], pisar=False)
-    return {"antes": len(filas), "despues": len(nuevas), "columnas": sorted(sacar_crudo | sacar_salida)}
+    return {"antes": len(filas), "despues": len(juntas), "columnas": sorted(sacadas | sacar_salida)}
 
 
 def migrar_hashes(con) -> None:
@@ -279,7 +296,7 @@ def migrar_hashes(con) -> None:
     if hecha == VERSION_HASH:
         return
     for senal_id in con.execute(select(db.pautas.c.senal_id).distinct()).scalars().all():
-        _rehacer(con, senal_id, sacar_horario=False)
+        _rehacer(con, senal_id)
     con.execute(delete(db.ajustes).where(db.ajustes.c.clave == "version_hash"))
     con.execute(insert(db.ajustes).values(clave="version_hash", valor=VERSION_HASH))
 

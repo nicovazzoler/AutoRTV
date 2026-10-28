@@ -16,7 +16,11 @@ def leer(contenido: bytes, entrada) -> pd.DataFrame:
     elif entrada.tipo == "xml":
         tabla = xml.leer(io.BytesIO(contenido), entrada)
     elif entrada.tipo == "html":
+        from app.inputs import epg
+
         tabla = html.leer(io.BytesIO(contenido), entrada)
+        if entrada.epg:
+            tabla = epg.armar(tabla, entrada.epg)
     else:
         tabla = texto.leer(contenido, entrada)
     # Antes de las reglas: cada parte queda como fila cruda propia y la base la reconoce sola.

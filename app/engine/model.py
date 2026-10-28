@@ -210,6 +210,8 @@ class EntradaHtml(EntradaComun):
     tipo: Literal["html"]
     bloque: str | None = None  # selector de cada programa; None = detectar el bloque que más se repite
     campos: dict[str, CampoHtml] = {}  # vacío = una columna por cada clase y atributo del bloque
+    # EPG crudo: columna fija (inputs.epg.COLUMNAS) → columna de la página. Vacío = la tabla tal como sale de la página.
+    epg: dict[str, str] = {}
 
 
 Entrada = Annotated[Union[EntradaExcel, EntradaTexto, EntradaXml, EntradaPdf, EntradaHtml],

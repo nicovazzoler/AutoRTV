@@ -20,6 +20,7 @@ from app.engine import titulos
 from app.engine.comparar import diferencias, porcentaje_igual, sugerir_correcciones
 from app.engine.pipeline import DE_ESTRUCTURA, aplicar, armar_salida, correr
 from app.engine.tarjetas.estructura import a_fecha, a_hora
+from app.inputs import epg as epg_crudo
 from app.validate import grilla
 
 publico = APIRouter(prefix="/api")
@@ -467,7 +468,7 @@ async def crear_senal(nombre: str = Form(""), grilla_cruda: UploadFile = File(..
                 mensaje = (f'Ya existe la señal "{nombre}"' if identica
                            else f'Hay señales con un nombre parecido a "{nombre}"')
                 raise HTTPException(409, {"mensaje": mensaje, "parecidas": parecidas, "identica": identica})
-            receta = m.Senal(id=senal_id, nombre=nombre, entrada=_detectar(crudo),
+            receta = m.Senal(id=senal_id, nombre=nombre, entrada=_con_epg(_detectar(crudo), crudo),
                              tarjetas=[], salida=m.Salida(columnas=[]))
             almacen.guardar(receta, u.usuario)
         existentes, base, n = set(almacen.listar_ejemplos(senal_id)), sello, 2
@@ -713,6 +714,16 @@ def _con_entrada(receta: m.Senal, detectada) -> m.Senal:
     return receta if entrada is receta.entrada else receta.model_copy(update={"entrada": entrada})
 
 
+def _con_epg(entrada, contenido: bytes):
+    """Una grilla web nueva arranca con su EPG crudo propuesto. Si no se puede leer, queda sin él."""
+    if entrada.tipo != "html" or entrada.epg:
+        return entrada
+    try:
+        return entrada.model_copy(update={"epg": epg_crudo.proponer(inputs.leer(contenido, entrada))})
+    except Exception:  # el error de lectura lo muestra quien la lea después
+        return entrada
+
+
 def _detectar(contenido: bytes):
     try:
         return inputs.detectar(contenido)
@@ -723,6 +734,8 @@ def _detectar(contenido: bytes):
 def _abrir(receta: m.Senal, contenido: bytes, detectada, nombre: str, usuario: str) -> dict:
     """Abre la semana con esta grilla. Si no se puede leer, la semana anterior queda como estaba."""
     nueva = _con_entrada(receta, detectada)
+    if nueva.entrada.tipo == "html" and receta.entrada.tipo != "html":
+        nueva = nueva.model_copy(update={"entrada": _con_epg(nueva.entrada, contenido)})
     try:
         inputs.leer(contenido, nueva.entrada)
     except Exception as e:
@@ -794,6 +807,61 @@ def inicio(u: auth.Usuario = Depends(auth.usuario_actual)):
     mias = [s for s in lista if s["semana"] and u.usuario in (s["semana"]["subida_por"], s["semana"]["confirmada_por"])]
     mias.sort(key=lambda s: max(s["semana"]["subida"], s["semana"]["confirmada"] or ""), reverse=True)
     return {"senales": lista, "recientes": [s["id"] for s in mias[:3]]}
+
+
+# --- EPG crudo de las señales web ---
+
+def _muestra_web(receta: m.Senal) -> pd.DataFrame:
+    """La tabla de la página sin pasar al EPG crudo: de la semana abierta o, si no hay, del último ejemplo."""
+    if receta.entrada.tipo != "html":
+        raise HTTPException(422, "El EPG crudo es solo para señales que vienen de una página web")
+    contenido = semanas.contenido(receta.id)
+    if contenido is None:
+        ejemplos = almacen.listar_ejemplos(receta.id)
+        if not ejemplos:
+            raise HTTPException(404, "Subí una grilla o un ejemplo de esta señal para ver sus columnas")
+        contenido = almacen.leer_ejemplo(receta.id, ejemplos[-1])[0]
+    try:
+        return inputs.leer(contenido, receta.entrada.model_copy(update={"epg": {}}))
+    except Exception as e:
+        raise HTTPException(422, f"No se pudo leer la página: {e}")
+
+
+@api.get("/senales/{senal_id}/epg-crudo", dependencies=[Depends(auth.solo_admin)])
+def ver_epg_crudo(senal_id: str):
+    receta = _receta(senal_id)
+    tabla = _muestra_web(receta)
+    ejemplo = lambda c: next((" ".join(str(v).split())[:80] for v in tabla[c] if v not in (None, "")), "")
+    return {"fijas": epg_crudo.COLUMNAS[:-1], "origen": [{"columna": str(c), "ejemplo": ejemplo(c)} for c in tabla.columns],
+            "mapa": receta.entrada.epg or epg_crudo.proponer(tabla), "activo": bool(receta.entrada.epg)}
+
+
+class MapaEpg(BaseModel):
+    mapa: dict[str, str]
+
+
+@api.post("/senales/{senal_id}/epg-crudo", dependencies=[Depends(auth.solo_admin)])
+def guardar_epg_crudo(senal_id: str, datos: MapaEpg, u: auth.Usuario = Depends(auth.usuario_actual)):
+    """Pasa la señal al EPG crudo (o cambia de dónde sale cada columna) y recalcula la base con ese hash."""
+    receta = _receta(senal_id)
+    tabla = _muestra_web(receta)
+    mapa = {k: v for k, v in datos.mapa.items() if v}
+    malas = [k for k in mapa if k not in epg_crudo.COLUMNAS] + [v for v in mapa.values() if v not in tabla.columns]
+    if malas:
+        raise HTTPException(422, f"Columnas que no existen: {', '.join(malas)}")
+    if not {"Fecha", "Hora", "Título"} <= set(mapa):
+        raise HTTPException(422, "Fecha, Hora y Título tienen que salir de alguna columna de la página")
+    nueva = receta.model_copy(update={"entrada": receta.entrada.model_copy(update={"epg": mapa})})
+    almacen.guardar(nueva, u.usuario)
+    base, aviso = {"antes": None, "despues": None}, ""
+    if not receta.entrada.epg:
+        base = pautas.pasar_a_epg(senal_id, mapa)
+    elif any(receta.entrada.epg.get(k) != mapa.get(k) for k in epg_crudo.COLUMNAS if k not in ("Fecha", "Hora", "Duración")):
+        aviso = "Cambió de dónde sale el contenido: las pautas que cambien de texto van a aparecer como nuevas."
+    # Las reglas que nombraban columnas de la página ahora fallan: se avisan para que el agente las ajuste.
+    r = aplicar(epg_crudo.armar(tabla, mapa), nueva.tarjetas, nueva.titulos_conocidos)
+    errores = [f"Regla {i + 1}: {inf.error}" for i, inf in enumerate(r.informes) if inf.error]
+    return {"pautas": base, "reglas_con_error": errores, "aviso": aviso}
 
 
 POR_PAGINA_TODAS = 300
