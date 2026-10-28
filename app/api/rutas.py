@@ -19,6 +19,7 @@ from app.engine import model as m
 from app.engine import titulos
 from app.engine.comparar import diferencias, porcentaje_igual, sugerir_correcciones
 from app.engine.pipeline import DE_ESTRUCTURA, aplicar, armar_salida, correr
+from app.engine.tarjetas.estructura import a_fecha, a_hora
 from app.validate import grilla
 
 publico = APIRouter(prefix="/api")
@@ -379,14 +380,18 @@ class PedidoExport(Pedido):
 @api.post("/export")
 def exportar(p: PedidoExport):
     c = _correr(p)
+    return _archivo(c.salida, p.senal.id, p.formato, c.estados.count("nueva"))
+
+
+def _archivo(salida: pd.DataFrame, senal_id: str, formato: str, nuevas: int) -> Response:
     fecha = dt.date.today().isoformat()
-    cabeceras = {"X-Pautas-Nuevas": str(c.estados.count("nueva"))}
-    if p.formato == "csv":
-        return Response(export.a_csv(c.salida), media_type="text/csv", headers={
-            **cabeceras, "Content-Disposition": f'attachment; filename="{p.senal.id}_{fecha}.csv"'})
-    return Response(export.a_xlsx(c.salida),
+    cabeceras = {"X-Pautas-Nuevas": str(nuevas)}
+    if formato == "csv":
+        return Response(export.a_csv(salida), media_type="text/csv", headers={
+            **cabeceras, "Content-Disposition": f'attachment; filename="{senal_id}_{fecha}.csv"'})
+    return Response(export.a_xlsx(salida),
                     media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    headers={**cabeceras, "Content-Disposition": f'attachment; filename="{p.senal.id}_{fecha}.xlsx"'})
+                    headers={**cabeceras, "Content-Disposition": f'attachment; filename="{senal_id}_{fecha}.xlsx"'})
 
 
 # --- Ejemplos antes/después ---
@@ -465,20 +470,63 @@ async def crear_senal(nombre: str = Form(""), grilla_cruda: UploadFile = File(..
         raise HTTPException(404, "No existe la señal")
     except ValueError as e:
         raise HTTPException(422, str(e))
-    return {"id": senal_id, "nombre": receta.nombre, "ejemplo": sello, "tabla_id": tablas.subir(crudo),
-            "pautas": _cargar_pautas(senal_id, crudo, terminado, u.usuario)}
+    tabla_id = tablas.subir(crudo)
+    resultado = {"id": senal_id, "nombre": receta.nombre, "ejemplo": sello, "tabla_id": tabla_id,
+                 "pautas": _cargar_pautas(senal_id, crudo, terminado, u.usuario), "semana_abierta": False}
+    if not agregar_a and _es_de_ahora(terminado, receta):
+        semanas.abrir(senal_id, tabla_id, crudo, grilla_cruda.filename or "grilla", u.usuario, es_version=False)
+        resultado["semana_abierta"] = True
+    return resultado
+
+
+def _es_de_ahora(terminado: bytes, receta: m.Senal) -> bool:
+    """Si el EPG del ejemplo llega hasta hoy o después: es la semana en curso, no una vieja."""
+    try:
+        hasta = _fechas(pd.read_excel(io.BytesIO(terminado), dtype=object), receta)["hasta"]
+    except Exception:
+        return False
+    return hasta is not None and dt.date.fromisoformat(hasta) >= dt.date.today()
 
 
 def _comparable(nombre: str) -> str:
     return _slug(nombre).replace("-", "")
 
 
+# Por debajo de este largo, que un nombre esté dentro de otro no dice nada ("tv", "hd").
+MIN_PARA_CONTENIDO = 6
+
+
+def _se_parecen(a: str, b: str, umbral: float) -> bool:
+    if difflib.SequenceMatcher(None, a, b).ratio() >= umbral:
+        return True
+    corto, largo = sorted((a, b), key=len)
+    if len(corto) < MIN_PARA_CONTENIDO:
+        return False
+    # "Concert Chanel" contra "Concert Channel EPG OCTUBRE 2026": el corto se parece al comienzo del largo.
+    return corto in largo or difflib.SequenceMatcher(None, corto, largo[:len(corto)]).ratio() >= 0.85
+
+
 def senales_parecidas(nombre: str, senales: list[dict], umbral: float = 0.8) -> list[dict]:
     """Señales con el mismo nombre o uno parecido, sin contar mayúsculas, tildes ni signos."""
     buscado = _comparable(nombre)
     return [s for s in senales
-            if s["id"] == _slug(nombre)
-            or difflib.SequenceMatcher(None, buscado, _comparable(s["nombre"])).ratio() >= umbral]
+            if s["id"] == _slug(nombre) or (buscado and _se_parecen(buscado, _comparable(s["nombre"]), umbral))]
+
+
+@api.get("/senales-parecidas")
+def ver_parecidas(nombre: str = ""):
+    return senales_parecidas(" ".join(nombre.split()), almacen.listar()) if nombre.strip() else []
+
+
+@api.delete("/senales/{senal_id}", dependencies=[Depends(auth.solo_admin)])
+def borrar_senal(senal_id: str):
+    try:
+        almacen.borrar(senal_id)
+    except ValueError as e:
+        raise HTTPException(422, str(e))
+    except almacen.NoExiste:
+        raise HTTPException(404, "No existe la señal")
+    return {"ok": True}
 
 
 def _slug(nombre: str) -> str:
@@ -671,14 +719,18 @@ def _abrir(receta: m.Senal, contenido: bytes, detectada, nombre: str, usuario: s
         inputs.leer(contenido, nueva.entrada)
     except Exception as e:
         raise HTTPException(422, f"No se pudo leer la grilla: {e}")
+    tabla_id = tablas.subir(contenido)
+    fechas = _fechas(_correr(Pedido(tabla_id=tabla_id, senal=nueva)).salida, nueva)
+    version = semanas.es_version(fechas["desde"], fechas["hasta"], semanas.leer(receta.id))
     if nueva is not receta:
         almacen.guardar(nueva, usuario)
-    semanas.abrir(receta.id, contenido, nombre, usuario)
+    semanas.abrir(receta.id, tabla_id, contenido, nombre, usuario, version)
     return _semana_abierta(receta.id, nueva)
 
 
 def _fechas(salida: pd.DataFrame, receta: m.Senal) -> dict:
-    col = grilla.detectar_columnas(list(salida.columns), receta.validaciones).get("fecha")
+    col = (grilla.detectar_columnas(list(salida.columns), receta.validaciones).get("fecha")
+           or pautas.columnas_por_tipo(salida).get("fecha"))
     if not col or col not in salida.columns:
         return {"desde": None, "hasta": None}
     fechas = pd.to_datetime(salida[col], errors="coerce", dayfirst=True).dropna()
@@ -695,8 +747,27 @@ def _semana_abierta(senal_id: str, receta: m.Senal) -> dict:
     c = _correr(Pedido(tabla_id=meta["tabla_id"], senal=receta))
     armado = _armar_semana(c, receta)
     armado["resumen"] |= _fechas(c.salida, receta)
+    armado["cambios"] = _cambios(senal_id, receta, c)
+    if armado["cambios"] is not None:
+        armado["resumen"]["cambios"] = len(armado["cambios"])
     semanas.guardar_resumen(senal_id, armado["resumen"])
     return {"semana": {**meta, "resumen": armado["resumen"]}, **armado}
+
+
+def _cambios(senal_id: str, receta: m.Senal, c: Corrida) -> list[dict] | None:
+    """Qué cambió contra la versión anterior de la semana, o None si es la primera."""
+    tabla_id = semanas.anterior(senal_id)
+    cols = grilla.detectar_columnas(list(c.salida.columns), receta.validaciones)
+    if not tabla_id or not cols.get("fecha") or not cols.get("hora"):
+        return None
+    try:
+        antes = _correr(Pedido(tabla_id=tabla_id, senal=receta)).salida
+    except Exception:  # la anterior pudo venir en otro formato y no leerse con la entrada de hoy
+        return None
+    if not {cols["fecha"], cols["hora"]} <= set(antes.columns) & set(c.salida.columns):
+        return None
+    columnas = [x for x in [cols.get("duracion")] if x] + pautas.columnas_de_contenido(c.salida, receta.validaciones)
+    return semanas.comparar(antes, c.salida, cols["fecha"], cols["hora"], columnas)
 
 
 def _pedido_abierta(senal_id: str) -> tuple[m.Senal, Pedido]:
@@ -810,9 +881,48 @@ def editar_celda_abierta(senal_id: str, datos: Celda, u: auth.Usuario = Depends(
 
 
 @api.get("/senales/{senal_id}/abierta/export")
-def exportar_abierta(senal_id: str, formato: str = "xlsx"):
-    _, p = _pedido_abierta(senal_id)
-    return exportar(PedidoExport(**p.model_dump(), formato=formato))
+def exportar_abierta(senal_id: str, formato: str = "xlsx", desde: str | None = None, hasta: str | None = None):
+    """`desde` y `hasta` (2026-11-02 o 2026-11-02T06:00) recortan lo que sale, con las dos puntas adentro."""
+    receta, p = _pedido_abierta(senal_id)
+    c = _correr(p)
+    salida = _recortar(c.salida, receta, desde, hasta) if desde or hasta else c.salida
+    return _archivo(salida, receta.id, formato, c.estados.count("nueva"))
+
+
+def _momento(texto: str | None, fin: bool) -> dt.datetime | None:
+    if not texto:
+        return None
+    try:
+        momento = dt.datetime.fromisoformat(texto)
+    except ValueError:
+        raise HTTPException(422, f"Fecha inválida: {texto}")
+    # Una fecha sola como "hasta" incluye todo ese día.
+    return momento.replace(hour=23, minute=59, second=59) if fin and "T" not in texto else momento
+
+
+def _recortar(salida: pd.DataFrame, receta: m.Senal, desde: str | None, hasta: str | None) -> pd.DataFrame:
+    cols = grilla.detectar_columnas(list(salida.columns), receta.validaciones)
+    if not cols.get("fecha") or cols["fecha"] not in salida.columns:
+        raise HTTPException(422, "Esta grilla no tiene una columna de fecha para recortar")
+    inicio, fin = _momento(desde, False), _momento(hasta, True)
+    horas = salida[cols["hora"]] if cols.get("hora") in salida.columns else [None] * len(salida)
+    dentro = []
+    for f, h in zip(salida[cols["fecha"]], horas):
+        dia = a_fecha(f)
+        cuando = dt.datetime.combine(dia, a_hora(h) or dt.time(0)) if dia else None
+        dentro.append(cuando is not None and (inicio is None or cuando >= inicio) and (fin is None or cuando <= fin))
+    recorte = salida[dentro].reset_index(drop=True)
+    numero = next((x for x in recorte.columns if catalogo.clave(x) == "n"), None)
+    if numero:
+        recorte[numero] = range(1, len(recorte) + 1)
+    return recorte
+
+
+@api.post("/senales/{senal_id}/pautas/limpiar", dependencies=[Depends(auth.solo_admin)])
+def limpiar_pautas(senal_id: str):
+    """Saca de la base columnas que en realidad son horario (una hora con AM/PM, por ejemplo)."""
+    _receta(senal_id)
+    return pautas.limpiar(senal_id)
 
 
 @api.post("/senales/{senal_id}/pautas/desde-ejemplos")
@@ -864,7 +974,7 @@ def evaluar_ejemplos(senal_id: str, receta: m.Senal):
     for nombre in nombres:
         entrada, esperado_xlsx = almacen.leer_ejemplo(senal_id, nombre)
         try:
-            salida, _ = correr(receta, inputs.leer(entrada, receta.entrada))
+            salida, _ = correr(receta, inputs.leer_ejemplo(entrada, receta.entrada))
             esperado = pd.read_excel(io.BytesIO(esperado_xlsx), dtype=object)
         except Exception as e:
             resultados.append({"nombre": nombre, "error": f"No se pudo correr: {e}"})
@@ -1024,7 +1134,7 @@ def uso_asistente():
 
 def _leer_ejemplo(receta: m.Senal, nombre: str) -> asistente_ia.Ejemplo:
     entrada, esperado = almacen.leer_ejemplo(receta.id, nombre)
-    return asistente_ia.Ejemplo(nombre, inputs.leer(entrada, receta.entrada),
+    return asistente_ia.Ejemplo(nombre, inputs.leer_ejemplo(entrada, receta.entrada),
                                 pd.read_excel(io.BytesIO(esperado), dtype=object))
 
 

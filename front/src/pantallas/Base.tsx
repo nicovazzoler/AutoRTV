@@ -176,7 +176,7 @@ export function Base({ senalId }: { senalId: string }) {
       {error && <p className="error" role="alert">{error}</p>}
       {aviso && <p className="nota" role="status">{aviso}</p>}
 
-      <div className="desplazable">
+      <div className="desplazable con-alto">
         <table className="tabla-datos">
           <thead>
             <tr>

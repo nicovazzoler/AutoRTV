@@ -140,3 +140,13 @@ def borrar_ejemplo(senal_id: str, nombre: str) -> None:
     with db.transaccion() as con:
         con.execute(delete(db.ejemplos).where(db.ejemplos.c.senal_id == _validar_id(senal_id),
                                               db.ejemplos.c.nombre == _validar_id(nombre, "Nombre de ejemplo")))
+
+
+def borrar(senal_id: str) -> None:
+    """La señal con todo lo suyo: reglas, historial, ejemplos, base de pautas y semana abierta."""
+    senal_id = _validar_id(senal_id)
+    with db.transaccion() as con:
+        if con.execute(delete(db.senales).where(db.senales.c.id == senal_id)).rowcount == 0:
+            raise NoExiste(senal_id)
+        for tabla in (db.senales_historial, db.ejemplos, db.pautas, db.semanas):
+            con.execute(delete(tabla).where(tabla.c.senal_id == senal_id))

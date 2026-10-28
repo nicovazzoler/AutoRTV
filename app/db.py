@@ -91,6 +91,11 @@ semanas = Table(
     Column("resumen", JSON),  # grupos y fechas de la última vez que alguien la abrió, para el Inicio
     Column("confirmada_por", String(100)),
     Column("confirmada", DateTime),
+    Column("version", Integer, nullable=False, default=1),
+    # La versión anterior de esta misma semana, para mostrar qué cambió.
+    Column("anterior_tabla_id", String(32)),
+    Column("anterior_contenido", LargeBinary),
+    Column("anterior_nombre", String(200)),
 )
 
 catalogo = Table(
@@ -176,8 +181,17 @@ def inicializar(m: Engine) -> None:
 
 def _agregar_columnas(con: Connection) -> None:
     """create_all no toca tablas que ya existen: las columnas nuevas se agregan acá."""
-    if "costo_usd" not in {c["name"] for c in inspect(con).get_columns("uso_agente")}:
-        con.execute(text("ALTER TABLE uso_agente ADD COLUMN costo_usd FLOAT"))
+    nuevas = {
+        "uso_agente": {"costo_usd": "FLOAT"},
+        "semanas": {"version": "INTEGER NOT NULL DEFAULT 1", "anterior_tabla_id": "VARCHAR(32)",
+                    "anterior_contenido": "BYTEA" if con.dialect.name == "postgresql" else "BLOB",
+                    "anterior_nombre": "VARCHAR(200)"},
+    }
+    for tabla, columnas in nuevas.items():
+        existentes = {c["name"] for c in inspect(con).get_columns(tabla)}
+        for nombre, tipo in columnas.items():
+            if nombre not in existentes:
+                con.execute(text(f"ALTER TABLE {tabla} ADD COLUMN {nombre} {tipo}"))
 
 
 @contextmanager

@@ -26,16 +26,30 @@ def web_compilada():
     subprocess.run(["npm", "run", "build"], cwd=FRONT, check=True)
 
 
-def _grilla(tmp_path):
+# Lo que contesta el navegador cuando la página pide escribir algo (prompt).
+RESPUESTAS = {}
+
+
+def _grilla(tmp_path, segundo="Ruta Sonora - Live", nombre="noviembre.xlsx"):
     from openpyxl import Workbook
 
     wb = Workbook()
     wb.active.append(["Fecha", "Hora", "Titulo"])
-    wb.active.append([dt.datetime(2026, 11, 2), dt.time(6), "Memory Lane - Outkast"])
-    wb.active.append([dt.datetime(2026, 11, 3), dt.time(6), "Ruta Sonora - Live"])
-    archivo = tmp_path / "noviembre.xlsx"
+    for dia in range(2, 7):
+        titulo = "Memory Lane - Outkast" if dia % 2 == 0 else segundo
+        wb.active.append([dt.datetime(2026, 11, dia), dt.time(6), titulo])
+    archivo = tmp_path / nombre
     wb.save(archivo)
     return archivo
+
+
+def _soltar(pagina, selector, archivo):
+    """Arrastra un archivo del disco y lo suelta sobre el elemento, como haría una persona."""
+    pagina.evaluate("""([selector, datos, nombre]) => {
+      const transferencia = new DataTransfer();
+      transferencia.items.add(new File([new Uint8Array(datos)], nombre));
+      document.querySelector(selector).dispatchEvent(new DragEvent("drop", { dataTransfer: transferencia, bubbles: true }));
+    }""", [selector, list(archivo.read_bytes()), archivo.name])
 
 
 def test_semana_de_punta_a_punta(servidor, tmp_path):
@@ -63,24 +77,50 @@ def test_semana_de_punta_a_punta(servidor, tmp_path):
         pagina.fill("input[type=search]", "canal")
         pagina.get_by_role("link", name="Canal Demo").first.click()
         pagina.wait_for_url("**/s/canal/subir")
-        pagina.set_input_files("input[type=file]", str(_grilla(tmp_path)))
+        _soltar(pagina, ".zona-archivo", _grilla(tmp_path))
+        pagina.get_by_text("noviembre.xlsx").wait_for()
         pagina.get_by_role("button", name="Leer la grilla").click()
         pagina.wait_for_url("**/s/canal/revisar")
-        assert pagina.locator("h1").inner_text() == "Del 2 al 3 de noviembre"
+        assert pagina.locator("h1").inner_text() == "Del 2 al 6 de noviembre"
 
         # Base vacía: los dos programas son nuevos. "Está bien" saca uno.
         filas = pagina.locator("section[aria-label='Para revisar'] tbody tr")
         assert filas.count() == 2
         filas.first.get_by_role("button", name="Está bien").click()
         pagina.wait_for_function("document.querySelectorAll(\"section[aria-label='Para revisar'] tbody tr\").length === 1")
-        assert pagina.locator(".menu-item[aria-current=page] .cuenta").inner_text() == "1"
+        assert pagina.locator(".menu-item[aria-current=page] .cuenta").inner_text() == "2"  # Ruta Sonora sale dos veces
 
         pagina.get_by_role("button", name="Confirmar y exportar").click()
         with pagina.expect_download() as bajada:
-            pagina.get_by_role("menuitem", name="Excel (.xlsx)").click()
+            pagina.get_by_role("button", name="Excel (.xlsx)").click()
         assert bajada.value.suggested_filename.endswith(".xlsx")
         pagina.wait_for_selector("text=Confirmada por admin")
         assert pagina.locator("section[aria-label='Para revisar'] tbody tr").count() == 0
+
+        # La misma semana corregida: queda como v2 y muestra qué cambió contra la v1.
+        pagina.get_by_role("link", name="Subir otra grilla").click()
+        pagina.get_by_text("y confirmada por admin").wait_for()
+        pagina.set_input_files("input[type=file]", str(_grilla(tmp_path, "Juke Box - Ep 1", "corregida.xlsx")))
+        pagina.get_by_role("button", name="Leer la grilla").click()
+        pagina.wait_for_url("**/s/canal/revisar")
+        assert "v2 · corregida.xlsx" in pagina.locator(".antetitulo").inner_text()
+        cambios = pagina.locator("details", has_text="Cambios contra la v1")
+        assert cambios.locator("summary").inner_text().endswith("2")
+        assert "Ruta Sonora → Juke Box" in cambios.inner_text()
+
+        # Exportar solo el lunes.
+        pagina.get_by_role("button", name="Confirmar y exportar").click()
+        pagina.get_by_label("Hasta").fill("2026-11-02T23:59")
+        with pagina.expect_download() as bajada:
+            pagina.get_by_role("button", name="Excel (.xlsx)").click()
+        from openpyxl import load_workbook
+        with open(bajada.value.path(), "rb") as f:
+            assert load_workbook(f).active.max_row == 2  # encabezado + el lunes
+
+        # Cambiar de señal desde el menú.
+        pagina.locator(".menu-senal").click()
+        assert pagina.get_by_role("dialog", name="Cambiar de señal").get_by_role("button", name="Canal Demo").is_visible()
+        pagina.keyboard.press("Escape")
 
         # Volver al Inicio: la señal figura con la semana confirmada.
         pagina.get_by_role("link", name="Inicio").click()
@@ -198,7 +238,7 @@ def _entrar(p, servidor):
     except playwright.Error as e:
         pytest.skip(f"No hay Chromium para Playwright: {str(e).splitlines()[0]}")
     pagina = navegador.new_page()
-    pagina.on("dialog", lambda d: d.accept())
+    pagina.on("dialog", lambda d: d.accept(RESPUESTAS.get("prompt", "")) if d.type == "prompt" else d.accept())
     pagina.goto(servidor + "/login")
     pagina.fill("input[name=usuario]", "admin")
     pagina.fill("input[name=clave]", "clave-segura")
@@ -246,6 +286,7 @@ def test_admin_usuarios_y_tope(servidor):
         # El login de lucia cambió la cookie de esta pestaña: se vuelve a entrar como admin.
         pagina.request.post(servidor + "/api/login", data={"usuario": "admin", "clave": "clave-segura"})
         pagina.reload()
+        pagina.locator("tr", has_text="lucia").wait_for()  # si no, al terminar de cargar pisa el tope escrito
         pagina.get_by_label("pedidos por persona y día").fill("12")
         pagina.get_by_role("button", name="Cambiar").click()
         pagina.get_by_text("Listo: cambiar el tope").wait_for()
@@ -254,4 +295,15 @@ def test_admin_usuarios_y_tope(servidor):
         fila = pagina.locator("tr", has_text="lucia")
         fila.get_by_role("button", name="Borrar").click()
         fila.wait_for(state="detached")
+
+        # Borrar una señal pide escribir su nombre.
+        receta = {"id": "para-borrar", "nombre": "Para Borrar", "entrada": {"tipo": "excel"}, "tarjetas": [],
+                  "salida": {"columnas": []}}
+        assert pagina.request.put(servidor + "/api/senales/para-borrar", data=receta).ok
+        pagina.reload()
+        pagina.get_by_label("Buscar señal").last.fill("para borrar")
+        RESPUESTAS["prompt"] = "para borrar"
+        pagina.locator("section[aria-label='Señales'] li", has_text="Para Borrar").get_by_role("button", name="Borrar").click()
+        pagina.get_by_text("Listo: se borró la señal Para Borrar").wait_for()
+        assert pagina.request.get(servidor + "/api/senales/para-borrar").status == 404
         navegador.close()

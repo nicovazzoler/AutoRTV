@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { api, textoDeError } from "../api";
+import { ZonaArchivo } from "../piezas/ZonaArchivo";
 import { useSesion } from "../sesion";
 
 interface Usuario {
@@ -44,7 +45,8 @@ function usd(n: number): string {
 }
 
 export function Admin() {
-  const { yo } = useSesion();
+  const { yo, senales, refrescarSenales } = useSesion();
+  const [buscarSenal, setBuscarSenal] = useState("");
   const [usuarios, setUsuarios] = useState<Usuario[]>([]);
   const [uso, setUso] = useState<Uso | null>(null);
   const [catalogo, setCatalogo] = useState<Columna[]>([]);
@@ -113,6 +115,26 @@ export function Admin() {
     }
   };
 
+  const borrarSenal = async (id: string, nombre: string) => {
+    const escrito = prompt(`Se borra «${nombre}» con sus reglas, ejemplos, base de pautas y semana abierta. No se puede deshacer.\n\nEscribí el nombre de la señal para confirmar:`);
+    if (escrito === null) return;
+    if (escrito.trim().toLowerCase() !== nombre.trim().toLowerCase()) {
+      setError("El nombre no coincide: no se borró nada.");
+      return;
+    }
+    setError("");
+    try {
+      await api.borrar(`/senales/${id}`);
+      setAviso(`Listo: se borró la señal ${nombre}.`);
+      await refrescarSenales();
+    } catch (e) {
+      setError(textoDeError(e));
+    }
+  };
+
+  const sinTildes = (t: string) => t.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+  const senalesFiltradas = (senales ?? []).filter((s) => sinTildes(s.nombre).includes(sinTildes(buscarSenal.trim())));
+
   const usoDe = (nombre: string) => uso?.usuarios.find((x) => x.usuario === nombre);
   const totalMes = (uso?.usuarios ?? []).reduce((a, x) => a + x.usd_mes, 0);
   const totalHoy = (uso?.usuarios ?? []).reduce((a, x) => a + x.usd_hoy, 0);
@@ -160,14 +182,33 @@ export function Admin() {
         </form>
       </section>
 
+      <section aria-label="Señales" className="seccion">
+        <div className="seccion-cabeza">
+          <h2>Señales</h2><span className="chico tenue">{senales?.length ?? 0} señales</span>
+          <span style={{ flexGrow: 1 }} />
+          <input className="entrada" aria-label="Buscar señal" placeholder="Buscar señal" value={buscarSenal} onChange={(e) => setBuscarSenal(e.target.value)}
+            style={{ minHeight: 36, borderRadius: 999, maxWidth: 240 }} />
+        </div>
+        <ul className="lista-simple" style={{ maxHeight: 320, overflowY: "auto" }}>
+          {senalesFiltradas.slice(0, 100).map((s) => (
+            <li key={s.id}>
+              <span className="serif" style={{ fontSize: 16, flex: "1 1 auto" }}>{s.nombre}</span>
+              <span className="chico tenue">{s.semana ? "con semana abierta" : "sin semana"}</span>
+              <button type="button" className="boton chico tenue" onClick={() => borrarSenal(s.id, s.nombre)}>Borrar</button>
+            </li>
+          ))}
+          {senalesFiltradas.length > 100 && <li className="chico tenue">y {senalesFiltradas.length - 100} más: buscá para encontrarla.</li>}
+        </ul>
+      </section>
+
       <section aria-label="Catálogo de columnas" className="seccion">
         <div className="seccion-cabeza">
           <h2>Catálogo de columnas</h2>
           <span className="chico tenue">{catalogo.length} columnas · se valida cada celda</span>
-          <span style={{ flexGrow: 1 }} />
-          <label className="boton chico" style={{ cursor: "pointer" }}>Subir Columnas.xlsx
-            <input type="file" accept=".xlsx,.xls" className="solo-lector" onChange={(e) => subirCatalogo(e.target.files?.[0])} />
-          </label>
+        </div>
+        <div style={{ maxWidth: 420, marginTop: 12 }}>
+          <ZonaArchivo chica archivo={null} alElegir={(f) => subirCatalogo(f ?? undefined)} accept=".xlsx,.xls" etiqueta="Subir Columnas.xlsx"
+            ayuda="Subí un Columnas.xlsx nuevo para reemplazar el catálogo" />
         </div>
         {catalogo.length === 0 ? <p className="tenue chico" style={{ marginTop: 12 }}>Sin catálogo cargado.</p> : (
           <ul className="lista-simple dos-columnas" style={{ columnGap: 40, gap: 0 }}>

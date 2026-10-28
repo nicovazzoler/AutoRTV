@@ -23,6 +23,12 @@ def leer(contenido: bytes, entrada) -> pd.DataFrame:
     return partir.partir_filas(tabla, entrada.partir) if entrada.partir else tabla
 
 
+def leer_ejemplo(contenido: bytes, entrada) -> pd.DataFrame:
+    """Un ejemplo se lee como la señal; si vino en otro formato (un HTML en una señal de Excel), como el suyo."""
+    propia = detectar(contenido)
+    return leer(contenido, entrada if propia.tipo == entrada.tipo else propia)
+
+
 def detectar(contenido: bytes):
     """La entrada que corresponde al archivo, mirando su contenido y no la extensión."""
     from app.inputs import excel, texto

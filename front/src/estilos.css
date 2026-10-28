@@ -79,19 +79,55 @@ button, input, select, textarea { font: inherit; color: inherit; }
 
 .menu-logo { text-decoration: none; font-family: "Fraunces Variable", serif; font-size: 26px; font-weight: 600; letter-spacing: -0.01em; }
 
+.selector-senal { position: relative; }
 .menu-senal {
   display: flex;
-  flex-direction: column;
-  gap: 2px;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
   min-height: 44px;
   padding: 12px 14px;
   border-radius: 10px;
   border: 1px solid var(--borde);
   background: var(--panel);
-  text-decoration: none;
+  color: var(--tenue);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
 }
+.menu-senal:hover, .menu-senal[aria-expanded="true"] { border-color: var(--acento); border-style: dashed; color: var(--acento); }
+.menu-senal-textos { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .menu-senal small { font-size: 12px; color: var(--tenue); }
-.menu-senal span { font-weight: 600; }
+.menu-senal-textos span { font-weight: 600; color: var(--texto); overflow-wrap: anywhere; }
+.selector-lista {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 6px);
+  left: 0;
+  width: max(100%, 260px);
+  padding: 10px;
+  border-radius: 12px;
+  border: 1px solid var(--borde);
+  background: var(--panel);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.3);
+}
+.selector-lista .entrada { width: 100%; min-height: 36px; box-sizing: border-box; }
+.selector-lista ul { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; }
+.selector-lista li button {
+  width: 100%;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--texto);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.selector-lista li button:hover, .selector-lista li button:focus-visible { background: var(--fondo); }
+.selector-lista li button[aria-current="true"] { font-weight: 600; color: var(--acento); }
+.menu-nueva { font-size: 14px; color: var(--acento); text-decoration: none; padding: 2px 4px; }
+.menu-nueva:hover { text-decoration: underline; }
 
 .menu ol { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
 .menu-item {
@@ -250,6 +286,8 @@ button, input, select, textarea { font: inherit; color: inherit; }
 /* --- Tablas --- */
 
 .desplazable { overflow-x: auto; }
+/* Con alto propio la tabla scrollea adentro y el encabezado queda fijo arriba. */
+.desplazable.con-alto { max-height: 75vh; overflow-y: auto; }
 .tabla { width: 100%; border-collapse: collapse; font-size: 14px; }
 .tabla th { text-align: left; padding: 10px 16px 10px 0; font-weight: 400; color: var(--tenue); }
 .tabla td { padding: 14px 16px 14px 0; vertical-align: top; border-bottom: 1px solid var(--borde); }
@@ -297,6 +335,9 @@ details.caja > summary { cursor: pointer; font-weight: 600; }
 .zona-archivo.encima, .zona-archivo:focus-within { border-color: var(--acento); }
 .solo-lector { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 .zona-archivo .grande { font-family: "Fraunces Variable", serif; font-size: 22px; color: var(--texto); }
+.zona-archivo.chica { min-height: 110px; padding: 16px; gap: 6px; border-radius: 14px; }
+.zona-archivo.chica .grande { font-size: 16px; overflow-wrap: anywhere; }
+.zona-archivo.elegido { border-style: solid; border-color: var(--nueva); }
 
 .dos-columnas { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px; }
 .tres-columnas { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 24px; }
@@ -367,11 +408,15 @@ dialog.dialogo h2 { margin: 0; font-family: "Fraunces Variable", serif; font-siz
 
 .tabla-datos { border-collapse: collapse; font-size: 14px; font-variant-numeric: tabular-nums; }
 .tabla-datos th { text-align: left; font-weight: 400; color: var(--tenue); padding: 8px 12px; white-space: nowrap; border-bottom: 1px solid var(--borde); }
-.tabla-datos td { padding: 9px 12px; border-bottom: 1px solid var(--borde); vertical-align: top; }
+.tabla-datos td { padding: 7px 12px; border-bottom: 1px solid var(--borde); vertical-align: top; }
 .tabla-datos td.editable { cursor: text; }
 .tabla-datos td.editable:hover { background: var(--panel); }
 .tabla-datos td.invalida { color: var(--revisar); text-decoration: underline wavy; text-underline-offset: 4px; }
 .tabla-datos td.programa { font-family: "Fraunces Variable", serif; font-size: 16px; white-space: nowrap; }
+.tabla-datos thead th { position: sticky; top: 0; z-index: 1; background: var(--fondo); }
+.tabla-datos tbody tr:hover td { background: color-mix(in srgb, var(--panel) 70%, transparent); }
+.dos-renglones { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; min-width: 220px; max-width: 420px; }
+.tabla-datos .celda-entrada.larga { min-width: 320px; min-height: 110px; padding: 8px; font: inherit; line-height: 1.45; resize: vertical; }
 .tabla-datos .celda-entrada { width: 100%; min-width: 140px; min-height: 32px; padding: 0 8px; border-radius: 8px; border: 1px solid var(--acento); background: var(--fondo); color: var(--texto); }
 
 .marca-estado { display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: 11px; font-weight: 600; border: 1px solid transparent; white-space: nowrap; }
