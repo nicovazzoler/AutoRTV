@@ -38,6 +38,13 @@ def es_version(desde: str | None, hasta: str | None, abierta: dict | None) -> bo
     return (fin - inicio).days + 1 > DIAS_PARA_VERSION
 
 
+def contenido(senal_id: str) -> bytes | None:
+    """El archivo de la grilla abierta, tal como se subió."""
+    with db.transaccion() as con:
+        valor = con.execute(select(db.semanas.c.contenido).where(db.semanas.c.senal_id == senal_id)).scalar()
+    return bytes(valor) if valor is not None else None
+
+
 def anterior(senal_id: str) -> str | None:
     """El tabla_id de la versión anterior, si hay."""
     with db.transaccion() as con:

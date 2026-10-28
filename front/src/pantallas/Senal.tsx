@@ -3,6 +3,7 @@ import { api, ErrorApi, textoDeError } from "../api";
 import { frase, fraseCambio, fraseEntrada, fraseIdiomas } from "../frases";
 import { haceCuanto } from "../fechas";
 import { ConfigSenal, RecetaArchivo } from "../piezas/ConfigSenal";
+import { EpgCrudo } from "../piezas/EpgCrudo";
 import { ZonaArchivo } from "../piezas/ZonaArchivo";
 import { useSesion } from "../sesion";
 import type { Evaluacion, Propuesta, Receta, Version } from "../tipos";
@@ -261,6 +262,7 @@ export function Senal({ senalId }: { senalId: string }) {
           )}
           {yo.admin && !editando && (
             <div style={{ marginTop: 16, display: "flex", flexDirection: "column", gap: 12 }}>
+              {receta.entrada.tipo === "html" && <EpgCrudo senalId={senalId} alGuardar={tocar} />}
               <RecetaArchivo receta={receta} version={version} alGuardar={tocar} />
               <div className="botones" style={{ alignItems: "center" }}>
                 <button type="button" className="boton chico" onClick={limpiarBase}>Limpiar la base</button>

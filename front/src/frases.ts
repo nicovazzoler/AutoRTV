@@ -65,7 +65,7 @@ export function fraseEntrada(r: Receta): string {
     pdf: `PDF · ${e.paginas?.length ? `páginas ${e.paginas.join(", ")}` : "todas las páginas"}`,
     texto: `Texto · ${e.separador ? `separado por ${c(e.separador)}` : e.separador === "" ? "líneas «hora programa»" : "separador detectado solo"}`,
     xml: `XML · ${e.elemento ? `cada programa es <${e.elemento}>` : "XMLTV"}`,
-    html: `HTML · ${e.bloque ? `bloque ${c(e.bloque)}` : "bloque detectado solo"}`,
+    html: `HTML · ${e.bloque ? `bloque ${c(e.bloque)}` : "bloque detectado solo"}${e.epg && Object.keys(e.epg).length ? " · EPG crudo" : ""}`,
   };
   return base[e.tipo] ?? e.tipo;
 }
