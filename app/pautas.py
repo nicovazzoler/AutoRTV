@@ -6,7 +6,7 @@ import re
 import unicodedata
 
 import pandas as pd
-from sqlalchemy import delete, func, select, update
+from sqlalchemy import delete, func, insert, select, update
 from sqlalchemy.dialects import postgresql, sqlite
 
 from app import db, export
@@ -27,6 +27,10 @@ AM_PM = re.compile(r"^\s*[ap]\.?\s?m\.?\s*$", re.IGNORECASE)
 # Columnas de salida que siempre salen de las reglas, nunca de la base.
 NO_CONTENIDO = {"n", "dia", "fecha", "hora", "duracion", "dur", "ampm"}
 POR_PAGINA = 200
+# Las celdas normalizadas solo tienen letras y números: el separador no se confunde con el contenido.
+SEPARADOR = "///"
+# Cambia cuando cambia cómo se calcula el hash: al arrancar, las bases guardadas se recalculan una vez.
+VERSION_HASH = "2"
 
 
 def _es_de_horario(v) -> bool:
@@ -83,7 +87,7 @@ def normalizar(v) -> str:
 
 
 def hash_pauta(fila: dict) -> str:
-    return hashlib.sha1("|".join(normalizar(v) for v in fila.values()).encode()).hexdigest()[:16]
+    return hashlib.sha1(SEPARADOR.join(normalizar(v) for v in fila.values()).encode()).hexdigest()[:16]
 
 
 def valor_json(v):
@@ -242,25 +246,42 @@ def limpiar(senal_id: str) -> dict:
     Si dos pautas quedan con el mismo hash se queda una: la editada a mano, y si no la más nueva.
     """
     with db.transaccion() as con:
-        filas = con.execute(select(db.pautas).where(db.pautas.c.senal_id == senal_id)).all()
-        if not filas:
-            return {"antes": 0, "despues": 0, "columnas": []}
+        return _rehacer(con, senal_id, sacar_horario=True)
+
+
+def _rehacer(con, senal_id: str, sacar_horario: bool) -> dict:
+    filas = con.execute(select(db.pautas).where(db.pautas.c.senal_id == senal_id)).all()
+    if not filas:
+        return {"antes": 0, "despues": 0, "columnas": []}
+    sacar_crudo, sacar_salida = set(), set()
+    if sacar_horario:
         sacar_crudo = set(columnas_de_horario(pd.DataFrame([f.crudo for f in filas])))
         salidas = pd.DataFrame([f.salida for f in filas])
         sacar_salida = set(salidas.columns) - set(columnas_de_contenido(salidas))
-        nuevas = {}
-        for f in sorted(filas, key=lambda f: (f.estado != "editada", -f.actualizado.timestamp())):
-            crudo = {c: v for c, v in f.crudo.items() if c not in sacar_crudo}
-            salida = {c: v for c, v in f.salida.items() if c not in sacar_salida}
-            h = hash_pauta(crudo)
-            nuevas.setdefault(h, {"senal_id": senal_id, "hash": h, "crudo": crudo, "salida": salida,
-                                  "estado": f.estado, "usuario": f.usuario, "actualizado": f.actualizado,
-                                  "texto": _texto(crudo, salida)})
-        con.execute(delete(db.pautas).where(db.pautas.c.senal_id == senal_id))
-        filas_nuevas = list(nuevas.values())
-        for k in range(0, len(filas_nuevas), 500):
-            _insertar(con, filas_nuevas[k:k + 500], pisar=False)
+    nuevas = {}
+    for f in sorted(filas, key=lambda f: (f.estado != "editada", -f.actualizado.timestamp())):
+        crudo = {c: v for c, v in f.crudo.items() if c not in sacar_crudo}
+        salida = {c: v for c, v in f.salida.items() if c not in sacar_salida}
+        h = hash_pauta(crudo)
+        nuevas.setdefault(h, {"senal_id": senal_id, "hash": h, "crudo": crudo, "salida": salida,
+                              "estado": f.estado, "usuario": f.usuario, "actualizado": f.actualizado,
+                              "texto": _texto(crudo, salida)})
+    con.execute(delete(db.pautas).where(db.pautas.c.senal_id == senal_id))
+    filas_nuevas = list(nuevas.values())
+    for k in range(0, len(filas_nuevas), 500):
+        _insertar(con, filas_nuevas[k:k + 500], pisar=False)
     return {"antes": len(filas), "despues": len(nuevas), "columnas": sorted(sacar_crudo | sacar_salida)}
+
+
+def migrar_hashes(con) -> None:
+    """Recalcula los hashes guardados con una forma anterior. Corre al arrancar; si ya está hecho, no hace nada."""
+    hecha = con.execute(select(db.ajustes.c.valor).where(db.ajustes.c.clave == "version_hash")).scalar()
+    if hecha == VERSION_HASH:
+        return
+    for senal_id in con.execute(select(db.pautas.c.senal_id).distinct()).scalars().all():
+        _rehacer(con, senal_id, sacar_horario=False)
+    con.execute(delete(db.ajustes).where(db.ajustes.c.clave == "version_hash"))
+    con.execute(insert(db.ajustes).values(clave="version_hash", valor=VERSION_HASH))
 
 
 def base(senal_id: str) -> dict[str, dict]:

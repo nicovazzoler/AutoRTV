@@ -4,6 +4,7 @@ import { normalizar } from "../estado";
 import { numeroSemana } from "../fechas";
 import { CeldaEditable } from "../piezas/CeldaEditable";
 import { Enlace } from "../piezas/Enlace";
+import { cumple, FilaFiltros, type Filtros } from "../piezas/FiltrosColumna";
 import { aSenal } from "../ruta";
 import { useSesion } from "../sesion";
 import type { GrillaAbierta, Grupo } from "../tipos";
@@ -28,6 +29,7 @@ export function Grilla({ senalId }: { senalId: string }) {
   const [filtro, setFiltro] = useState<Filtro>("todas");
   const [programa, setPrograma] = useState("");
   const [q, setQ] = useState("");
+  const [filtros, setFiltros] = useState<Filtros>({});
   const [mostrar, setMostrar] = useState(DE_A);
 
   const recibir = (d: GrillaAbierta) => {
@@ -81,7 +83,8 @@ export function Grilla({ senalId }: { senalId: string }) {
     .map((fila, i) => ({ fila, i, grupo: datos.grupos[i] }))
     .filter(({ grupo }) => filtro === "todas" || grupo.grupo === filtro)
     .filter(({ fila }) => !programa || String(fila[indicePrograma] ?? "") === programa)
-    .filter(({ fila }) => !buscado || fila.some((v) => v !== null && normalizar(String(v)).includes(buscado)));
+    .filter(({ fila }) => !buscado || fila.some((v) => v !== null && normalizar(String(v)).includes(buscado)))
+    .filter(({ fila }) => cumple((c) => fila[datos.columnas.indexOf(c)], filtros));
 
   const guardar = async (fila: number, columna: string, valor: string) => {
     setError("");
@@ -133,6 +136,7 @@ export function Grilla({ senalId }: { senalId: string }) {
         <table className="tabla-datos">
           <thead>
             <tr><th>Estado</th>{datos.columnas.map((c) => <th key={c}>{c}</th>)}</tr>
+            <FilaFiltros columnas={datos.columnas} filtros={filtros} alCambiar={setFiltros} antes={1} />
           </thead>
           <tbody>
             {visibles.slice(0, mostrar).map(({ fila, i, grupo }) => (
