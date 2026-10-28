@@ -6,8 +6,9 @@ import type { SenalLista } from "../tipos";
 import { CambiarClave } from "./CambiarClave";
 import { Enlace } from "./Enlace";
 
-const SECCIONES: { id: Pantalla | "inicio" | "admin"; nombre: string }[] = [
+const SECCIONES: { id: Pantalla | "inicio" | "todas" | "admin"; nombre: string }[] = [
   { id: "inicio", nombre: "Inicio" },
+  { id: "todas", nombre: "Todas las señales" },
   { id: "revisar", nombre: "Revisar" },
   { id: "grilla", nombre: "Grilla" },
   { id: "base", nombre: "Base" },
@@ -69,8 +70,8 @@ export function Menu({ destino, senalId, senal, alSalir }: Props) {
       <Enlace a="/nueva" className="menu-nueva">+ Nueva señal</Enlace>
       <ol>
         {secciones.map((s, i) => {
-          const deSenal = s.id !== "inicio" && s.id !== "admin";
-          const a = s.id === "inicio" ? "/" : s.id === "admin" ? "/admin" : senalId ? aSenal(senalId, s.id as Pantalla) : "/";
+          const deSenal = !["inicio", "todas", "admin"].includes(s.id);
+          const a = s.id === "inicio" ? "/" : !deSenal ? `/${s.id}` : senalId ? aSenal(senalId, s.id as Pantalla) : "/";
           return (
             <li key={s.id}>
               <Enlace a={a} className="menu-item" aria-current={actual === s.id ? "page" : undefined}

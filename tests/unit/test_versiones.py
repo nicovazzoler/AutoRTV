@@ -168,3 +168,32 @@ def test_crear_senal_con_la_semana_en_curso_la_deja_abierta(cliente):
                          files={"grilla_cruda": ("g.xlsx", grilla), "ejemplo": ("e.xlsx", excel(pd.DataFrame(
                              {"Fecha": [dt.datetime(2020, 1, 1)], "Programa": ["X"]}, dtype=object)))}).json()
     assert not vieja["semana_abierta"] and semanas.leer("canal-viejo") is None
+
+
+def test_todas_las_senales_juntas_con_filtro_por_columna(cliente):
+    from app import db
+
+    _receta(cliente)
+    otra = {"id": "otra", "nombre": "Otra Señal", "entrada": {"tipo": "excel"}, "tarjetas": [SEPARAR], "salida": {"columnas": []}}
+    cliente.put("/api/senales/otra", json=otra)
+    lunes = dt.date(2026, 11, 2)
+    cliente.post("/api/senales/canal/abierta", files={"archivo": ("g.xlsx", _dias(lunes, ["Memory Lane - A", "Koko Pop - B"]))})
+    cliente.post("/api/senales/otra/abierta", files={"archivo": ("g.xlsx", _dias(lunes, ["Memory Lane - C"]))})
+
+    r = cliente.get("/api/todas").json()
+    assert r["columnas"][:4] == ["Señal", "Estado", "Fecha", "Hora"] and r["total"] == 3 and r["sin_foto"] == 0
+    assert [f[:2] for f in r["filas"]] == [["canal", "Canal"], ["canal", "Canal"], ["otra", "Otra Señal"]]
+    fila = dict(zip(r["columnas"], r["filas"][0][1:]))
+    assert fila["Fecha"] == "02/11/2026" and fila["Hora"] == "06:00" and fila["Programa"] == "Memory Lane"
+    assert fila["Motivo"].startswith("Programa nuevo")
+
+    memory = cliente.get("/api/todas", params={"filtro": ["Programa=memory", "Señal=senal"]}).json()
+    assert memory["total"] == 1 and memory["filas"][0][0] == "otra"
+    assert cliente.get("/api/todas", params={"estado": "base"}).json()["total"] == 0
+
+    # Una semana abierta antes de que existieran las fotos se trae a pedido.
+    with db.transaccion() as con:
+        con.execute(db.semanas.update().values(foto=None))
+    assert cliente.get("/api/todas").json()["sin_foto"] == 2
+    assert cliente.post("/api/todas/actualizar").json() == {"quedan": 0, "errores": []}
+    assert cliente.get("/api/todas").json()["total"] == 3

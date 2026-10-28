@@ -103,9 +103,16 @@ def todas() -> dict[str, dict]:
         return {f.senal_id: _meta(f) for f in con.execute(select(*columnas))}
 
 
-def guardar_resumen(senal_id: str, resumen: dict) -> None:
+def guardar_resumen(senal_id: str, resumen: dict, foto: list[list] | None = None) -> None:
+    valores = {"resumen": resumen} | ({"foto": foto} if foto is not None else {})
     with db.transaccion() as con:
-        con.execute(update(db.semanas).where(db.semanas.c.senal_id == senal_id).values(resumen=resumen))
+        con.execute(update(db.semanas).where(db.semanas.c.senal_id == senal_id).values(**valores))
+
+
+def fotos() -> dict[str, list[list] | None]:
+    """La foto de cada semana abierta; None si la semana todavía no se armó desde que existen las fotos."""
+    with db.transaccion() as con:
+        return dict(con.execute(select(db.semanas.c.senal_id, db.semanas.c.foto)).all())
 
 
 def confirmar(senal_id: str, usuario: str) -> None:

@@ -13,6 +13,7 @@ import { Nueva } from "./pantallas/Nueva";
 import { Grilla } from "./pantallas/Grilla";
 import { Base } from "./pantallas/Base";
 import { Senal } from "./pantallas/Senal";
+import { Todas } from "./pantallas/Todas";
 import { Agente } from "./piezas/Agente";
 import { olvidarSemana } from "./semanaReciente";
 
@@ -94,6 +95,7 @@ export function App() {
         {destino.pantalla === "senal" && <Senal key={clave} senalId={destino.senal} />}
         {destino.pantalla === "nueva" && <Nueva />}
         {destino.pantalla === "admin" && <Admin key={revision} />}
+        {destino.pantalla === "todas" && <Todas key={revision} />}
         {conAgente && <Agente key={destino.senal} senalId={destino.senal} />}
       </div>
     </ContextoSesion.Provider>
