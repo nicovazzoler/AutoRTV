@@ -1,8 +1,10 @@
+import logging
+import secrets
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import Cookie, FastAPI, HTTPException
-from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
+from fastapi import Cookie, FastAPI, HTTPException, Request
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 
 from app import auth, db
 from app.api.rutas import api, publico
@@ -21,6 +23,14 @@ async def arranque(_app):
 app = FastAPI(title="AutoRTV", lifespan=arranque)
 app.include_router(publico)
 app.include_router(api)
+
+
+@app.exception_handler(Exception)
+async def error_inesperado(pedido: Request, e: Exception):
+    """Un bug: la web muestra qué falló, y con el código se encuentra el detalle completo en los logs."""
+    codigo = "E-" + secrets.token_hex(2)
+    logging.getLogger("autortv").exception("%s en %s %s", codigo, pedido.method, pedido.url.path)
+    return JSONResponse({"detail": f"Error interno {codigo}: {type(e).__name__}: {e}"[:500]}, status_code=500)
 
 
 @app.get("/health")

@@ -187,6 +187,7 @@ export interface Propuesta {
   despues: Metricas | null;
   problemas: string[];
   vueltas: number;
+  aviso?: string;
   efecto?: {
     celdas: number;
     ejemplos: { fila: number; columna: string; antes: unknown; despues: unknown }[];

@@ -113,7 +113,7 @@ export function Senal({ senalId }: { senalId: string }) {
       const despues = p.despues?.ejemplos[evaluaciones[0].nombre] ?? null;
       if (p.receta && despues !== null && (antes === null || despues > antes)) {
         await api.put(`/senales/${senalId}`, p.receta, { "If-Match": version });
-        setAviso(`Reglas armadas: aciertan el ${despues} % del ejemplo.`);
+        setAviso(`Reglas armadas: aciertan el ${despues} % del ejemplo.${p.aviso ? ` ${p.aviso}` : ""}`);
         tocar();
       } else {
         setError(`El agente no encontró reglas que mejoren el ejemplo. ${p.problemas.join(" ")}`);

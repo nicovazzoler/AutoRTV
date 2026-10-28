@@ -73,6 +73,7 @@ class Propuesta:
     tokens_entrada: int = 0
     tokens_salida: int = 0
     modelo: str = ""
+    aviso: str = ""
 
 
 @dataclass
@@ -159,6 +160,7 @@ def pedir(receta: m.Senal, tabla: pd.DataFrame, pedido: str, proveedor: Proveedo
         resultado.tokens_entrada += r.tokens_entrada
         resultado.tokens_salida += r.tokens_salida
         resultado.modelo = r.modelo
+        resultado.aviso = r.aviso or resultado.aviso
         if r.rechazo:
             resultado.problemas = [f"El asistente no quiso responder este pedido ({r.rechazo})."]
             return resultado

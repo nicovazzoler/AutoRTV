@@ -459,7 +459,7 @@ async def crear_senal(nombre: str = Form(""), grilla_cruda: UploadFile = File(..
                 mensaje = (f'Ya existe la señal "{nombre}"' if identica
                            else f'Hay señales con un nombre parecido a "{nombre}"')
                 raise HTTPException(409, {"mensaje": mensaje, "parecidas": parecidas, "identica": identica})
-            receta = m.Senal(id=senal_id, nombre=nombre, entrada=inputs.detectar(crudo),
+            receta = m.Senal(id=senal_id, nombre=nombre, entrada=_detectar(crudo),
                              tarjetas=[], salida=m.Salida(columnas=[]))
             almacen.guardar(receta, u.usuario)
         existentes, base, n = set(almacen.listar_ejemplos(senal_id)), sello, 2
@@ -1026,7 +1026,10 @@ def charla_asistente(p: PedidoAsistente, u: auth.Usuario = Depends(auth.usuario_
     """Primer paso de cada mensaje: responde rápido o avisa que hay que armar una propuesta."""
     proveedor = _proveedor_disponible(u, p.pedido)
     tabla = _correr_tabla(p.tabla_id, p.senal) if p.tabla_id else None
-    c = asistente_ia.charlar(p.senal, tabla, [h.model_dump() for h in p.historial], p.pedido, proveedor)
+    try:
+        c = asistente_ia.charlar(p.senal, tabla, [h.model_dump() for h in p.historial], p.pedido, proveedor)
+    except cliente.ErrorAgente as e:
+        raise HTTPException(502, str(e))
     uso.registrar(u.usuario, p.senal.id, "[charla] " + p.pedido, 1, c.tokens_entrada, c.tokens_salida, True, c.modelo)
     return asdict(c)
 
@@ -1058,10 +1061,13 @@ def asistente(p: PedidoAsistente, u: auth.Usuario = Depends(auth.usuario_actual)
     entorno = asistente_ia.Entorno(
         foco=[i for i, g in enumerate(semana_antes[1]) if g["grupo"] == "revisar"] if semana_antes else [],
         es_admin=u.admin, reglas_catalogo=[f"{c.nombre}: {c.regla or c.tipo}" for c in cat])
-    propuesta = asistente_ia.pedir(p.senal, tabla, p.pedido, proveedor, ejemplos, objetivo=p.ejemplo,
-                                   orden_columnas=[c.nombre for c in cat],
-                                   historial=[h.model_dump() for h in p.historial], entorno=entorno,
-                                   fuerte=p.fuerte)
+    try:
+        propuesta = asistente_ia.pedir(p.senal, tabla, p.pedido, proveedor, ejemplos, objetivo=p.ejemplo,
+                                       orden_columnas=[c.nombre for c in cat],
+                                       historial=[h.model_dump() for h in p.historial], entorno=entorno,
+                                       fuerte=p.fuerte)
+    except cliente.ErrorAgente as e:
+        raise HTTPException(502, str(e))
     uso.registrar(u.usuario, p.senal.id, p.pedido, propuesta.vueltas, propuesta.tokens_entrada,
                   propuesta.tokens_salida, propuesta.logrado, propuesta.modelo)
     respuesta = asdict(propuesta)
