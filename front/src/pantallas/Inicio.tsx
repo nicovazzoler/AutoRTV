@@ -12,6 +12,16 @@ function destinoDe(s: SenalLista) {
   return aSenal(s.id, s.semana ? "revisar" : "subir");
 }
 
+// Lo último que hizo esta persona en la señal, en palabras.
+function loQueHiciste(s: SenalLista, usuario: string): string {
+  const semana = s.semana;
+  if (!semana) return "";
+  const confirmo = semana.confirmada_por === usuario && semana.confirmada && semana.confirmada >= semana.subida;
+  if (confirmo) return `Confirmaste la semana ${haceCuanto(semana.confirmada!)}`;
+  if (semana.subida_por === usuario) return `Subiste la grilla${semana.version > 1 ? ` (v${semana.version})` : ""} ${haceCuanto(semana.subida)}`;
+  return `${semana.subida_por} subió la grilla ${haceCuanto(semana.subida)}`;
+}
+
 function ultimoCambio(s: SenalLista): string {
   const semana = s.semana;
   if (!semana) return "—";
@@ -53,8 +63,8 @@ export function Inicio() {
       </label>
 
       {seguis.length > 0 && !q && (
-        <section aria-label="Seguís con" className="seccion" style={{ gap: 14 }}>
-          <h2 className="etiqueta-seccion">SEGUÍS CON</h2>
+        <section aria-label="Lo último que tocaste" className="seccion" style={{ gap: 14 }}>
+          <h2 className="etiqueta-seccion">LO ÚLTIMO QUE TOCASTE</h2>
           <div className="tres-columnas">
             {seguis.map((s, i) => {
               const estado = estadoDe(s);
@@ -63,7 +73,7 @@ export function Inicio() {
                   borderTop: i === 0 ? "2px solid var(--texto)" : "1px solid var(--borde)" }}>
                   <span className="serif" style={{ fontSize: 22 }}>{s.nombre}</span>
                   <span className={`chico ${estado.tipo === "revisar" ? "c-revisar" : "c-nueva"}`} style={{ fontWeight: 600 }}>{estado.texto}</span>
-                  <span className="chico tenue">{FORMATOS[s.formato] ?? s.formato} · {ultimoCambio(s)}</span>
+                  <span className="chico tenue">{loQueHiciste(s, yo.usuario)}</span>
                 </Enlace>
               );
             })}
@@ -89,7 +99,7 @@ export function Inicio() {
                   <tr key={s.id}>
                     <td><Enlace a={destinoDe(s)} className="nombre">{s.nombre}</Enlace></td>
                     <td className="tenue">{FORMATOS[s.formato] ?? s.formato}</td>
-                    <td className="tenue" style={{ whiteSpace: "nowrap" }}>{r ? rangoCorto(r.desde, r.hasta) : "—"}</td>
+                    <td className="tenue" style={{ whiteSpace: "nowrap" }}>{r ? rangoCorto(r.desde, r.hasta) : "—"}{s.semana && s.semana.version > 1 ? ` · v${s.semana.version}` : ""}</td>
                     <td><span className={`pildora ${PILDORA[estado.tipo]}`}>{estado.texto}</span></td>
                     <td className="tenue" style={{ whiteSpace: "nowrap" }}>{ultimoCambio(s)}</td>
                   </tr>
@@ -103,6 +113,7 @@ export function Inicio() {
             {q ? <>Ninguna señal se llama así. <Enlace a="/nueva" style={{ color: "var(--acento)" }}>Crear una nueva</Enlace></> : "Todavía no hay señales."}
           </p>
         )}
+        {filtradas.length > 0 && <Enlace a="/nueva" className="menu-nueva" style={{ alignSelf: "flex-start", marginTop: 14 }}>+ Nueva señal</Enlace>}
       </section>
     </main>
   );

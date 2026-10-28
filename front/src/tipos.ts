@@ -12,6 +12,7 @@ export interface Resumen {
   pautas_revisar: number;
   desde: string | null;
   hasta: string | null;
+  cambios?: number;
 }
 
 export interface MetaSemana {
@@ -23,6 +24,8 @@ export interface MetaSemana {
   resumen: Resumen | null;
   confirmada_por: string | null;
   confirmada: string | null;
+  version: number;
+  anterior_nombre: string | null;
 }
 
 export interface SenalLista {
@@ -64,6 +67,17 @@ export interface SemanaAbierta {
   revisar?: Pauta[];
   nuevas?: Pauta[];
   horarios?: Aviso[];
+  cambios?: CambioVersion[] | null;
+  lectura?: { filas: number; columnas: string[] };
+}
+
+export interface CambioVersion {
+  fecha: string;
+  hora: string;
+  tipo: "agregado" | "sacado" | "cambiado";
+  campos?: string[];
+  antes?: Record<string, string>;
+  ahora?: Record<string, string>;
 }
 
 export interface Grupo {

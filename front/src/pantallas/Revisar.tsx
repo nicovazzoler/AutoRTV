@@ -5,7 +5,7 @@ import { Enlace } from "../piezas/Enlace";
 import { aSenal } from "../ruta";
 import { tomarSemana } from "../semanaReciente";
 import { useSesion } from "../sesion";
-import type { Celdas, Pauta, SemanaAbierta } from "../tipos";
+import type { CambioVersion, Celdas, Pauta, SemanaAbierta } from "../tipos";
 
 function valores(celdas: Celdas, sin: string | null | undefined, cuantos: number, yaVistos: Celdas = {}): string {
   const vistos = new Set(Object.values(yaVistos).map(String));
@@ -23,8 +23,25 @@ function programaDe(p: Pauta, columna: string | null | undefined): string {
 
 // "Programa nuevo: Ruta Sonora" → "Programa nuevo"; el detalle ya se ve en la fila.
 function etiquetaMotivo(motivo: string): string {
-  const corto = motivo.split(":")[0].trim();
-  return corto.length > 32 ? corto.slice(0, 30) + "…" : corto;
+  return motivo.split(":")[0].trim();
+}
+
+const DIAS_CORTOS = ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"];
+
+function cuandoCorto(c: CambioVersion): string {
+  const [a, m, d] = c.fecha.split("-").map(Number);
+  return `${DIAS_CORTOS[new Date(a, m - 1, d).getDay()]} ${d} · ${c.hora}`;
+}
+
+// `crudas`: columnas que vienen tal cual de la grilla; repiten lo que ya dicen las del EPG.
+function fraseCambioVersion(c: CambioVersion, programa: string | null | undefined, crudas: string[]): string {
+  const nombre = (x?: Record<string, string>) => (programa && x?.[programa]) || Object.values(x ?? {}).find((v) => v) || "(vacío)";
+  if (c.tipo === "agregado") return `se agregó ${nombre(c.ahora)}`;
+  if (c.tipo === "sacado") return `se sacó ${nombre(c.antes)}`;
+  const campos = c.campos ?? [];
+  const delEpg = campos.filter((k) => !crudas.includes(k));
+  const mostrar = (delEpg.length ? delEpg : campos).sort((a, b) => Number(b === programa) - Number(a === programa));
+  return mostrar.map((k) => `${k === programa ? "" : `${k}: `}${c.antes?.[k] || "(vacío)"} → ${c.ahora?.[k] || "(vacío)"}`).join(" · ");
 }
 
 // Los motivos que dicen algo más que la pastilla y el nombre del programa.
@@ -40,6 +57,8 @@ export function Revisar({ senalId }: { senalId: string }) {
   const [error, setError] = useState("");
   const [ocupado, setOcupado] = useState<string | null>(null);
   const [menuExportar, setMenuExportar] = useState(false);
+  const [desde, setDesde] = useState("");
+  const [hasta, setHasta] = useState("");
 
   const recibir = useCallback((d: SemanaAbierta) => {
     setDatos(d);
@@ -71,7 +90,10 @@ export function Revisar({ senalId }: { senalId: string }) {
     setError("");
     try {
       recibir(await api.post<SemanaAbierta>(`/senales/${senalId}/abierta/confirmar`));
-      await api.descargar(`/senales/${senalId}/abierta/export?formato=${formato}`);
+      const recorte = new URLSearchParams({ formato });
+      if (desde) recorte.set("desde", desde);
+      if (hasta) recorte.set("hasta", hasta);
+      await api.descargar(`/senales/${senalId}/abierta/export?${recorte}`);
     } catch (e) {
       setError(textoDeError(e));
     }
@@ -112,7 +134,7 @@ export function Revisar({ senalId }: { senalId: string }) {
       <header className="cabecera">
         <div className="cabecera-textos">
           <span className="antetitulo">
-            {resumen.desde ? `Semana ${numeroSemana(resumen.desde)} · ` : ""}{semana.nombre} · subida por {semana.subida_por} {haceCuanto(semana.subida)}
+            {resumen.desde ? `Semana ${numeroSemana(resumen.desde)} · ` : ""}{semana.version > 1 ? `v${semana.version} · ` : ""}{semana.nombre} · subida por {semana.subida_por} {haceCuanto(semana.subida)}
           </span>
           <h1 className="titulo">{rangoSemana(resumen.desde, resumen.hasta)}</h1>
           <p className="bajada">
@@ -127,14 +149,20 @@ export function Revisar({ senalId }: { senalId: string }) {
             {ocupado === "confirmar" ? "Confirmando…" : confirmada ? "Exportar de nuevo" : "Confirmar y exportar"}
           </button>
           {menuExportar && (
-            <div className="menu-cuenta" role="menu" style={{ position: "absolute", right: 0, top: "calc(100% + 6px)", zIndex: 2, minWidth: 200 }}>
-              <button type="button" role="menuitem" onClick={() => confirmar("xlsx")}>Excel (.xlsx)</button>
-              <button type="button" role="menuitem" onClick={() => confirmar("csv")}>CSV</button>
+            <div className="menu-cuenta" role="dialog" aria-label="Exportar" style={{ position: "absolute", right: 0, top: "calc(100% + 6px)", zIndex: 2, minWidth: 260, gap: 8, padding: 10 }}>
+              <span className="chico tenue">Vacío = toda la semana. La hora es opcional.</span>
+              <label className="campo chico">Desde<input className="entrada" type="datetime-local" value={desde} onChange={(e) => setDesde(e.target.value)} /></label>
+              <label className="campo chico">Hasta<input className="entrada" type="datetime-local" value={hasta} onChange={(e) => setHasta(e.target.value)} /></label>
+              <button type="button" onClick={() => confirmar("xlsx")}>Excel (.xlsx)</button>
+              <button type="button" onClick={() => confirmar("csv")}>CSV</button>
             </div>
           )}
         </div>
       </header>
 
+      {semana.version > 1 && !confirmada && (
+        <p className="nota">Es la versión {semana.version} de esta semana: reemplazó a «{semana.anterior_nombre}». Lo que cambió está abajo; hay que volver a confirmar y exportar.</p>
+      )}
       {confirmada && semana.confirmada && (
         <p className="nota">Confirmada por {semana.confirmada_por} {haceCuanto(semana.confirmada)}. Lo nuevo ya está en la base: la semana que viene sale solo.</p>
       )}
@@ -154,7 +182,7 @@ export function Revisar({ senalId }: { senalId: string }) {
                 {revisar.map((p) => (
                   <tr key={p.hash}>
                     <td style={{ width: 170, paddingTop: 18 }}>
-                      <span className="pildora revisar" title={p.motivos.join("\n")}>{etiquetaMotivo(p.motivos[0] ?? "Revisar")}</span>
+                      <span className="pildora revisar" style={{ whiteSpace: "normal" }}>{etiquetaMotivo(p.motivos[0] ?? "Revisar")}</span>
                     </td>
                     <td style={{ paddingTop: 18 }}>
                       <div className="serif" style={{ fontSize: 19 }}>{programaDe(p, datos.programa)}</div>
@@ -179,6 +207,21 @@ export function Revisar({ senalId }: { senalId: string }) {
           </div>
         )}
       </section>
+
+      {datos.cambios && (
+        <details className="plegable" open={datos.cambios.length > 0 && datos.cambios.length <= 20}>
+          <summary>Cambios contra la v{semana.version - 1} <span className="chico tenue" style={{ fontFamily: "Inter Variable, sans-serif" }}>
+            {datos.cambios.length === 0 ? "ninguno: vino igual" : `${datos.cambios.length}${datos.cambios.length >= 300 ? " o más" : ""}`}</span></summary>
+          <ul style={{ margin: "12px 0 0", padding: 0, listStyle: "none", display: "flex", flexDirection: "column", gap: 8, fontSize: 14 }}>
+            {datos.cambios.map((c) => (
+              <li key={`${c.fecha}-${c.hora}`}>
+                <span className="tenue" style={{ display: "inline-block", minWidth: 110 }}>{cuandoCorto(c)}</span>{" "}
+                <span className={c.tipo === "sacado" ? "c-revisar" : c.tipo === "agregado" ? "c-nueva" : undefined}>{fraseCambioVersion(c, datos.programa, datos.lectura?.columnas ?? [])}</span>
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
 
       <div className="dos-columnas">
         <details className="plegable">

@@ -129,7 +129,7 @@ export function Grilla({ senalId }: { senalId: string }) {
 
       {error && <p className="error" role="alert">{error}</p>}
 
-      <div className="desplazable">
+      <div className="desplazable con-alto">
         <table className="tabla-datos">
           <thead>
             <tr><th>Estado</th>{datos.columnas.map((c) => <th key={c}>{c}</th>)}</tr>

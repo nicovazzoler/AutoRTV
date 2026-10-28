@@ -1,10 +1,11 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useState } from "react";
 import { api, ErrorApi, textoDeError } from "../api";
 import { frase, fraseCambio, fraseEntrada, fraseIdiomas } from "../frases";
 import { haceCuanto } from "../fechas";
 import { ConfigSenal, RecetaArchivo } from "../piezas/ConfigSenal";
+import { ZonaArchivo } from "../piezas/ZonaArchivo";
 import { useSesion } from "../sesion";
-import type { Evaluacion, Receta, Version } from "../tipos";
+import type { Evaluacion, Propuesta, Receta, Version } from "../tipos";
 
 interface Informe {
   id: string;
@@ -32,6 +33,11 @@ export function Senal({ senalId }: { senalId: string }) {
   const [aviso, setAviso] = useState("");
   const [subiendo, setSubiendo] = useState(false);
   const [editando, setEditando] = useState(false);
+  const [forma, setForma] = useState<"archivo" | "pegar">("archivo");
+  const [entrada, setEntrada] = useState<File | null>(null);
+  const [pegada, setPegada] = useState("");
+  const [esperado, setEsperado] = useState<File | null>(null);
+  const [armando, setArmando] = useState(false);
 
   const cargar = async () => {
     const { datos, version: v } = await api.conVersion<Receta>(`/senales/${senalId}`);
@@ -71,24 +77,63 @@ export function Senal({ senalId }: { senalId: string }) {
     }
   };
 
-  const agregarEjemplo = async (e: FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    const formulario = e.currentTarget;
-    const datos = new FormData(formulario);
+  const agregarEjemplo = async () => {
+    const cruda = forma === "archivo" ? entrada : pegada.trim() ? new File([pegada], pegada.trimStart().startsWith("<") ? "grilla.html" : "grilla.txt") : null;
+    if (!cruda || !esperado) return;
+    const datos = new FormData();
     const ahora = new Date();
     const dos = (n: number) => String(n).padStart(2, "0");
     datos.set("nombre", `ejemplo-${ahora.getFullYear()}${dos(ahora.getMonth() + 1)}${dos(ahora.getDate())}-${dos(ahora.getHours())}${dos(ahora.getMinutes())}${dos(ahora.getSeconds())}`);
+    datos.set("entrada", cruda);
+    datos.set("esperado", esperado);
     setSubiendo(true);
     setError("");
     try {
       const r = await api.subir<{ pautas: { agregadas?: number; error?: string } | null }>(`/senales/${senalId}/ejemplos`, datos);
       setAviso(r.pautas?.error ?? `Ejemplo agregado. La base sumó ${r.pautas?.agregadas ?? 0} pautas.`);
-      formulario.reset();
+      setEntrada(null);
+      setPegada("");
+      setEsperado(null);
       await cargar();
     } catch (err) {
       setError(textoDeError(err));
     }
     setSubiendo(false);
+  };
+
+  const armarReglas = async () => {
+    if (!receta || !evaluaciones?.length) return;
+    setArmando(true);
+    setError("");
+    setAviso("");
+    try {
+      const p = await api.post<Propuesta>("/asistente", { senal: receta, ejemplo: evaluaciones[0].nombre, fuerte: true,
+        pedido: "Ajustá las tarjetas para que la grilla de entrada de este ejemplo quede igual al EPG esperado." });
+      const antes = p.antes?.ejemplos[evaluaciones[0].nombre] ?? null;
+      const despues = p.despues?.ejemplos[evaluaciones[0].nombre] ?? null;
+      if (p.receta && despues !== null && (antes === null || despues > antes)) {
+        await api.put(`/senales/${senalId}`, p.receta, { "If-Match": version });
+        setAviso(`Reglas armadas: aciertan el ${despues} % del ejemplo.`);
+        tocar();
+      } else {
+        setError(`El agente no encontró reglas que mejoren el ejemplo. ${p.problemas.join(" ")}`);
+      }
+    } catch (e) {
+      setError(textoDeError(e));
+    }
+    setArmando(false);
+  };
+
+  const limpiarBase = async () => {
+    if (!confirm("¿Sacar de la base las columnas que en realidad son horario (por ejemplo una hora con AM/PM)? Las pautas que solo se diferenciaban por eso se juntan en una.")) return;
+    try {
+      const r = await api.post<{ antes: number; despues: number; columnas: string[] }>(`/senales/${senalId}/pautas/limpiar`, {});
+      setAviso(r.columnas.length
+        ? `Base limpia: se sacaron ${r.columnas.join(", ")} y quedaron ${r.despues} pautas (había ${r.antes}).`
+        : "La base ya estaba limpia: no había columnas de horario guardadas.");
+    } catch (e) {
+      setError(textoDeError(e));
+    }
   };
 
   if (!receta) {
@@ -130,11 +175,21 @@ export function Senal({ senalId }: { senalId: string }) {
           </ul>
           <details className="caja" style={{ marginTop: 14 }}>
             <summary>Agregar semana terminada</summary>
-            <form onSubmit={agregarEjemplo} style={{ display: "flex", flexDirection: "column", gap: 12, marginTop: 12 }}>
-              <label className="campo">Cómo vino<input type="file" name="entrada" required /></label>
-              <label className="campo">Cómo quedó (EPG terminado, Excel)<input type="file" name="esperado" required /></label>
-              <button type="submit" className="boton principal chico" style={{ alignSelf: "flex-start" }} disabled={subiendo}>{subiendo ? "Subiendo…" : "Agregar"}</button>
-            </form>
+            <div style={{ display: "flex", flexDirection: "column", gap: 12, marginTop: 12 }}>
+              <span className="campo">Cómo vino</span>
+              <div className="botones" role="group" aria-label="Cómo la traés" style={{ gap: 6 }}>
+                <button type="button" className="boton chico" aria-pressed={forma === "archivo"} onClick={() => setForma("archivo")}>Archivo</button>
+                <button type="button" className="boton chico" aria-pressed={forma === "pegar"} onClick={() => setForma("pegar")}>Pegar texto o HTML</button>
+              </div>
+              {forma === "archivo"
+                ? <ZonaArchivo chica archivo={entrada} alElegir={setEntrada} etiqueta="Cómo vino" />
+                : <textarea className="entrada" rows={4} value={pegada} onChange={(e) => setPegada(e.target.value)} aria-label="Texto o HTML de cómo vino"
+                    placeholder="Pegá el texto o el HTML de la página" style={{ minHeight: 90, fontSize: 12 }} />}
+              <span className="campo">Cómo quedó (EPG terminado, Excel)</span>
+              <ZonaArchivo chica archivo={esperado} alElegir={setEsperado} accept=".xlsx,.xls" etiqueta="Cómo quedó" />
+              <button type="button" className="boton principal chico" style={{ alignSelf: "flex-start" }} onClick={agregarEjemplo}
+                disabled={subiendo || !esperado || (forma === "archivo" ? !entrada : !pegada.trim())}>{subiendo ? "Subiendo…" : "Agregar"}</button>
+            </div>
           </details>
         </section>
 
@@ -144,7 +199,12 @@ export function Senal({ senalId }: { senalId: string }) {
             <span className="chico tenue">las arma el agente · se cambian hablándole</span>
           </div>
           <ol className="lista-simple">
-            {receta.tarjetas.length === 0 && <li className="tenue chico">Sin reglas: todo sale de la base o como vino.</li>}
+            {receta.tarjetas.length === 0 && (
+              <li className="tenue chico" style={{ flexWrap: "wrap" }}>Sin reglas: todo sale de la base o como vino.
+                {!!evaluaciones?.length && <button type="button" className="boton chico" onClick={armarReglas} disabled={armando}>
+                  {armando ? "Armando… (puede tardar un minuto)" : "Armar reglas desde los ejemplos"}</button>}
+              </li>
+            )}
             {receta.tarjetas.map((t, i) => {
               const inf = informes[t.id];
               return (
@@ -199,7 +259,15 @@ export function Senal({ senalId }: { senalId: string }) {
             <div><dt>Columnas de salida</dt><dd>{receta.salida.columnas.length ? receta.salida.columnas.join(", ") : "Las del catálogo, en su orden"}</dd></div>
           </dl>
           )}
-          {yo.admin && !editando && <div style={{ marginTop: 16 }}><RecetaArchivo receta={receta} version={version} alGuardar={tocar} /></div>}
+          {yo.admin && !editando && (
+            <div style={{ marginTop: 16, display: "flex", flexDirection: "column", gap: 12 }}>
+              <RecetaArchivo receta={receta} version={version} alGuardar={tocar} />
+              <div className="botones" style={{ alignItems: "center" }}>
+                <button type="button" className="boton chico" onClick={limpiarBase}>Limpiar la base</button>
+                <span className="chico tenue">Saca columnas de horario que hayan quedado guardadas como contenido.</span>
+              </div>
+            </div>
+          )}
         </section>
         <section aria-label="Fuente web" className="seccion">
           <div className="seccion-cabeza"><h2 style={{ fontSize: 22 }}>Fuente web</h2></div>

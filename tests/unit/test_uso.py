@@ -21,13 +21,18 @@ def test_resumen_del_mes_con_pedidos_viejos_sin_costo(cliente):
     assert round(ana["usd_mes"], 2) == round(0.10 + 0.40 + 0.20, 2) == round(ana["usd_hoy"], 2)
 
 
-def test_base_vieja_suma_la_columna_de_costo(tmp_path):
+def test_base_vieja_suma_las_columnas_nuevas(tmp_path):
     archivo = tmp_path / "vieja.db"
     con = sqlite3.connect(archivo)
     con.execute("CREATE TABLE uso_agente (id INTEGER PRIMARY KEY, usuario TEXT, fecha TIMESTAMP, senal TEXT, pedido TEXT,"
                 " vueltas INTEGER, tokens_entrada INTEGER, tokens_salida INTEGER, logrado BOOLEAN)")
+    con.execute("CREATE TABLE semanas (senal_id TEXT PRIMARY KEY, tabla_id TEXT, contenido BLOB, nombre TEXT,"
+                " subida_por TEXT, subida TIMESTAMP, resumen JSON, confirmada_por TEXT, confirmada TIMESTAMP)")
+    con.execute("INSERT INTO semanas VALUES ('canal', 't', x'00', 'g.xlsx', 'ana', '2026-11-02 10:00:00', NULL, NULL, NULL)")
     con.commit()
     con.close()
     motor = create_engine(f"sqlite:///{archivo}")
     db.inicializar(motor)
     assert "costo_usd" in {c["name"] for c in inspect(motor).get_columns("uso_agente")}
+    with motor.connect() as c:
+        assert c.execute(db.semanas.select()).first().version == 1
