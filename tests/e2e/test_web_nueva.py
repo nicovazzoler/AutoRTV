@@ -86,6 +86,10 @@ def test_semana_de_punta_a_punta(servidor, tmp_path):
         # Base vacía: los dos programas son nuevos. "Está bien" saca uno.
         filas = pagina.locator("section[aria-label='Para revisar'] tbody tr")
         assert filas.count() == 2
+        pagina.get_by_label("Filtrar Motivo").fill("ruta sonora")
+        pagina.wait_for_function("document.querySelectorAll(\"section[aria-label='Para revisar'] tbody tr\").length === 1")
+        pagina.get_by_label("Filtrar Motivo").fill("")
+        pagina.wait_for_function("document.querySelectorAll(\"section[aria-label='Para revisar'] tbody tr\").length === 2")
         filas.first.get_by_role("button", name="Está bien").click()
         pagina.wait_for_function("document.querySelectorAll(\"section[aria-label='Para revisar'] tbody tr\").length === 1")
         assert pagina.locator(".menu-item[aria-current=page] .cuenta").inner_text() == "2"  # Ruta Sonora sale dos veces
@@ -200,6 +204,7 @@ def test_agente_aplica_y_senal_deshace(servidor, tmp_path):
         # El agente grabado charla siempre lo mismo y propone pasar Titulo a mayúsculas.
         pagina.goto(servidor + "/s/canal/revisar")
         agente = pagina.locator("aside[aria-label=Agente]")
+        agente.get_by_role("button", name="Abrir el agente").click()  # arranca plegado para dejar ancho a la tabla
         agente.locator("textarea").fill("hola")
         agente.get_by_role("button", name="Enviar").click()
         agente.get_by_text("¡Hola! Decime qué querés cambiar.").wait_for()

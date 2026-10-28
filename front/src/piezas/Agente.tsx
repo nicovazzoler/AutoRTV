@@ -23,7 +23,8 @@ const PLEGADO = "autortv.agente-plegado";
 
 function leerPlegado(): boolean {
   try {
-    return localStorage.getItem(PLEGADO) === "1";
+    // Plegado de entrada: Revisar y Grilla necesitan el ancho. Queda abierto solo si la persona lo abrió.
+    return localStorage.getItem(PLEGADO) !== "0";
   } catch {
     return false;
   }

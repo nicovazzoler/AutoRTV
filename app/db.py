@@ -168,7 +168,7 @@ def motor() -> Engine:
 
 def inicializar(m: Engine) -> None:
     """Crea las tablas y migra los datos del formato viejo (volumen) si la base está vacía."""
-    from app import migrar
+    from app import migrar, pautas
 
     with m.begin() as con:
         if m.dialect.name == "postgresql":
@@ -177,6 +177,7 @@ def inicializar(m: Engine) -> None:
         metadata.create_all(con)
         _agregar_columnas(con)
         migrar.desde_volumen(con)
+        pautas.migrar_hashes(con)
 
 
 def _agregar_columnas(con: Connection) -> None:

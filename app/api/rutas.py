@@ -283,6 +283,7 @@ class Corrida:
     crudas: list[dict]
     crudo: pd.DataFrame
     programas: list[str]
+    base: dict[str, dict]
 
 
 def _correr(p: Pedido) -> Corrida:
@@ -298,11 +299,11 @@ def _correr(p: Pedido) -> Corrida:
     programas = semana.programas_de_la_base(base, semana.columna_programa(columnas_base, p.senal.validaciones))
     r = aplicar(tabla, p.senal.tarjetas, [*p.senal.titulos_conocidos, *programas])
     df, estados, hashes = pautas.aplicar(tabla, r.tabla, base)
-    salida = armar_salida(df, p.senal.salida)
+    salida = semana.completar_titulos(armar_salida(df, p.senal.salida), crear=not p.senal.salida.columnas)
     cat = catalogo.leer()
     if cat and not p.senal.salida.columnas:
         salida = salida[catalogo.ordenar(list(salida.columns), cat)]
-    return Corrida(salida, r.informes, cat, estados, hashes, pautas.crudas(tabla), tabla, programas)
+    return Corrida(salida, r.informes, cat, estados, hashes, pautas.crudas(tabla), tabla, programas, base)
 
 
 def _validar(c: Corrida, receta: m.Senal) -> list:
@@ -310,8 +311,11 @@ def _validar(c: Corrida, receta: m.Senal) -> list:
 
 
 def _clasificar(c: Corrida, receta: m.Senal, avisos: list) -> list[dict]:
-    columna = semana.columna_programa(list(c.salida.columns), receta.validaciones)
-    return semana.clasificar(c.salida, c.estados, avisos, c.informes, c.programas, columna)
+    columnas = list(c.salida.columns)
+    columna = semana.columna_programa(columnas, receta.validaciones)
+    capitulo = [x for x in semana.campos_clave(columnas, columna) if x != columna]
+    repetidas = semana.sinopsis_repetidas(c.salida, [p["salida"] for p in c.base.values()], columna, capitulo)
+    return semana.clasificar(c.salida, c.estados, avisos, c.informes, c.programas, columna, repetidas)
 
 
 def _resumen_pautas(estados: list[str]) -> dict:
@@ -367,6 +371,7 @@ def _armar_semana(c: Corrida, receta: m.Senal) -> dict:
         "resumen": {"filas": len(c.salida), **cuenta, "pautas_revisar": len(revisar)},
         "contenido": contenido,
         "programa": semana.columna_programa(contenido, receta.validaciones),
+        "campos_clave": semana.campos_clave(contenido, semana.columna_programa(contenido, receta.validaciones)),
         "revisar": revisar,
         "nuevas": nuevas,
         "horarios": [asdict(a) for a in avisos if a.regla not in ("catalogo", "titulo_nuevo")],
@@ -856,6 +861,7 @@ def _grilla_abierta(senal_id: str) -> dict:
         "hashes": c.hashes[:n],
         "contenido": armado["contenido"],
         "programa": armado["programa"],
+        "campos_clave": armado["campos_clave"],
         "validaciones": [asdict(a) for a in avisos if a.fila and a.fila <= n],
         "total_filas": len(c.salida),
     }

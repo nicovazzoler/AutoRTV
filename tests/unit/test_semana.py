@@ -48,7 +48,7 @@ def test_agrupar_junta_por_pauta():
 
 def test_columna_de_programa_por_nombre_o_catalogo():
     v = m.Validaciones()
-    assert semana.columna_programa(["N", "TIT ING", "Tit orig"], v) == "TIT ING"
+    assert semana.columna_programa(["N", "TIT ING", "Tit orig"], v) == "Tit orig"  # Tit orig manda sobre el inglés
     assert semana.columna_programa(["N", "Tit orig"], v) == "Tit orig"
     assert semana.columna_programa(["N", "Show"], m.Validaciones(programa="Show")) == "Show"
     assert semana.columna_programa(["N"], v) is None

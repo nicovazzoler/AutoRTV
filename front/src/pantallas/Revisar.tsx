@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
 import { api, textoDeError } from "../api";
 import { haceCuanto, numeroSemana, rangoSemana } from "../fechas";
+import { CeldaEditable } from "../piezas/CeldaEditable";
 import { Enlace } from "../piezas/Enlace";
+import { cumple, FilaFiltros, type Filtros } from "../piezas/FiltrosColumna";
 import { aSenal } from "../ruta";
 import { tomarSemana } from "../semanaReciente";
 import { useSesion } from "../sesion";
@@ -19,11 +21,6 @@ function valores(celdas: Celdas, sin: string | null | undefined, cuantos: number
 function programaDe(p: Pauta, columna: string | null | undefined): string {
   const v = columna ? p.salida[columna] : null;
   return v ? String(v) : valores(p.salida, null, 1) || "(sin programa)";
-}
-
-// "Programa nuevo: Ruta Sonora" → "Programa nuevo"; el detalle ya se ve en la fila.
-function etiquetaMotivo(motivo: string): string {
-  return motivo.split(":")[0].trim();
 }
 
 const DIAS_CORTOS = ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"];
@@ -44,12 +41,6 @@ function fraseCambioVersion(c: CambioVersion, programa: string | null | undefine
   return mostrar.map((k) => `${k === programa ? "" : `${k}: `}${c.antes?.[k] || "(vacío)"} → ${c.ahora?.[k] || "(vacío)"}`).join(" · ");
 }
 
-// Los motivos que dicen algo más que la pastilla y el nombre del programa.
-function detalleMotivos(p: Pauta, columna: string | null | undefined): string[] {
-  const obvio = `Programa nuevo: ${programaDe(p, columna)}`;
-  return p.motivos.filter((m) => m !== obvio && m.includes(":"));
-}
-
 export function Revisar({ senalId }: { senalId: string }) {
   const { senales, actualizarSemana } = useSesion();
   const senal = senales?.find((s) => s.id === senalId);
@@ -57,6 +48,8 @@ export function Revisar({ senalId }: { senalId: string }) {
   const [error, setError] = useState("");
   const [ocupado, setOcupado] = useState<string | null>(null);
   const [menuExportar, setMenuExportar] = useState(false);
+  const [verTodo, setVerTodo] = useState<boolean | null>(null);
+  const [filtros, setFiltros] = useState<Filtros>({});
   const [desde, setDesde] = useState("");
   const [hasta, setHasta] = useState("");
 
@@ -80,6 +73,16 @@ export function Revisar({ senalId }: { senalId: string }) {
       setError(textoDeError(e));
     }
     setOcupado(null);
+  };
+
+  const corregir = async (fila: number, columna: string, valor: string) => {
+    setError("");
+    try {
+      await api.post(`/senales/${senalId}/abierta/celda`, { fila, columna, valor });
+      recibir(await api.get<SemanaAbierta>(`/senales/${senalId}/abierta`));
+    } catch (e) {
+      setError(textoDeError(e));
+    }
   };
 
   const confirmar = async (formato: "xlsx" | "csv") => {
@@ -128,6 +131,13 @@ export function Revisar({ senalId }: { senalId: string }) {
   const problemas = (datos.horarios ?? []).filter((a) => a.nivel !== "info");
   const notas = (datos.horarios ?? []).filter((a) => a.nivel === "info");
   const confirmada = semana.confirmada && semana.confirmada >= semana.subida;
+  const contenido = datos.contenido ?? [];
+  const clave = datos.campos_clave?.length ? datos.campos_clave : contenido;
+  // Si un error está en una columna que no es clave, se ve todo de entrada para que no quede escondido.
+  const errorFueraDeClave = revisar.some((p) => p.motivos.some((m) => contenido.some((c) => !clave.includes(c) && m.startsWith(`${c}:`))));
+  const todo = verTodo ?? errorFueraDeClave;
+  const columnas = todo ? contenido : clave;
+  const filtradas = revisar.filter((p) => cumple((c) => (c === "Motivo" ? p.motivos.join(" ") : p.salida[c]), filtros));
 
   return (
     <main className="contenido">
@@ -171,37 +181,46 @@ export function Revisar({ senalId }: { senalId: string }) {
       <section aria-label="Para revisar" className="seccion">
         <div className="seccion-cabeza">
           <h2>Para revisar</h2>
-          <span className="chico tenue">{resumen.pautas_revisar} pautas · {resumen.revisar} emisiones</span>
+          <span className="chico tenue">{resumen.pautas_revisar} {resumen.pautas_revisar === 1 ? "pauta" : "pautas"} · {resumen.revisar} {resumen.revisar === 1 ? "emisión" : "emisiones"} · doble clic en una celda para corregirla</span>
+          <span style={{ flexGrow: 1 }} />
+          {revisar.length > 0 && (
+            <button type="button" className="boton chico" aria-pressed={todo} onClick={() => setVerTodo(!todo)}>
+              {todo ? "Solo los campos clave" : `Ver todo (${contenido.length} columnas)`}
+            </button>
+          )}
         </div>
         {revisar.length === 0 ? (
           <p className="tenue" style={{ marginTop: 12 }}>Nada para revisar: todo salió de la base o entra solo.</p>
         ) : (
-          <div className="desplazable">
-            <table className="tabla apilable" style={{ fontSize: 15 }}>
+          <div className="desplazable con-alto">
+            <table className="tabla-datos">
+              <thead>
+                <tr>
+                  <th><span className="solo-lector">Acción</span></th>
+                  <th>Motivo</th>
+                  {columnas.map((c) => <th key={c}>{c}</th>)}
+                  <th>Veces</th><th>Cómo vino</th>
+                </tr>
+                <FilaFiltros columnas={["Motivo", ...columnas]} filtros={filtros} alCambiar={setFiltros} antes={1} />
+              </thead>
               <tbody>
-                {revisar.map((p) => (
+                {filtradas.map((p) => (
                   <tr key={p.hash}>
-                    <td style={{ width: 170, paddingTop: 18 }}>
-                      <span className="pildora revisar" style={{ whiteSpace: "normal" }}>{etiquetaMotivo(p.motivos[0] ?? "Revisar")}</span>
-                    </td>
-                    <td style={{ paddingTop: 18 }}>
-                      <div className="serif" style={{ fontSize: 19 }}>{programaDe(p, datos.programa)}</div>
-                      <div className="chico tenue">{valores(p.salida, datos.programa, 3, p.crudo) || "sin más datos"}</div>
-                      {detalleMotivos(p, datos.programa).length > 0 && (
-                        <ul className="chico c-revisar" style={{ margin: "6px 0 0", paddingLeft: 18 }}>
-                          {detalleMotivos(p, datos.programa).map((m) => <li key={m}>{m}</li>)}
-                        </ul>
-                      )}
-                    </td>
-                    <td className="chico tenue" style={{ paddingTop: 18 }}>vino como<br /><span style={{ color: "var(--texto)" }}>{valores(p.crudo, null, 3)}</span></td>
-                    <td className="chico tenue" style={{ paddingTop: 18, whiteSpace: "nowrap" }}>{p.veces} {p.veces === 1 ? "vez" : "veces"}</td>
-                    <td className="derecha" style={{ paddingTop: 18, paddingRight: 0 }}>
+                    <td>
                       <button type="button" className="boton chico" disabled={ocupado === p.hash} onClick={() => aceptar(p.hash)}>
                         {ocupado === p.hash ? "Guardando…" : "Está bien"}
                       </button>
                     </td>
+                    <td className="motivos"><ul>{p.motivos.map((m) => <li key={m}>{m}</li>)}</ul></td>
+                    {columnas.map((c) => (
+                      <CeldaEditable key={c} columna={c} valor={p.salida[c]} editable clase={c === datos.programa ? "programa" : ""}
+                        aviso={p.motivos.find((m) => m.startsWith(`${c}:`))} alGuardar={(v) => corregir(p.filas[0], c, v)} />
+                    ))}
+                    <td className="tenue">{p.veces}</td>
+                    <td className="tenue"><span className="dos-renglones">{valores(p.crudo, null, 4)}</span></td>
                   </tr>
                 ))}
+                {filtradas.length === 0 && <tr><td colSpan={columnas.length + 4} className="tenue">Ninguna pauta cumple esos filtros.</td></tr>}
               </tbody>
             </table>
           </div>

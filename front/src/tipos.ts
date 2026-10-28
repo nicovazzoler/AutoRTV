@@ -69,6 +69,7 @@ export interface SemanaAbierta {
   horarios?: Aviso[];
   cambios?: CambioVersion[] | null;
   lectura?: { filas: number; columnas: string[] };
+  campos_clave?: string[];
 }
 
 export interface CambioVersion {

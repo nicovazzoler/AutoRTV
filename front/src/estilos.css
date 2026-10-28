@@ -413,7 +413,13 @@ dialog.dialogo h2 { margin: 0; font-family: "Fraunces Variable", serif; font-siz
 .tabla-datos td.editable:hover { background: var(--panel); }
 .tabla-datos td.invalida { color: var(--revisar); text-decoration: underline wavy; text-underline-offset: 4px; }
 .tabla-datos td.programa { font-family: "Fraunces Variable", serif; font-size: 16px; white-space: nowrap; }
-.tabla-datos thead th { position: sticky; top: 0; z-index: 1; background: var(--fondo); }
+.tabla-datos thead { position: sticky; top: 0; z-index: 1; }
+.tabla-datos thead th { background: var(--fondo); }
+.tabla-datos .fila-filtros th { padding: 0 6px 8px; }
+.filtro-columna { width: 100%; min-width: 70px; box-sizing: border-box; min-height: 28px; padding: 0 8px; border-radius: 8px; border: 1px solid var(--borde); background: transparent; color: var(--texto); font: inherit; font-size: 12px; }
+.filtro-columna:focus { border-color: var(--acento); outline: none; }
+.tabla-datos td.motivos { min-width: 200px; max-width: 300px; color: var(--revisar); font-size: 13px; }
+.tabla-datos td.motivos ul { margin: 0; padding-left: 16px; display: flex; flex-direction: column; gap: 4px; }
 .tabla-datos tbody tr:hover td { background: color-mix(in srgb, var(--panel) 70%, transparent); }
 .dos-renglones { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; min-width: 220px; max-width: 420px; }
 .tabla-datos .celda-entrada.larga { min-width: 320px; min-height: 110px; padding: 8px; font: inherit; line-height: 1.45; resize: vertical; }
