@@ -350,7 +350,9 @@ def preview(p: Pedido):
 @api.post("/semana")
 def ver_semana(p: Pedido):
     """La semana subida armada para revisar: cómo se leyó, cuántas filas hay en cada grupo y las pautas a mirar."""
-    return _armar_semana(_correr(p), p.senal)
+    armado = _armar_semana(_correr(p), p.senal)
+    armado.pop("_foto")
+    return armado
 
 
 def _armar_semana(c: Corrida, receta: m.Senal) -> dict:
@@ -367,6 +369,7 @@ def _armar_semana(c: Corrida, receta: m.Senal) -> dict:
     nuevas = [detalle(g) for g in semana.agrupar(grupos, c.hashes, "nueva_lista")]
     cuenta = {k: sum(g["grupo"] == k for g in grupos) for k in ("base", "nueva_lista", "revisar")}
     return {
+        "_foto": semana.foto(c.salida, grupos, receta.validaciones),
         "lectura": {"filas": len(c.crudo), "columnas": [str(x) for x in c.crudo.columns]},
         "resumen": {"filas": len(c.salida), **cuenta, "pautas_revisar": len(revisar)},
         "contenido": contenido,
@@ -755,7 +758,7 @@ def _semana_abierta(senal_id: str, receta: m.Senal) -> dict:
     armado["cambios"] = _cambios(senal_id, receta, c)
     if armado["cambios"] is not None:
         armado["resumen"]["cambios"] = len(armado["cambios"])
-    semanas.guardar_resumen(senal_id, armado["resumen"])
+    semanas.guardar_resumen(senal_id, armado["resumen"], armado.pop("_foto"))
     return {"semana": {**meta, "resumen": armado["resumen"]}, **armado}
 
 
@@ -791,6 +794,52 @@ def inicio(u: auth.Usuario = Depends(auth.usuario_actual)):
     mias = [s for s in lista if s["semana"] and u.usuario in (s["semana"]["subida_por"], s["semana"]["confirmada_por"])]
     mias.sort(key=lambda s: max(s["semana"]["subida"], s["semana"]["confirmada"] or ""), reverse=True)
     return {"senales": lista, "recientes": [s["id"] for s in mias[:3]]}
+
+
+POR_PAGINA_TODAS = 300
+# Cuántas semanas sin foto se arman por pedido: cada una corre las reglas, y así ninguno tarda demasiado.
+FOTOS_POR_PEDIDO = 20
+
+
+@api.get("/todas")
+def todas_las_senales(estado: str = "", filtro: list[str] = Query(default=[]), desde: int = 0):
+    """Las semanas abiertas de todas las señales juntas, con una columna Señal. Filtra por columna = texto."""
+    nombres = {s["id"]: s["nombre"] for s in almacen.listar()}
+    filtros = {col: _normalizar_texto(valor) for col, valor in _filtros(filtro).items() if valor.strip()}
+    columnas = ["Señal", *semana.COLUMNAS_FOTO]
+    filas, cuentas, sin_foto = [], {"base": 0, "nueva_lista": 0, "revisar": 0}, []
+    for senal_id, foto in sorted(semanas.fotos().items(), key=lambda x: nombres.get(x[0], x[0]).lower()):
+        if foto is None:
+            sin_foto.append(senal_id)
+            continue
+        nombre = nombres.get(senal_id, senal_id)
+        for fila in foto:
+            completa = [nombre, *fila]
+            if not all(b in _normalizar_texto(completa[columnas.index(col)]) for col, b in filtros.items() if col in columnas):
+                continue
+            cuentas[fila[0]] = cuentas.get(fila[0], 0) + 1
+            if not estado or fila[0] == estado:
+                filas.append([senal_id, *completa])
+    return {"columnas": columnas, "filas": filas[desde:desde + POR_PAGINA_TODAS], "total": len(filas),
+            "cuentas": cuentas, "sin_foto": len(sin_foto)}
+
+
+def _normalizar_texto(texto) -> str:
+    return unicodedata.normalize("NFD", str(texto)).encode("ascii", "ignore").decode().lower()
+
+
+@api.post("/todas/actualizar")
+def actualizar_fotos():
+    """Arma la foto de las semanas abiertas que todavía no tienen, de a FOTOS_POR_PEDIDO."""
+    faltan = [s for s, foto in semanas.fotos().items() if foto is None]
+    errores = []
+    for senal_id in faltan[:FOTOS_POR_PEDIDO]:
+        try:
+            _semana_abierta(senal_id, _receta(senal_id))
+        except Exception as e:  # una grilla que ya no se lee no frena a las demás
+            errores.append(f"{senal_id}: {e}")
+            semanas.guardar_resumen(senal_id, semanas.leer(senal_id)["resumen"] or {}, [])
+    return {"quedan": max(len(faltan) - FOTOS_POR_PEDIDO, 0), "errores": errores}
 
 
 @api.get("/senales/{senal_id}/abierta")
@@ -849,7 +898,7 @@ def _grilla_abierta(senal_id: str) -> dict:
     c = _correr(p)
     armado = _armar_semana(c, receta)
     resumen = armado["resumen"] | _fechas(c.salida, receta)
-    semanas.guardar_resumen(senal_id, resumen)
+    semanas.guardar_resumen(senal_id, resumen, armado["_foto"])
     avisos = _validar(c, receta)
     grupos = _clasificar(c, receta, avisos)
     n = min(len(c.salida), MAX_FILAS_GRILLA)

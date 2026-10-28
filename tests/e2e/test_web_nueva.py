@@ -1,6 +1,7 @@
 """La web nueva en un Chromium real: entrar, subir la grilla de una señal, revisar, confirmar y exportar."""
 import datetime as dt
 import os
+import re
 import shutil
 import subprocess
 
@@ -121,6 +122,13 @@ def test_semana_de_punta_a_punta(servidor, tmp_path):
         with open(bajada.value.path(), "rb") as f:
             assert load_workbook(f).active.max_row == 2  # encabezado + el lunes
 
+        # Todas las señales juntas, filtradas por programa.
+        pagina.locator(".menu-item", has_text="Todas las señales").click()
+        pagina.wait_for_url("**/todas")
+        pagina.get_by_label("Filtrar Programa").fill("juke")
+        pagina.wait_for_function("document.querySelectorAll('main tbody tr').length === 2")
+        assert pagina.locator("main tbody tr").first.get_by_role("link", name="Canal Demo").is_visible()
+
         # Cambiar de señal desde el menú.
         pagina.locator(".menu-senal").click()
         assert pagina.get_by_role("dialog", name="Cambiar de señal").get_by_role("button", name="Canal Demo").is_visible()
@@ -215,7 +223,7 @@ def test_agente_aplica_y_senal_deshace(servidor, tmp_path):
         agente.get_by_text("(Reglas aplicadas").wait_for()
 
         # En Señal se ve la regla nueva como frase, y se deshace.
-        pagina.locator(".menu-item", has_text="Señal").click()
+        pagina.locator(".menu-item", has_text=re.compile(r"^\d+\s*Señal$")).click()
         pagina.wait_for_url("**/s/canal/senal")
         pagina.locator("main .regla", has_text="Pasa Titulo a MAYÚSCULAS").wait_for()
         pagina.get_by_role("button", name="Deshacer el último cambio").click()

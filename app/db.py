@@ -96,6 +96,7 @@ semanas = Table(
     Column("anterior_tabla_id", String(32)),
     Column("anterior_contenido", LargeBinary),
     Column("anterior_nombre", String(200)),
+    Column("foto", JSON),  # las filas en corto (semana.COLUMNAS_FOTO), para ver todas las señales juntas
 )
 
 catalogo = Table(
@@ -186,7 +187,7 @@ def _agregar_columnas(con: Connection) -> None:
         "uso_agente": {"costo_usd": "FLOAT"},
         "semanas": {"version": "INTEGER NOT NULL DEFAULT 1", "anterior_tabla_id": "VARCHAR(32)",
                     "anterior_contenido": "BYTEA" if con.dialect.name == "postgresql" else "BLOB",
-                    "anterior_nombre": "VARCHAR(200)"},
+                    "anterior_nombre": "VARCHAR(200)", "foto": "JSON"},
     }
     for tabla, columnas in nuevas.items():
         existentes = {c["name"] for c in inspect(con).get_columns(tabla)}

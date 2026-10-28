@@ -28,12 +28,14 @@ export type Destino =
   | { pantalla: "inicio" }
   | { pantalla: "nueva" }
   | { pantalla: "admin" }
+  | { pantalla: "todas" }
   | { pantalla: Pantalla; senal: string };
 
 export function leerRuta(ruta: string): Destino {
   if (ruta === "/login") return { pantalla: "login" };
   if (ruta === "/nueva") return { pantalla: "nueva" };
   if (ruta === "/admin") return { pantalla: "admin" };
+  if (ruta === "/todas") return { pantalla: "todas" };
   const m = ruta.match(/^\/s\/([a-z0-9_-]+)(?:\/(revisar|subir|grilla|base|senal))?\/?$/);
   if (m) return { pantalla: (m[2] as Pantalla) ?? "revisar", senal: m[1] };
   return { pantalla: "inicio" };
