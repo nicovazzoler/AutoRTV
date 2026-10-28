@@ -28,7 +28,7 @@ interface Parecidas {
 
 type Reglas =
   | { estado: "trabajando" }
-  | { estado: "listo"; porcentaje: number | null; aplicadas: boolean; problemas: string[] }
+  | { estado: "listo"; porcentaje: number | null; aplicadas: boolean; problemas: string[]; aviso?: string }
   | { estado: "sin-agente" | "error"; mensaje: string };
 
 const PEDIDO = "Ajustá las tarjetas para que la grilla de entrada de este ejemplo quede igual al EPG esperado.";
@@ -73,9 +73,9 @@ export function Nueva() {
       // Solo se aplican si mejoran: una propuesta peor que no tener reglas no sirve de punto de partida.
       if (p.receta && despues !== null && (antes === null || despues > antes)) {
         await api.put(`/senales/${c.id}`, p.receta, { "If-Match": version });
-        setReglas({ estado: "listo", porcentaje: despues, aplicadas: true, problemas: [] });
+        setReglas({ estado: "listo", porcentaje: despues, aplicadas: true, problemas: [], aviso: p.aviso });
       } else {
-        setReglas({ estado: "listo", porcentaje: antes, aplicadas: false, problemas: p.problemas });
+        setReglas({ estado: "listo", porcentaje: antes, aplicadas: false, problemas: p.problemas, aviso: p.aviso });
       }
     } catch (e) {
       setReglas(e instanceof ErrorApi && e.estado === 503
@@ -224,6 +224,7 @@ export function Nueva() {
                         <div style={{ width: `${reglas.porcentaje}%` }} />
                       </div>
                     )}
+                    {reglas.aviso && <span className="chico c-revisar">{reglas.aviso}</span>}
                     <span className="chico tenue">Lo que falta lo cubre la base, y se sigue ajustando hablando con el agente.</span>
                   </div>
                 )}

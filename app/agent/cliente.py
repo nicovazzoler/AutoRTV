@@ -43,6 +43,11 @@ class Respuesta:
     tokens_entrada: int = 0
     tokens_salida: int = 0
     modelo: str = ""  # el que respondió de verdad, para calcular el costo
+    aviso: str = ""
+
+
+class ErrorAgente(Exception):
+    """La API de Anthropic falló. El mensaje ya está en castellano, para mostrarlo tal cual."""
 
 
 class Proveedor(Protocol):
@@ -57,7 +62,20 @@ class Claude:
         self._cliente = anthropic.Anthropic()
 
     def pedir(self, sistema: str, mensajes: list[dict], effort: str, fuerte: bool = False) -> Respuesta:
-        modelo = MODELO_FUERTE if fuerte else MODELO
+        import anthropic
+
+        try:
+            return self._pedir(MODELO_FUERTE if fuerte else MODELO, sistema, mensajes, effort)
+        except anthropic.APIStatusError as e:
+            if not (fuerte and _es_de_modelo(e)):
+                raise ErrorAgente(explicar(e, MODELO_FUERTE if fuerte else MODELO)) from e
+            r = self.pedir(sistema, mensajes, effort)
+            r.aviso = f"Se usó el modelo barato porque {MODELO_FUERTE} no está disponible para esta key."
+            return r
+        except anthropic.APIError as e:
+            raise ErrorAgente(explicar(e, MODELO_FUERTE if fuerte else MODELO)) from e
+
+    def _pedir(self, modelo: str, sistema: str, mensajes: list[dict], effort: str) -> Respuesta:
         # Haiku no tiene fallback del lado del servidor: un rechazo vuelve como tal.
         respaldo = {} if "haiku" in modelo else {"betas": ["server-side-fallback-2026-07-01"], "fallbacks": "default"}
         r = self._cliente.beta.messages.create(
@@ -72,14 +90,45 @@ class Claude:
         return _leer(r)
 
     def charlar(self, sistema: str, mensajes: list[dict]) -> Respuesta:
-        r = self._cliente.messages.create(
-            model=MODELO_RAPIDO,
-            max_tokens=4000,
-            system=sistema,
-            messages=mensajes,
-            output_config={"effort": "low", "format": {"type": "json_schema", "schema": FORMATO_CHARLA}},
-        )
+        import anthropic
+
+        try:
+            r = self._cliente.messages.create(
+                model=MODELO_RAPIDO,
+                max_tokens=4000,
+                system=sistema,
+                messages=mensajes,
+                output_config={"effort": "low", "format": {"type": "json_schema", "schema": FORMATO_CHARLA}},
+            )
+        except anthropic.APIError as e:
+            raise ErrorAgente(explicar(e, MODELO_RAPIDO)) from e
         return _leer(r)
+
+
+def _es_de_modelo(e) -> bool:
+    return e.status_code == 404 or (e.status_code == 400 and "model" in str(e).lower())
+
+
+def explicar(e, modelo: str) -> str:
+    """Un error de la API de Anthropic contado para quien usa la web."""
+    import anthropic
+
+    if isinstance(e, anthropic.APITimeoutError):
+        return "El agente tardó demasiado en responder. Probá de nuevo."
+    if not isinstance(e, anthropic.APIStatusError):
+        return "No se pudo conectar con Anthropic. Probá de nuevo en un rato."
+    texto = str(e).lower()
+    if e.status_code == 401:
+        return "La API key de Anthropic no es válida: revisá ANTHROPIC_API_KEY en Railway."
+    if e.status_code in (402, 403) or "credit" in texto or "billing" in texto or "spend" in texto:
+        return "La key de Anthropic se quedó sin crédito o llegó al tope de gasto: revisalo en la Console de Anthropic."
+    if _es_de_modelo(e):
+        return f"El modelo {modelo} no está disponible para esta key."
+    if e.status_code == 429:
+        return "Se llegó al límite de pedidos por minuto de la key. Probá en unos minutos."
+    if e.status_code >= 500:
+        return "Anthropic está saturado o con problemas. Probá en unos minutos."
+    return f"Anthropic rechazó el pedido ({e.status_code}): {e.message}"
 
 
 def _leer(r) -> Respuesta:
