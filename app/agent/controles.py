@@ -86,6 +86,31 @@ def emparejadas(claves: list[tuple | None], del_ejemplo: set) -> float:
     return mejor / len(ejemplo)
 
 
+def pares_con_ejemplo(entrada: pd.DataFrame, esperado: pd.DataFrame) -> list[tuple[int, int]] | None:
+    """(fila del ejemplo, fila de la grilla) emparejadas por fecha y hora, con el corrimiento de zona que más empareje.
+
+    Las reglas no agregan ni sacan filas: la fila de la grilla es la misma de la salida. None = comparar fila por fila
+    (misma cantidad de filas, o sin horario para emparejar).
+    """
+    if len(entrada) == len(esperado):
+        return None
+    del_ejemplo = claves_de_horario(esperado)
+    leidas = claves_de_horario(entrada, {k for k in del_ejemplo if k})
+    por_minuto = {}
+    for j, k in enumerate(leidas):
+        if k:
+            por_minuto.setdefault(_minutos(k), j)
+    if not por_minuto:
+        return None
+    ejemplo = [(i, _minutos(k)) for i, k in enumerate(del_ejemplo) if k]
+    mejor: list[tuple[int, int]] = []
+    for horas in CORRIMIENTOS_HORAS:
+        pares = [(i, por_minuto[m + horas * 60]) for i, m in ejemplo if m + horas * 60 in por_minuto]
+        if len(pares) > len(mejor):
+            mejor = pares
+    return mejor or None
+
+
 def lectura(tabla: pd.DataFrame, esperado: pd.DataFrame | None = None) -> dict:
     """Qué tan bien se leyó una grilla: filas, % con fecha y hora, y % del ejemplo que aparece en la lectura."""
     del_ejemplo = {k for k in claves_de_horario(esperado) if k} if esperado is not None else None

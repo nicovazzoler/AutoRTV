@@ -137,6 +137,19 @@ registro_acciones = Table(
     Column("descripcion", Text, nullable=False),
 )
 
+banco_corridas = Table(
+    "banco_corridas", metadata,
+    Column("id", Integer, primary_key=True),
+    Column("usuario", String(100), nullable=False),
+    Column("inicio", DateTime, nullable=False),
+    Column("fin", DateTime),
+    Column("estado", String(20), nullable=False),  # corriendo | terminada | cortada | error
+    Column("parametros", JSON, nullable=False),
+    Column("progreso", Text),
+    Column("gastado", Float, nullable=False, default=0.0),
+    Column("resultado", JSON),
+)
+
 _motores: dict[str, Engine] = {}
 
 

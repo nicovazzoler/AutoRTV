@@ -6,7 +6,7 @@ from pathlib import Path
 from fastapi import Cookie, FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 
-from app import auth, db
+from app import auth, corridas, db
 from app.api.rutas import api, publico
 
 RAIZ = Path(__file__).resolve().parents[1]
@@ -17,6 +17,7 @@ WEB = RAIZ / "front" / "dist"
 async def arranque(_app):
     db.motor()  # crea las tablas y migra el volumen viejo antes de atender pedidos
     auth.asegurar_admin_inicial()
+    corridas.cortar_colgadas()
     yield
 
 

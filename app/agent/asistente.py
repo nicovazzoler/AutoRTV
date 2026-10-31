@@ -4,12 +4,14 @@ Nunca aplica nada: devuelve una propuesta que la persona acepta o descarta.
 """
 import json
 from dataclasses import dataclass, field
+from functools import cached_property
 from pathlib import Path
 
 import pandas as pd
 from pydantic import BaseModel, ConfigDict, TypeAdapter, ValidationError
 
 from app import acciones, export
+from app.agent import controles
 from app.agent.cliente import Proveedor
 from app.engine import model as m
 from app.engine.comparar import diferencias, porcentaje_igual
@@ -49,6 +51,10 @@ class Ejemplo:
     nombre: str
     entrada: pd.DataFrame
     esperado: pd.DataFrame
+
+    @cached_property
+    def pares(self) -> list[tuple[int, int]] | None:
+        return controles.pares_con_ejemplo(self.entrada, self.esperado)
 
 
 @dataclass
@@ -134,8 +140,8 @@ def medir(receta: m.Senal, tabla: pd.DataFrame, ejemplos: list[Ejemplo]) -> tupl
     porcentajes, difs = {}, {}
     for e in ejemplos:
         sal_e, _ = correr(receta, e.entrada)
-        porcentajes[e.nombre] = round(porcentaje_igual(sal_e, e.esperado), 2)
-        difs[e.nombre] = diferencias(sal_e, e.esperado)[:MAX_DIFERENCIAS]
+        porcentajes[e.nombre] = round(porcentaje_igual(sal_e, e.esperado, e.pares), 2)
+        difs[e.nombre] = diferencias(sal_e, e.esperado, e.pares)[:MAX_DIFERENCIAS]
     detalle = {"salida": salida, "errores": errores, "validacion": validacion, "diferencias": difs}
     return Metricas(len(errores), grilla.resumen(validacion), porcentajes), detalle
 
