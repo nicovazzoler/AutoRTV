@@ -71,6 +71,15 @@ export interface SemanaAbierta {
   lectura?: { filas: number; columnas: string[] };
   campos_clave?: string[];
   armando_reglas?: boolean;
+  lectura_agente?: LecturaAgente | null;
+}
+
+/** Qué hizo el agente cuando el código no encontró fecha y hora en la grilla. */
+export interface LecturaAgente {
+  logrado: boolean;
+  modelo?: string;
+  explicacion?: string;
+  problemas: string[];
 }
 
 export interface CambioVersion {

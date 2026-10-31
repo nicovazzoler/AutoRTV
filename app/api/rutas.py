@@ -14,7 +14,7 @@ from pydantic import BaseModel, TypeAdapter, ValidationError
 
 from app import acciones, almacen, armados, auth, catalogo, corridas, export, inputs, pautas, semana, semanas, tablas
 from app.agent import asistente as asistente_ia
-from app.agent import banco, cliente, controles, uso
+from app.agent import banco, cliente, controles, lectura, uso
 from app.engine import model as m
 from app.engine import titulos
 from app.engine.comparar import diferencias, porcentaje_igual, sugerir_correcciones
@@ -513,10 +513,19 @@ async def crear_senal(nombre: str = Form(""), grilla_cruda: UploadFile = File(..
         raise HTTPException(404, "No existe la señal")
     except ValueError as e:
         raise HTTPException(422, str(e))
+    try:
+        esperado = pd.read_excel(io.BytesIO(terminado), dtype=object)
+    except Exception:
+        esperado = None
+    leida, agente = _leer_con_agente(receta, crudo, esperado, u.usuario)
+    if leida is not receta:
+        almacen.guardar(leida, "agente")
+        receta = leida
     tabla_id = tablas.subir(crudo)
     resultado = {"id": senal_id, "nombre": receta.nombre, "ejemplo": sello, "tabla_id": tabla_id,
                  "pautas": _cargar_pautas(senal_id, crudo, terminado, u.usuario), "semana_abierta": False,
-                 "aviso": SIN_HORARIO if _sin_horario(crudo, receta) else None}
+                 "aviso": _aviso_sin_horario(agente) if _sin_horario(crudo, receta) else None,
+                 "lectura_agente": agente}
     if not agregar_a and _es_de_ahora(terminado, receta):
         semanas.abrir(senal_id, tabla_id, crudo, grilla_cruda.filename or "grilla", u.usuario, es_version=False)
         resultado["semana_abierta"] = True
@@ -524,18 +533,43 @@ async def crear_senal(nombre: str = Form(""), grilla_cruda: UploadFile = File(..
     return resultado
 
 
-SIN_HORARIO = ("No encontré la fecha y la hora en la grilla: así no se puede emparejar con el ejemplo ni armar "
-               "la semana. Pasame el archivo para sumar cómo se lee.")
+def _aviso_sin_horario(agente: dict | None) -> str:
+    motivo = " ".join((agente or {}).get("problemas") or ["El agente no está configurado."])
+    return (f"No encontré la fecha y la hora en la grilla, y el agente tampoco: {motivo} Así no se puede emparejar "
+            "con el ejemplo ni armar la semana. Pasame el archivo para sumar cómo se lee.")
+
+
+def _leer_con_agente(receta: m.Senal, contenido: bytes, esperado: pd.DataFrame | None,
+                     usuario: str) -> tuple[m.Senal, dict | None]:
+    """Si el código no encuentra fecha y hora en la grilla, el agente busca cómo leerla.
+
+    Devuelve la receta con esa lectura (o la misma) y qué hizo el agente; None si no hizo falta.
+    """
+    if not _sin_horario(contenido, receta):
+        return receta, None
+    proveedor = cliente.proveedor_configurado()
+    if proveedor is None:
+        return receta, {"logrado": False, "problemas": ["El agente no está configurado (falta ANTHROPIC_API_KEY)."]}
+    try:
+        intentos = lectura.buscar(contenido, proveedor, esperado)
+    except cliente.ErrorAgente as e:
+        return receta, {"logrado": False, "problemas": [str(e)]}
+    for p in intentos:
+        uso.registrar(usuario, receta.id, "[lectura]", p.vueltas, p.tokens_entrada, p.tokens_salida, p.logrado,
+                      p.modelo)
+    final = intentos[-1]
+    info = {"logrado": final.logrado, "modelo": final.modelo, "explicacion": final.explicacion,
+            "problemas": final.problemas[:3]}
+    if final.logrado:
+        receta = receta.model_copy(update={"entrada": lectura.ENTRADA.validate_python(final.entrada)})
+    return receta, info
 
 
 def _sin_horario(crudo: bytes, receta: m.Senal) -> bool:
     try:
-        tabla = inputs.leer(crudo, receta.entrada)
+        return not pautas.tiene_horario(inputs.leer(crudo, receta.entrada), receta.validaciones)
     except Exception:
         return True
-    nombradas = grilla.detectar_columnas(list(tabla.columns), receta.validaciones)
-    cols = pautas.columnas_por_tipo(tabla) | {k: v for k, v in nombradas.items() if v}
-    return not (cols.get("fecha") in tabla.columns and cols.get("hora") in tabla.columns)
 
 
 def _es_de_ahora(terminado: bytes, receta: m.Senal) -> bool:
@@ -756,10 +790,13 @@ def _receta(senal_id: str) -> m.Senal:
         raise HTTPException(404, "No existe la señal")
 
 
-def _con_entrada(receta: m.Senal, detectada) -> m.Senal:
-    """Si la grilla llegó en otro formato que la anterior, la señal pasa a leerla así."""
+def _con_entrada(receta: m.Senal, detectada, contenido: bytes) -> m.Senal:
+    """Si la grilla llegó en otro formato que la anterior, la señal pasa a leerla así.
+
+    Salvo que la lectura guardada ya le encuentre fecha y hora: puede ser la del agente, que la detección no ve.
+    """
     entrada = receta.entrada
-    if not inputs.mismo_formato(entrada, detectada):
+    if not inputs.mismo_formato(entrada, detectada) and _sin_horario(contenido, receta):
         entrada = detectada
     elif entrada.tipo == "texto" and entrada.fecha_inicio != detectada.fecha_inicio:
         entrada = entrada.model_copy(update={"fecha_inicio": detectada.fecha_inicio})
@@ -785,20 +822,23 @@ def _detectar(contenido: bytes):
 
 def _abrir(receta: m.Senal, contenido: bytes, detectada, nombre: str, usuario: str) -> dict:
     """Abre la semana con esta grilla. Si no se puede leer, la semana anterior queda como estaba."""
-    nueva = _con_entrada(receta, detectada)
+    nueva = _con_entrada(receta, detectada, contenido)
     if nueva.entrada.tipo == "html" and receta.entrada.tipo != "html":
         nueva = nueva.model_copy(update={"entrada": _con_epg(nueva.entrada, contenido)})
+    nueva, agente = _leer_con_agente(nueva, contenido, None, usuario)
     try:
         inputs.leer(contenido, nueva.entrada)
     except Exception as e:
-        raise HTTPException(422, f"No se pudo leer la grilla: {e}")
+        motivo = f" El agente tampoco pudo: {' '.join(agente['problemas'])}" if agente else ""
+        raise HTTPException(422, f"No se pudo leer la grilla: {e}.{motivo}")
     tabla_id = tablas.subir(contenido)
     fechas = _fechas(_correr(Pedido(tabla_id=tabla_id, senal=nueva)).salida, nueva)
     version = semanas.es_version(fechas["desde"], fechas["hasta"], semanas.leer(receta.id))
     if nueva is not receta:
         almacen.guardar(nueva, usuario)
     semanas.abrir(receta.id, tabla_id, contenido, nombre, usuario, version)
-    return {**_semana_abierta(receta.id, nueva), "armando_reglas": _armar_si_no_tiene(receta.id, usuario)}
+    return {**_semana_abierta(receta.id, nueva), "armando_reglas": _armar_si_no_tiene(receta.id, usuario),
+            "lectura_agente": agente}
 
 
 def _fechas(salida: pd.DataFrame, receta: m.Senal) -> dict:

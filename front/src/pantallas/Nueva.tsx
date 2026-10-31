@@ -184,7 +184,7 @@ export function Nueva({ enPanel = false, alCerrar }: { enPanel?: boolean; alCerr
             <CopiarPagina titulo="¿La grilla viene de una página web?" />
             {!creada && (
               <button type="submit" className="boton principal" disabled={!listo || creando} style={{ alignSelf: "flex-start", minHeight: 48 }}>
-                {creando ? "Creando…" : "Crear la señal"}
+                {creando ? "Creando… (si hace falta, el agente busca cómo leer la grilla)" : "Crear la señal"}
               </button>
             )}
             {error && <p className="error" role="alert">{error}</p>}

@@ -2,8 +2,10 @@ import datetime as dt
 import json
 
 import pandas as pd
+import pytest
 
 from app.agent import cliente, controles, lectura
+from app.agent import cliente as cliente_mod
 from app.inputs import cuadricula
 from tests.unit.test_cuadricula import LUNES, _con_detalle, _por_programa
 
@@ -73,3 +75,76 @@ def test_html_con_scope_lee_el_atributo_del_bloque_mismo():
     entrada = lectura.ENTRADA.validate_python({"tipo": "html", "bloque": "tr.fila", "campos": {
         "Inicio": {"css": ":scope", "attr": "data-inicio"}, "Titulo": {"css": ".t"}}})
     assert inputs.leer(pagina, entrada)["Inicio"].tolist() == ["2026-11-02T06:00", "2026-11-02T07:00"]
+
+
+def _cuadricula_escondida() -> bytes:
+    """Una cuadrícula con los días en la fila 12: la detección del código mira solo las primeras 10."""
+    import io
+    from openpyxl import Workbook
+    wb = Workbook()
+    ws = wb.active
+    ws["A1"] = "PROGRAMACIÓN"
+    for fila in range(2, 12):
+        ws.cell(fila, 5, "nota")
+    ws.append([None, "LUNES 2", "MARTES 3", "MIÉRCOLES 4"])
+    for hora, titulo in [(6, "Noticias"), (7, "Cocina"), (8, "Cine"), (9, None)]:
+        ws.append([dt.time(hora), titulo, titulo, titulo])
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
+ESCONDIDA = {"tipo": "excel", "cuadricula": True, "fila_dias": 12, "columnas_hora": ["A"]}
+
+
+@pytest.fixture(autouse=True)
+def sin_hilo(monkeypatch):
+    from app import armados
+    monkeypatch.setattr(armados, "EN_HILO", False)
+
+
+def _senal(cliente_):
+    receta = {"id": "canal", "nombre": "Canal", "entrada": {"tipo": "excel"}, "salida": {"columnas": []}, "tarjetas": []}
+    cliente_.put("/api/senales/canal", json=receta)
+
+
+def test_si_el_codigo_no_encuentra_fecha_y_hora_las_busca_el_agente(cliente, monkeypatch):
+    from tests.unit.test_api import _con_asistente
+    proveedor = _con_asistente(monkeypatch, [_respuesta(ESCONDIDA)])
+    _senal(cliente)
+    d = cliente.post("/api/senales/canal/abierta", files={"archivo": ("g.xlsx", _cuadricula_escondida())}).json()
+    assert d["lectura_agente"]["logrado"] and d["resumen"]["desde"] and d["resumen"]["filas"] == 9
+    assert cliente.get("/api/senales/canal").json()["entrada"]["fila_dias"] == 12  # queda para las próximas semanas
+    assert cliente.get("/api/asistente/uso").json()["usuarios"][0]["pedidos"] == 1
+    assert cliente.get("/api/asistente/limites").json()["usados_hoy"] == 0
+    otra = cliente.post("/api/senales/canal/abierta", files={"archivo": ("g.xlsx", _cuadricula_escondida())}).json()
+    assert otra["lectura_agente"] is None and len(proveedor.modelos) == 1
+
+
+def test_el_aviso_queda_solo_si_el_agente_tampoco_las_encuentra(cliente, monkeypatch):
+    from tests.unit.test_api import _con_asistente
+    proveedor = _con_asistente(monkeypatch, [_respuesta({"tipo": "excel"})])
+    _senal(cliente)
+    d = cliente.post("/api/senales/canal/abierta", files={"archivo": ("g.xlsx", _cuadricula_escondida())}).json()
+    assert not d["lectura_agente"]["logrado"] and "fecha y hora" in " ".join(d["lectura_agente"]["problemas"])
+    assert proveedor.modelos == [cliente_mod.MODELO] * 2 + [cliente_mod.MODELO_FUERTE] * 2  # Haiku y después Sonnet
+
+
+def test_al_crear_la_senal_el_agente_lee_la_grilla_antes_de_cargar_la_base(cliente, monkeypatch):
+    from app.inputs import leer
+    from app.engine import model as m
+    from tests.unit.test_api import _con_asistente, excel
+    _con_asistente(monkeypatch, [_respuesta(ESCONDIDA)])
+    tabla = leer(_cuadricula_escondida(), m.EntradaExcel(**ESCONDIDA))
+    epg = excel(tabla.rename(columns={"Titulo": "Programa"}))
+    r = cliente.post("/api/senales/crear", files={"grilla_cruda": ("g.xlsx", _cuadricula_escondida()), "ejemplo": ("e.xlsx", epg)},
+                     data={"nombre": "Canal"}).json()
+    assert r["aviso"] is None and r["lectura_agente"]["logrado"] and r["pautas"]["agregadas"] == 3
+
+
+def test_sin_agente_el_aviso_lo_dice(cliente):
+    from tests.unit.test_api import excel
+    tabla = pd.DataFrame({"Programa": ["Noticias", "Cine"]})
+    r = cliente.post("/api/senales/crear", files={"grilla_cruda": ("g.xlsx", excel(tabla)), "ejemplo": ("e.xlsx", excel(tabla))},
+                     data={"nombre": "Canal"}).json()
+    assert "el agente tampoco" in r["aviso"] and "no está configurado" in r["aviso"]

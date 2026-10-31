@@ -9,7 +9,7 @@ import { Subir } from "./Subir";
 import { cumple, FilaFiltros, type Filtros } from "../piezas/FiltrosColumna";
 import { tomarSemana } from "../semanaReciente";
 import { useSesion } from "../sesion";
-import type { CambioVersion, Celdas, SemanaAbierta } from "../tipos";
+import type { CambioVersion, Celdas, LecturaAgente, SemanaAbierta } from "../tipos";
 
 function valores(celdas: Celdas, sin: string | null | undefined, cuantos: number, yaVistos: Celdas = {}): string {
   const vistos = new Set(Object.values(yaVistos).map(String));
@@ -61,6 +61,7 @@ export function Semana({ senalId }: { senalId: string }) {
   const [vista, setVista] = useState<Filtro | null>(null);
   const [subiendo, setSubiendo] = useState(false);
   const [armado, setArmado] = useState<Armado | "armando" | null>(null);
+  const [lecturaAgente, setLecturaAgente] = useState<LecturaAgente | null>(null);
 
   const esperarReglas = async () => {
     setArmado("armando");
@@ -78,6 +79,7 @@ export function Semana({ senalId }: { senalId: string }) {
     setSubiendo(false);
     setVista(null);
     recibir(d);
+    setLecturaAgente(d.lectura_agente ?? null);
     if (d.armando_reglas) void esperarReglas();
   };
 
@@ -221,7 +223,12 @@ export function Semana({ senalId }: { senalId: string }) {
       </header>
 
       {!resumen.desde && (
-        <p className="error" role="alert">No encontré la fecha y la hora en la grilla: así no sale la base ni se puede exportar bien. Pasame el archivo para sumar cómo se lee.</p>
+        <p className="error" role="alert">
+          No encontré la fecha y la hora en la grilla{lecturaAgente ? `, y el agente tampoco: ${lecturaAgente.problemas.join(" ")}` : ""}. Así no sale la base ni se puede exportar bien. Pasame el archivo para sumar cómo se lee.
+        </p>
+      )}
+      {resumen.desde && lecturaAgente?.logrado && (
+        <p className="nota">El código no encontraba la fecha y la hora; el agente encontró cómo leer la grilla y quedó guardado para las próximas semanas. {lecturaAgente.explicacion}</p>
       )}
       {armado === "armando" && <p className="nota" role="status">El agente está armando las reglas desde los ejemplos: cuando termine, la semana se vuelve a armar sola.</p>}
       {armado && armado !== "armando" && armado.mensaje && (

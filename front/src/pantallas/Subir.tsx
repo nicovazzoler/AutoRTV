@@ -108,7 +108,7 @@ export function Subir({ senalId, alLeer, alCancelar }: { senalId: string; alLeer
 
       <div className="botones" style={{ alignItems: "center", paddingTop: 16, borderTop: "1px solid var(--borde)" }}>
         <button type="button" className="boton principal" disabled={!listo || leyendo} onClick={leer} style={{ minHeight: 48, fontSize: 15 }}>
-          {leyendo ? "Leyendo la grilla…" : "Leer la grilla"}
+          {leyendo ? "Leyendo la grilla… (si hace falta, el agente busca la fecha y la hora)" : "Leer la grilla"}
         </button>
         {alCancelar && <button type="button" className="boton" onClick={alCancelar} style={{ minHeight: 48 }}>Cancelar</button>}
       </div>
