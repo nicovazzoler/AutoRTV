@@ -9,7 +9,8 @@ from app.engine.pipeline import aplicar
 from app.engine.tarjetas.criterios import Lectura, configurar, leer
 from tests.unit.test_api import _con_asistente, excel
 
-TARJETA = m.Criterios(id="c", tipo="criterios", columna="Titulo", detalle="Detalle", titulos=["Noches de Jazz"])
+TARJETA = m.Criterios(id="c", tipo="criterios", columna="Titulo", detalle="Detalle", capitulo="Capitulo",
+                     titulos=["Noches de Jazz"])
 
 
 @pytest.mark.parametrize("titulo, detalle, esperada", [
@@ -44,14 +45,21 @@ def test_el_programa_conocido_se_queda_con_su_signo_final():
 
 
 def test_los_destinos_salen_de_lo_que_hay_en_cada_columna():
-    pares = [({"Titulo": f"Serie T{t} #{c} Episodio {c} (R)" if c % 2 else f"Serie T{t} #{c} Episodio {c}",
-               "Extra": f"Ciclo T2026"},
+    pares = [({"Titulo": f"Serie T{t} #{c} Episodio {c} Ciclo T2026" + (" (R)" if c % 2 else ""), "Extra": "otra cosa"},
               {"N": i, "Show": "Serie", "Sub": f"Episodio {c}", "S": t, "E": c, "Marca": "(r)" if c % 2 else None,
                "Ciclo": 2026})
              for i, (t, c) in enumerate([(1, 1), (1, 2), (1, 3), (2, 4), (2, 5), (2, 6)])]
     pares.append(({"Titulo": "Noticias"}, {"N": 7, "Show": "Noticias"}))
     t = configurar(pd.DataFrame({"Titulo": ["x"]}), ["N", "Show", "Sub", "S", "E", "Marca", "Ciclo"], "Show", pares)
     assert (t.capitulo, t.temporada, t.numero, t.tt, t.titulo_temporada, t.anio) == ("Sub", "S", "E", "Marca", "Ciclo", None)
+
+
+def test_sin_columna_de_capitulo_el_titulo_queda_entero():
+    pelicula = m.Criterios(id="p", tipo="criterios", columna="Titulo", programa="TIT ING", idioma="en")
+    assert leer("KICK-ASS 2", "", pelicula).programa == "Kick-Ass 2"
+    assert leer("LEFT BEHIND: WORLD AT WAR", "", pelicula).programa == "Left Behind: World at War"
+    assert leer("THE TWILIGHT SAGA BREAKING DAWN - PART 1", "", pelicula).programa == "The Twilight Saga Breaking Dawn - Part 1"
+    assert leer("OMEN III THE FINAL CONFLICT", "", pelicula).programa == "Omen III the Final Conflict"
 
 
 def test_mayusculas_en_ingles_y_respeta_lo_mezclado():

@@ -9,7 +9,7 @@ from dataclasses import dataclass
 import pandas as pd
 
 from app.engine import model as m
-from app.engine.tarjetas.texto import titulo_en
+from app.engine.tarjetas.texto import ROMANO, titulo_en
 from app.engine.util import ErrorTarjeta
 
 # Basura del export: se limpia siempre.
@@ -90,8 +90,8 @@ def mayusculas(texto: str, idioma: str) -> str:
         return titulo_en(texto.lower())
     palabras = texto.lower().split(" ")
     # La primera palabra y la que abre un paréntesis van con mayúscula: "(LA HORA PEQUE)" → "(La hora peque)".
-    return " ".join(p[:1].upper() + p[1:] if i == 0 else p[:2].upper() + p[2:] if p.startswith("(") else p
-                    for i, p in enumerate(palabras))
+    return " ".join(p.upper() if ROMANO.match(p) else p[:1].upper() + p[1:] if i == 0
+                    else p[:2].upper() + p[2:] if p.startswith("(") else p for i, p in enumerate(palabras))
 
 
 def _parte(texto: str, idioma: str) -> str:
@@ -157,10 +157,12 @@ def leer(titulo: str, detalle: str, t: m.Criterios) -> Lectura:
     for prefijo in t.prefijos:
         if _sin_tildes(texto).startswith(_sin_tildes(prefijo)):
             texto = texto[len(prefijo):].strip()
-    texto = _parte(texto, t.idioma)
-    parte = PARTE.search(texto)
+    # Sin dónde poner temporada ni número (películas), "Kick-Ass 2" o "Agent S2" son parte del título.
+    numeros = bool(t.numero or t.temporada or t.capitulo)
+    texto = _parte(texto, t.idioma) if numeros else texto
+    parte = PARTE.search(texto) if numeros else None
     texto, parte = (limpiar(texto[:parte.start()]), parte[0]) if parte else (texto, "")
-    texto, tras_numero = _numeros(texto, lectura, numeral=False)
+    texto, tras_numero = _numeros(texto, lectura, numeral=False) if numeros else (texto, "")
     while x := MARCA_FINAL.search(texto):
         lectura.tt = lectura.tt or ("(r)" if x[1] == "R" else "")
         texto = texto[:x.start()]
@@ -176,7 +178,7 @@ def leer(titulo: str, detalle: str, t: m.Criterios) -> Lectura:
         if cola and texto[corte:].lstrip().startswith(cola):
             corte = texto.index(cola, corte) + len(cola)
         programa, capitulo = texto[:corte], texto[corte:]
-    elif posiciones and not detalle:
+    elif posiciones and not detalle and t.capitulo:  # sin columna de capítulo, el ": " es parte del título
         pos, sep = min(posiciones)
         programa, capitulo = texto[:pos], texto[pos + len(sep):]
     else:
@@ -184,11 +186,11 @@ def leer(titulo: str, detalle: str, t: m.Criterios) -> Lectura:
     programa = _recortar(programa)
     capitulo = " ".join(p for p in (_recortar(capitulo), _recortar(tras_numero), parte) if p)
 
-    if lectura.numero is None and not conocido and (x := NUMERO_FINAL.match(programa)) \
+    if numeros and lectura.numero is None and not conocido and (x := NUMERO_FINAL.match(programa)) \
             and not NOMBRE_CON_NUMERO.search(x[1]):
         programa, lectura.numero = x[1], int(x[2])
     if detalle:
-        resto, tras = _numeros(limpiar(detalle), lectura, numeral=True)
+        resto, tras = _numeros(limpiar(detalle), lectura, numeral=True) if numeros else (limpiar(detalle), "")
         capitulo = " / ".join(p for p in (capitulo, _recortar(" ".join(p for p in (resto, tras) if p))) if p)
     if _clave(capitulo) == _clave(programa):
         capitulo = ""
@@ -261,14 +263,17 @@ def _entero(v) -> int | None:
     return int(v) if isinstance(v, str) and v.strip().isdigit() else None
 
 
-def destinos_por_contenido(pares: list[tuple[dict, dict]], salida: list[str], programa: str | None) -> dict[str, str]:
-    """Capítulo, temporada, número, año y TT del EPG, mirando qué columna saca qué cosa de la fila cruda.
+def destinos_por_contenido(pares: list[tuple[dict, dict]], salida: list[str], programa: str | None,
+                           origen: list[str] | None = None) -> dict[str, str]:
+    """Capítulo, temporada, número, año y TT del EPG, mirando qué columna saca qué cosa del título crudo.
 
-    `pares` son (fila cruda, fila del EPG). Lo que no se reconoce queda afuera y se busca por el nombre.
+    `pares` son (fila cruda, fila del EPG); `origen`, las columnas crudas que lee la tarjeta (título y detalle).
+    Lo que no se reconoce queda afuera y se busca por el nombre.
     """
     if len(pares) < 5:
         return {}
-    crudos = [" | ".join(str(v) for v in c.values() if v not in (None, "")) for c, _ in pares]
+    crudos = [" | ".join(str(v) for k, v in c.items() if v not in (None, "") and (not origen or k in origen))
+              for c, _ in pares]
     claves = [_clave(t) for t in crudos]
     numeros = [{int(n) for n in re.findall(r"\d+", t)} for t in crudos]
     elegidos: dict[str, str] = {}
@@ -305,22 +310,60 @@ def destinos_por_contenido(pares: list[tuple[dict, dict]], salida: list[str], pr
     return elegidos
 
 
+PALABRAS_IDIOMA = {
+    "en": {"the", "of", "and", "in", "a", "to", "my", "at", "with", "for", "on", "is"},
+    "es": {"el", "la", "los", "las", "de", "del", "y", "en", "un", "una", "con", "por"},
+    "pt": {"o", "os", "da", "do", "das", "dos", "e", "em", "na", "no", "um", "uma", "com"},
+}
+
+
+def idioma_de(textos: list[str]) -> str | None:
+    """El idioma que más palabras chicas tiene en estos textos; None si no se nota."""
+    palabras = [p for t in textos for p in re.findall(r"[a-z]+", _sin_tildes(str(t)))]
+    cuentas = {i: sum(p in comunes for p in palabras) for i, comunes in PALABRAS_IDIOMA.items()}
+    mejor = max(cuentas, key=cuentas.get)
+    return mejor if cuentas[mejor] >= 3 and cuentas[mejor] > 1.5 * max(v for k, v in cuentas.items() if k != mejor) else None
+
+
+def columna_de_origen(pares: list[tuple[dict, dict]], destino: str, excluir: set = frozenset()) -> tuple[str | None, float]:
+    """La columna cruda de la que sale `destino` (la que más veces lo contiene) y en qué parte de las filas."""
+    cuentas: dict[str, int] = {}
+    con_valor = 0
+    for crudo, epg in pares:
+        valor = _clave(str(epg.get(destino) or ""))
+        if len(valor) < 2:
+            continue
+        con_valor += 1
+        for col, v in crudo.items():
+            if col not in excluir and isinstance(v, (str, int)) and valor in _clave(str(v)):
+                cuentas[col] = cuentas.get(col, 0) + 1
+    if not cuentas or not con_valor:
+        return None, 0.0
+    col = max(cuentas, key=cuentas.get)
+    return col, cuentas[col] / con_valor
+
+
 def configurar(tabla: pd.DataFrame, salida: list[str], programa: str | None,
-               pares: list[tuple[dict, dict]] = ()) -> m.Criterios | None:
+               pares: list[tuple[dict, dict]] = (), excluir: set = frozenset()) -> m.Criterios | None:
     """Una tarjeta de criterios generales para esta grilla, con destinos en las columnas del EPG.
 
-    Los destinos salen de lo que hay en cada columna (`pares`); el nombre se usa solo para lo que eso no resuelve.
+    Los destinos y la columna del título salen de lo que hay en cada columna (`pares`); el nombre se usa solo para
+    lo que eso no resuelve. `excluir`: columnas del EPG que ya escribe otra tarjeta.
     """
+    pares = list(pares)
     por_clave = {_clave_columna(c): c for c in tabla.columns}
-    titulo = next((por_clave[k] for k in TITULO_CRUDO if k in por_clave), None) or _columna_de_texto(tabla)
+    titulo = (columna_de_origen(pares, programa)[0] if programa and pares else None) \
+        or next((por_clave[k] for k in TITULO_CRUDO if k in por_clave), None) or _columna_de_texto(tabla)
     if titulo is None:
         return None
     detalle = next((por_clave[k] for k in DETALLE_CRUDO if k in por_clave and por_clave[k] != titulo), None)
     if not salida:
-        return m.Criterios(id="criterios", tipo="criterios", columna=titulo, detalle=detalle)
+        return m.Criterios(id="criterios", tipo="criterios", columna=titulo, detalle=detalle, capitulo="Capitulo")
     clave_prog = _clave_columna(programa or "")
-    idioma = "en" if "ing" in clave_prog.split() else "pt" if "port" in clave_prog.split() else "es"
-    vistos = destinos_por_contenido(list(pares), salida, programa)
+    idioma = idioma_de([c.get(titulo) for c, _ in pares if c.get(titulo)]) \
+        or ("en" if "ing" in clave_prog.split() else "pt" if "port" in clave_prog.split() else "es")
+    salida = [c for c in salida if c not in excluir]
+    vistos = destinos_por_contenido(pares, salida, programa, [titulo, detalle])
     por_nombre = {
         "capitulo": lambda k: "cap" in k and "tit" in k or k in ("capitulo", "tit cap"),
         "numero": lambda k: "cap" in k and ("nro" in k or "num" in k or k.startswith("n ")),

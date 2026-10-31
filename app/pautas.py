@@ -186,17 +186,11 @@ def desde_ejemplo(crudo: pd.DataFrame, esperado: pd.DataFrame, v: m.Validaciones
     if len(crudo) == len(esperado):
         pares = list(range(len(crudo)))
     else:
-        cols = grilla.detectar_columnas(list(esperado.columns), v or m.Validaciones())
-        cols = {**columnas_por_tipo(esperado), **{k: c for k, c in cols.items() if c}}
-        if not cols.get("fecha") or not cols.get("hora"):
+        from app.agent.controles import pares_con_ejemplo
+        por_fila = {j: i for i, j in reversed(pares_con_ejemplo(crudo, esperado) or [])}
+        if not por_fila:
             return {}, 0
-        por_horario = {}
-        for j, f in esperado.iterrows():
-            fecha, hora = a_fecha(f[cols["fecha"]]), a_hora(f[cols["hora"]])
-            if fecha and hora:
-                por_horario.setdefault((fecha, hora.strftime("%H:%M")), j)
-        horario = columnas_de_horario(crudo)
-        pares = [por_horario.get(_clave_horario(f, horario)) for _, f in crudo.iterrows()]
+        pares = [por_fila.get(i) for i in range(len(crudo))]
 
     pautas, conflictos = {}, 0
     for i, j in enumerate(pares):

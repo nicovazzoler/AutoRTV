@@ -65,7 +65,7 @@ class Criterios(TarjetaBase):
     columna: str  # el título como viene
     detalle: str | None = None  # columna con el capítulo aparte ("#1 León y Jalpa"), si la grilla la trae
     programa: str = "Programa"
-    capitulo: str | None = "Capitulo"
+    capitulo: str | None = None  # None = sin capítulo: el título entero es el programa
     temporada: str | None = None
     titulo_temporada: str | None = None  # temporada con nombre de año: "T2026"
     numero: str | None = None
@@ -128,6 +128,7 @@ class RedondearHora(TarjetaBase):
     tipo: Literal["redondear_hora"]
     columna: str
     a_minutos: int = 1  # 1 = al minuto más cercano, 5 = a los 5 min, etc.
+    destino: str | None = None  # None = en la misma columna
 
 
 class DiaSemana(TarjetaBase):
@@ -200,6 +201,9 @@ class EntradaExcel(EntradaComun):
     hoja: int | str = 0
     fila_encabezado: int = 1  # 1 = primera fila del Excel
     cuadricula: bool = False  # un día por columna y una franja por fila, con celdas combinadas (inputs.cuadricula)
+    todas_las_hojas: bool = False  # una hoja por día (o por semana), todas con el mismo encabezado
+    # Filas sueltas con la fecha ("MIÉRCOLES 30 SEPTIEMBRE 2026") que valen para las de abajo. None = detectar.
+    filas_de_fecha: bool | None = None
     # Solo en cuadrícula, para cuando la detección sola no alcanza; None o vacío = detectar.
     fila_dias: int | None = None  # 1 = primera fila del Excel
     columnas_hora: list[str] = []  # letras de columna, ej. ["A", "G", "I"]

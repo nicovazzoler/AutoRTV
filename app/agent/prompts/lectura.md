@@ -11,6 +11,8 @@ servidor la prueba. Si la prueba falla, te digo qué pasó y corregís.
 ### `excel`, tabla común (una fila por emisión)
 `{"tipo": "excel", "hoja": 0, "fila_encabezado": 2}`
 - `hoja`: número (0 = la primera) o nombre.
+- `todas_las_hojas`: `true` si la programación viene repartida en varias hojas con el mismo encabezado (una por día o por semana). Se leen todas, una abajo de la otra.
+- `filas_de_fecha`: `true` si la fecha no está en una columna sino en filas sueltas ("MIÉRCOLES · 30 SEPTIEMBRE · 2026") que valen para los programas de abajo. Las filas sin hora de inicio (intermedios, notas) se descartan. Sin poner nada se detecta solo.
 - `fila_encabezado`: la fila con los nombres de columna (1 = la primera del Excel). Las de arriba (título,
   logo) se saltean.
 

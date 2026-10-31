@@ -74,7 +74,9 @@ def _vista_excel(contenido: bytes) -> str:
         if valores:
             filas.append(f"Fila {r + 1}: " + " | ".join(valores))
     rangos = [f"{_letra(c0)}{r0 + 1}:{_letra(c1 - 1)}{r1}" for r0, r1, c0, c1 in combinadas if r0 < FILAS_VISTA]
-    return ("Excel, primera hoja. Celdas con valor (columna=valor):\n" + "\n".join(filas)
+    hojas = pd.ExcelFile(io.BytesIO(contenido)).sheet_names
+    return (f"Excel con {len(hojas)} hojas: {', '.join(hojas[:40])}.\n"
+            "Primera hoja. Celdas con valor (columna=valor):\n" + "\n".join(filas)
             + "\n\nCeldas combinadas: " + (", ".join(rangos[:120]) or "ninguna"))
 
 
