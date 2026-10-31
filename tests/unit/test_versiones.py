@@ -197,3 +197,46 @@ def test_todas_las_senales_juntas_con_filtro_por_columna(cliente):
     assert cliente.get("/api/todas").json()["sin_foto"] == 2
     assert cliente.post("/api/todas/actualizar").json() == {"quedan": 0, "errores": []}
     assert cliente.get("/api/todas").json()["total"] == 3
+
+
+def test_repetir_la_ultima_semana_sigue_pegada_aunque_cruce_la_medianoche():
+    # Del lunes 2 a las 06:00 al lunes 9 a las 00:00, cada 6 h: la copia arranca el lunes 9 a las 06:00.
+    inicio = dt.datetime(2026, 11, 2, 6)
+    momentos = [inicio + dt.timedelta(hours=6 * i) for i in range(28)]
+    salida = pd.DataFrame({"Fecha": [x.strftime("%d/%m/%Y") for x in momentos], "Hora": [x.strftime("%H:%M") for x in momentos],
+                           "Programa": [f"P{i}" for i in range(28)]})
+    largo = semanas.repetir_ultima(salida, "Fecha", "Hora", dt.date(2026, 11, 30))
+    copia = largo.iloc[28:]
+    assert copia.iloc[0].tolist() == ["09/11/2026", "06:00", "P0"]  # mismo formato de texto y mismo día de la semana
+    assert copia["Fecha"].iloc[-1] == "30/11/2026"
+    assert all(dt.datetime.strptime(f, "%d/%m/%Y").date() <= dt.date(2026, 11, 30) for f in largo["Fecha"])
+    assert semanas.repetir_ultima(salida, "Fecha", "Hora", dt.date(2026, 11, 8)) is salida  # ya llega a fin de mes
+
+
+def test_fin_de_mes():
+    assert semanas.fin_de_mes(dt.date(2026, 11, 8)) == dt.date(2026, 11, 30)
+    assert semanas.fin_de_mes(dt.date(2026, 11, 8), 1) == dt.date(2026, 12, 31)
+    assert semanas.fin_de_mes(dt.date(2026, 12, 31), 1) == dt.date(2027, 1, 31)
+    assert semanas.fin_de_mes(dt.date(2028, 1, 31), 1) == dt.date(2028, 2, 29)
+
+
+def test_exportar_repitiendo_la_semana_hasta_fin_de_mes(cliente):
+    _receta(cliente)
+    titulos = ["Memory Lane - A", "Koko Pop - B", "Juke Box - C", "Ruta Sonora - D", "Uno - E", "Dos - F", "Tres - G"]
+    cliente.post("/api/senales/canal/abierta", files={"archivo": ("g.xlsx", _dias(dt.date(2026, 11, 2), titulos))})
+
+    def exportar(**params):
+        r = cliente.get("/api/senales/canal/abierta/export", params={"formato": "xlsx", **params})
+        assert r.status_code == 200, r.text
+        return pd.read_excel(io.BytesIO(r.content))
+
+    mes = exportar(repetir="mes")
+    assert len(mes) == 29  # del 2 al 30 de noviembre
+    assert mes["Programa"].iloc[7] == "Memory Lane" and pd.Timestamp(mes["Fecha"].iloc[7]).date() == dt.date(2026, 11, 9)
+    assert len(exportar(repetir="dos_meses")) == 29 + 31
+    assert exportar(repetir="mes", desde="2026-11-30")["Programa"].tolist() == ["Memory Lane"]
+
+    cliente.post("/api/senales/canal/abierta", files={"archivo": ("corta.xlsx", _dias(dt.date(2026, 11, 2), titulos[:5]))})
+    corta = cliente.get("/api/senales/canal/abierta/export", params={"repetir": "mes"})
+    assert corta.status_code == 422 and "semana entera" in corta.json()["detail"]
+    assert cliente.get("/api/senales/canal/abierta/export", params={"repetir": "anio"}).status_code == 422

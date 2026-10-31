@@ -33,7 +33,8 @@ type Reglas =
 
 const PEDIDO = "Ajustá las tarjetas para que la grilla de entrada de este ejemplo quede igual al EPG esperado.";
 
-export function Nueva() {
+/** Alta de una señal con la grilla como vino y la macro hecha. Se abre como panel al costado del Inicio. */
+export function Nueva({ enPanel = false, alCerrar }: { enPanel?: boolean; alCerrar?: () => void }) {
   const { refrescarSenales } = useSesion();
   const [nombre, setNombre] = useState("");
   const [forma, setForma] = useState<"archivo" | "pegar">("archivo");
@@ -114,11 +115,14 @@ export function Nueva() {
 
   const pautas = creada?.pautas;
   return (
-    <main className="contenido" style={{ maxWidth: 960 }}>
-      <header className="cabecera-textos">
-        <span className="antetitulo">Tres pasos</span>
-        <h1 className="titulo">Una señal nueva</h1>
-        <p className="bajada">Con una semana como vino y cómo quedó después de la macro, armo la base y las reglas solo.</p>
+    <div className={enPanel ? "panel-contenido" : "contenido"} style={{ maxWidth: 960 }}>
+      <header className="cabecera-textos" style={{ flexDirection: "row", alignItems: "flex-start", gap: 12 }}>
+        <div style={{ flex: "1 1 auto", display: "flex", flexDirection: "column", gap: 8 }}>
+          <span className="antetitulo">Tres pasos</span>
+          <h1 className="titulo" style={enPanel ? { fontSize: 32 } : undefined}>Agregar señal</h1>
+          <p className="bajada">Con una semana como vino y cómo quedó después de la macro, armo la base y las reglas solo.</p>
+        </div>
+        {alCerrar && <button type="button" className="boton-redondo" aria-label="Cerrar" onClick={alCerrar}>✕</button>}
       </header>
 
       <form onSubmit={enviar} style={{ display: "flex", flexDirection: "column", gap: 32 }}>
@@ -242,6 +246,6 @@ export function Nueva() {
           </div>
         </section>
       )}
-    </main>
+    </div>
   );
 }

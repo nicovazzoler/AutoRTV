@@ -44,8 +44,19 @@ function usd(n: number): string {
   return n < 0.01 && n > 0 ? "menos de 0,01 USD" : `${n.toLocaleString("es-AR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD`;
 }
 
-export function Admin() {
-  const { yo, senales, refrescarSenales } = useSesion();
+type Pestana = "usuarios" | "senales" | "catalogo" | "uso";
+
+const PESTANAS: { id: Pestana; nombre: string }[] = [
+  { id: "usuarios", nombre: "Usuarios" },
+  { id: "senales", nombre: "Señales" },
+  { id: "catalogo", nombre: "Catálogo de columnas" },
+  { id: "uso", nombre: "Uso del agente" },
+];
+
+/** Solo admin, desde el menú de la cuenta: usuarios, señales, catálogo y gasto del agente. */
+export function Administrar() {
+  const { yo, senales, refrescarSenales, setContexto } = useSesion();
+  const [pestana, setPestana] = useState<Pestana>("usuarios");
   const [buscarSenal, setBuscarSenal] = useState("");
   const [usuarios, setUsuarios] = useState<Usuario[]>([]);
   const [uso, setUso] = useState<Uso | null>(null);
@@ -65,6 +76,10 @@ export function Admin() {
   useEffect(() => {
     if (yo.admin) cargar().catch((e) => setError(textoDeError(e)));
   }, [yo.admin]);
+
+  useEffect(() => {
+    setContexto(`Administrar · ${PESTANAS.find((x) => x.id === pestana)?.nombre}`);
+  }, [pestana, setContexto]);
 
   if (!yo.admin) {
     return <main className="contenido angosto"><h1 className="titulo">Solo para admin</h1></main>;
@@ -144,13 +159,18 @@ export function Admin() {
     <main className="contenido" style={{ maxWidth: 1120 }}>
       <header className="cabecera-textos">
         <span className="antetitulo">Solo admin</span>
-        <h1 className="titulo">Admin</h1>
-        <p className="bajada">Usuarios, columnas del EPG y cuánto se gasta en el agente. Lo mismo se le puede pedir al agente desde tu usuario.</p>
+        <h1 className="titulo">Administrar</h1>
       </header>
+      <nav aria-label="Administrar" className="pestanas-linea">
+        {PESTANAS.map((x) => (
+          <button key={x.id} type="button" aria-current={pestana === x.id ? "page" : undefined} onClick={() => setPestana(x.id)}>{x.nombre}</button>
+        ))}
+      </nav>
 
       {error && <p className="error" role="alert">{error}</p>}
       {aviso && <p className="nota" role="status">{aviso}</p>}
 
+      {pestana === "usuarios" && (
       <section aria-label="Usuarios" className="seccion">
         <div className="seccion-cabeza"><h2>Usuarios</h2><span className="chico tenue">{usuarios.length} {usuarios.length === 1 ? "persona" : "personas"}</span></div>
         <div className="desplazable">
@@ -181,7 +201,9 @@ export function Admin() {
           <span className="chico tenue">La clave la genera el servidor y se muestra una vez.</span>
         </form>
       </section>
+      )}
 
+      {pestana === "senales" && (
       <section aria-label="Señales" className="seccion">
         <div className="seccion-cabeza">
           <h2>Señales</h2><span className="chico tenue">{senales?.length ?? 0} señales</span>
@@ -200,7 +222,9 @@ export function Admin() {
           {senalesFiltradas.length > 100 && <li className="chico tenue">y {senalesFiltradas.length - 100} más: buscá para encontrarla.</li>}
         </ul>
       </section>
+      )}
 
+      {pestana === "catalogo" && (
       <section aria-label="Catálogo de columnas" className="seccion">
         <div className="seccion-cabeza">
           <h2>Catálogo de columnas</h2>
@@ -222,7 +246,9 @@ export function Admin() {
           </ul>
         )}
       </section>
+      )}
 
+      {pestana === "uso" && (
       <section aria-label="Uso del agente" className="seccion" style={{ gap: 16 }}>
         <div className="seccion-cabeza"><h2>Uso del agente</h2><span className="chico tenue">este mes · estimado con el precio de cada modelo</span></div>
         {uso && !uso.configurado && <p className="error">El agente no está configurado: falta ANTHROPIC_API_KEY en Railway.</p>}
@@ -239,6 +265,7 @@ export function Admin() {
         </div>
         <p className="chico tenue">El número real está en la Console de Anthropic. Este es un tope: no descuenta lo que se cobra menos por la caché.</p>
       </section>
+      )}
     </main>
   );
 }

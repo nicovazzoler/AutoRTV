@@ -1,25 +1,21 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { api } from "./api";
-import { leerRuta, navegar, useRuta } from "./ruta";
+import { leerRuta, navegar, rutaNueva, useRuta } from "./ruta";
 import { ContextoSesion, type Sesion } from "./sesion";
 import type { Inicio as DatosInicio, MetaSemana, Yo } from "./tipos";
-import { Menu } from "./piezas/Menu";
+import { Barra } from "./piezas/Barra";
+import { Agente } from "./piezas/Agente";
 import { Login } from "./pantallas/Login";
 import { Inicio } from "./pantallas/Inicio";
-import { Revisar } from "./pantallas/Revisar";
-import { Subir } from "./pantallas/Subir";
-import { Admin } from "./pantallas/Admin";
-import { Nueva } from "./pantallas/Nueva";
-import { Grilla } from "./pantallas/Grilla";
+import { Semana } from "./pantallas/Semana";
 import { Base } from "./pantallas/Base";
-import { Senal } from "./pantallas/Senal";
-import { Todas } from "./pantallas/Todas";
-import { Agente } from "./piezas/Agente";
+import { Configuracion } from "./pantallas/Configuracion";
+import { Administrar } from "./pantallas/Administrar";
 import { olvidarSemana } from "./semanaReciente";
 
 const ULTIMA_SENAL = "autortv.senal";
 
-function ultimaSenal(): string | null {
+function ultimaSenalGuardada(): string | null {
   try {
     return localStorage.getItem(ULTIMA_SENAL);
   } catch {
@@ -28,11 +24,19 @@ function ultimaSenal(): string | null {
 }
 
 export function App() {
-  const destino = leerRuta(useRuta());
+  const ruta = useRuta();
+  const destino = leerRuta(ruta);
   const [yo, setYo] = useState<Yo | null>(null);
   const [inicio, setInicio] = useState<DatosInicio | null>(null);
+  const [contexto, setContexto] = useState("");
   const senalDeRuta = "senal" in destino ? destino.senal : null;
-  const senalId = senalDeRuta ?? ultimaSenal();
+  const [ultimaSenal, setUltimaSenal] = useState<string | null>(ultimaSenalGuardada);
+
+  // Los favoritos y links de las pantallas viejas siguen andando.
+  useEffect(() => {
+    const nueva = rutaNueva(ruta);
+    if (nueva) navegar(nueva, true);
+  }, [ruta]);
 
   useEffect(() => {
     if (destino.pantalla !== "login" && !yo) api.get<Yo>("/yo").then(setYo).catch(() => {});
@@ -46,10 +50,11 @@ export function App() {
 
   useEffect(() => {
     if (!senalDeRuta) return;
+    setUltimaSenal(senalDeRuta);
     try {
       localStorage.setItem(ULTIMA_SENAL, senalDeRuta);
     } catch {
-      // Sin almacenamiento, el menú solo recuerda la señal mientras la URL la tenga.
+      // Sin almacenamiento, Base arranca en la señal solo mientras dure la pestaña.
     }
   }, [senalDeRuta]);
 
@@ -65,8 +70,8 @@ export function App() {
 
   const sesion = useMemo<Sesion | null>(
     () => yo && { yo, senales: inicio?.senales ?? null, recientes: inicio?.recientes ?? [], refrescarSenales, actualizarSemana,
-      revision, tocar },
-    [yo, inicio, refrescarSenales, actualizarSemana, revision, tocar],
+      revision, tocar, contexto, setContexto },
+    [yo, inicio, refrescarSenales, actualizarSemana, revision, tocar, contexto],
   );
 
   if (destino.pantalla === "login") return <Login />;
@@ -78,25 +83,21 @@ export function App() {
     setInicio(null);
     navegar("/login");
   };
-  const senal = sesion.senales?.find((s) => s.id === senalId);
   // Cuando el agente cambia reglas o la base, la pantalla se vuelve a armar con lo nuevo.
   const clave = `${senalDeRuta}-${revision}`;
-  const conAgente = "senal" in destino && destino.pantalla !== "subir";
+  const senalBase = destino.pantalla === "base" ? destino.senal ?? ultimaSenal : null;
+  const senalAgente = senalDeRuta ?? (destino.pantalla === "base" ? senalBase : null);
 
   return (
     <ContextoSesion.Provider value={sesion}>
       <div className="marco">
-        <Menu destino={destino} senalId={senal ? senalId : null} senal={senal} alSalir={salir} />
-        {destino.pantalla === "inicio" && <Inicio />}
-        {destino.pantalla === "revisar" && <Revisar key={clave} senalId={destino.senal} />}
-        {destino.pantalla === "subir" && <Subir key={clave} senalId={destino.senal} />}
-        {destino.pantalla === "grilla" && <Grilla key={clave} senalId={destino.senal} />}
-        {destino.pantalla === "base" && <Base key={clave} senalId={destino.senal} />}
-        {destino.pantalla === "senal" && <Senal key={clave} senalId={destino.senal} />}
-        {destino.pantalla === "nueva" && <Nueva />}
-        {destino.pantalla === "admin" && <Admin key={revision} />}
-        {destino.pantalla === "todas" && <Todas key={revision} />}
-        {conAgente && <Agente key={destino.senal} senalId={destino.senal} />}
+        <Barra destino={destino} ultimaSenal={ultimaSenal} alSalir={salir} />
+        {destino.pantalla === "inicio" && <Inicio nueva={!!destino.nueva} />}
+        {destino.pantalla === "semana" && <Semana key={clave} senalId={destino.senal} />}
+        {destino.pantalla === "base" && !destino.config && <Base key={`${senalBase}-${revision}`} senalId={senalBase} />}
+        {destino.pantalla === "base" && destino.config && senalBase && <Configuracion key={clave} senalId={senalBase} />}
+        {destino.pantalla === "admin" && <Administrar key={revision} />}
+        <Agente key={senalAgente ?? "sin-senal"} senalId={senalAgente} />
       </div>
     </ContextoSesion.Provider>
   );

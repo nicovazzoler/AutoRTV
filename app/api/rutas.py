@@ -1003,13 +1003,51 @@ def editar_celda_abierta(senal_id: str, datos: Celda, u: auth.Usuario = Depends(
     return _grilla_abierta(senal_id)
 
 
+# Hasta qué mes se repite la última semana: el de su último día, o también el siguiente.
+REPETIR = {"mes": 0, "dos_meses": 1}
+
+
 @api.get("/senales/{senal_id}/abierta/export")
-def exportar_abierta(senal_id: str, formato: str = "xlsx", desde: str | None = None, hasta: str | None = None):
-    """`desde` y `hasta` (2026-11-02 o 2026-11-02T06:00) recortan lo que sale, con las dos puntas adentro."""
+def exportar_abierta(senal_id: str, formato: str = "xlsx", desde: str | None = None, hasta: str | None = None,
+                     repetir: str | None = None):
+    """`desde` y `hasta` (2026-11-02 o 2026-11-02T06:00) recortan lo que sale, con las dos puntas adentro.
+
+    `repetir` copia la última semana hasta fin de mes ("mes") o del mes siguiente ("dos_meses"), antes del recorte.
+    """
     receta, p = _pedido_abierta(senal_id)
     c = _correr(p)
-    salida = _recortar(c.salida, receta, desde, hasta) if desde or hasta else c.salida
+    salida = _repetir(c.salida, receta, repetir) if repetir else c.salida
+    salida = _recortar(salida, receta, desde, hasta) if desde or hasta else salida
+    if salida is not c.salida:
+        salida = _numerar(salida)
     return _archivo(salida, receta.id, formato, c.estados.count("nueva"))
+
+
+def _columnas_de_fecha(salida: pd.DataFrame, receta: m.Senal, para: str) -> dict:
+    cols = grilla.detectar_columnas(list(salida.columns), receta.validaciones)
+    if not cols.get("fecha") or cols["fecha"] not in salida.columns:
+        raise HTTPException(422, f"Esta grilla no tiene una columna de fecha para {para}")
+    return cols
+
+
+def _repetir(salida: pd.DataFrame, receta: m.Senal, repetir: str) -> pd.DataFrame:
+    if repetir not in REPETIR:
+        raise HTTPException(422, f"repetir tiene que ser {' o '.join(REPETIR)}")
+    cols = _columnas_de_fecha(salida, receta, "repetir la semana")
+    dias = [d for f in salida[cols["fecha"]] if (d := a_fecha(f))]
+    if not dias:
+        raise HTTPException(422, "La grilla no tiene fechas que se puedan leer")
+    try:
+        return semanas.repetir_ultima(salida, cols["fecha"], cols.get("hora"), semanas.fin_de_mes(max(dias), REPETIR[repetir]))
+    except ValueError as e:
+        raise HTTPException(422, str(e))
+
+
+def _numerar(salida: pd.DataFrame) -> pd.DataFrame:
+    numero = next((x for x in salida.columns if catalogo.clave(x) == "n"), None)
+    if numero:
+        salida[numero] = range(1, len(salida) + 1)
+    return salida
 
 
 def _momento(texto: str | None, fin: bool) -> dt.datetime | None:
@@ -1024,9 +1062,7 @@ def _momento(texto: str | None, fin: bool) -> dt.datetime | None:
 
 
 def _recortar(salida: pd.DataFrame, receta: m.Senal, desde: str | None, hasta: str | None) -> pd.DataFrame:
-    cols = grilla.detectar_columnas(list(salida.columns), receta.validaciones)
-    if not cols.get("fecha") or cols["fecha"] not in salida.columns:
-        raise HTTPException(422, "Esta grilla no tiene una columna de fecha para recortar")
+    cols = _columnas_de_fecha(salida, receta, "recortar")
     inicio, fin = _momento(desde, False), _momento(hasta, True)
     horas = salida[cols["hora"]] if cols.get("hora") in salida.columns else [None] * len(salida)
     dentro = []
@@ -1034,11 +1070,7 @@ def _recortar(salida: pd.DataFrame, receta: m.Senal, desde: str | None, hasta: s
         dia = a_fecha(f)
         cuando = dt.datetime.combine(dia, a_hora(h) or dt.time(0)) if dia else None
         dentro.append(cuando is not None and (inicio is None or cuando >= inicio) and (fin is None or cuando <= fin))
-    recorte = salida[dentro].reset_index(drop=True)
-    numero = next((x for x in recorte.columns if catalogo.clave(x) == "n"), None)
-    if numero:
-        recorte[numero] = range(1, len(recorte) + 1)
-    return recorte
+    return salida[dentro].reset_index(drop=True)
 
 
 @api.post("/senales/{senal_id}/pautas/limpiar", dependencies=[Depends(auth.solo_admin)])
@@ -1131,6 +1163,10 @@ class PedidoAsistente(BaseModel):
     ejemplo: str | None = None  # "armar desde este ejemplo": la grilla es la entrada del ejemplo
     historial: list[MensajeHilo] = []
     fuerte: bool = False  # modelo más caro, solo para lo que el barato no resolvió
+    contexto: str = ""  # qué está mirando la persona en la web ("Canal Demo · Para revisar · 3 marcadas")
+
+    def pedido_con_contexto(self) -> str:
+        return f"(La persona está mirando: {self.contexto[:300]})\n{self.pedido}" if self.contexto.strip() else self.pedido
 
 
 def _proveedor_disponible(u: auth.Usuario, pedido: str):
@@ -1150,7 +1186,7 @@ def charla_asistente(p: PedidoAsistente, u: auth.Usuario = Depends(auth.usuario_
     proveedor = _proveedor_disponible(u, p.pedido)
     tabla = _correr_tabla(p.tabla_id, p.senal) if p.tabla_id else None
     try:
-        c = asistente_ia.charlar(p.senal, tabla, [h.model_dump() for h in p.historial], p.pedido, proveedor)
+        c = asistente_ia.charlar(p.senal, tabla, [h.model_dump() for h in p.historial], p.pedido_con_contexto(), proveedor)
     except cliente.ErrorAgente as e:
         raise HTTPException(502, str(e))
     uso.registrar(u.usuario, p.senal.id, "[charla] " + p.pedido, 1, c.tokens_entrada, c.tokens_salida, True, c.modelo)
@@ -1185,7 +1221,7 @@ def asistente(p: PedidoAsistente, u: auth.Usuario = Depends(auth.usuario_actual)
         foco=[i for i, g in enumerate(semana_antes[1]) if g["grupo"] == "revisar"] if semana_antes else [],
         es_admin=u.admin, reglas_catalogo=[f"{c.nombre}: {c.regla or c.tipo}" for c in cat])
     try:
-        propuesta = asistente_ia.pedir(p.senal, tabla, p.pedido, proveedor, ejemplos, objetivo=p.ejemplo,
+        propuesta = asistente_ia.pedir(p.senal, tabla, p.pedido_con_contexto(), proveedor, ejemplos, objetivo=p.ejemplo,
                                        orden_columnas=[c.nombre for c in cat],
                                        historial=[h.model_dump() for h in p.historial], entorno=entorno,
                                        fuerte=p.fuerte)

@@ -65,7 +65,72 @@ button, input, select, textarea { font: inherit; color: inherit; }
 
 /* --- Marco: menú + contenido --- */
 
-.marco { display: flex; flex-wrap: wrap; min-height: 100vh; }
+.marco { display: flex; flex-direction: column; min-height: 100vh; }
+
+/* --- Barra de arriba --- */
+
+.barra {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 20px;
+  min-height: 60px;
+  padding: 0 28px;
+  background: var(--fondo);
+  border-bottom: 1px solid var(--borde);
+}
+.barra-logo { font-family: "Fraunces Variable", serif; font-size: 22px; font-weight: 600; text-decoration: none; color: var(--texto); }
+.barra-pestanas { display: flex; gap: 4px; align-self: stretch; }
+.barra-pestana { display: flex; align-items: center; gap: 8px; padding: 0 14px; min-height: 60px; text-decoration: none; color: var(--tenue); border-bottom: 2px solid transparent; }
+.barra-pestana[aria-current="page"] { color: var(--texto); font-weight: 600; border-bottom-color: var(--acento); }
+.barra-pestana .cuenta { font-size: 12px; font-weight: 600; color: var(--revisar); }
+.barra-espacio { flex-grow: 1; }
+.barra-cuenta { position: relative; }
+.menu-cuenta.flotante { position: absolute; right: 0; top: calc(100% + 6px); z-index: 20; min-width: 210px; box-shadow: 0 12px 32px rgba(0, 0, 0, 0.3); }
+.menu-cuenta a { display: flex; align-items: center; min-height: 40px; padding: 0 12px; border-radius: 10px; text-decoration: none; color: var(--texto); }
+.menu-cuenta a:hover { background: var(--fondo); }
+
+/* --- Pantallas con panel al costado --- */
+
+.pantalla-con-panel { display: flex; align-items: flex-start; flex: 1 1 auto; min-width: 0; }
+.panel-lateral { flex: 0 0 420px; max-width: 420px; position: sticky; top: 60px; max-height: calc(100vh - 60px); overflow-y: auto; background: var(--panel); border-left: 1px solid var(--borde); }
+.panel-lateral.ancho { flex-basis: 560px; max-width: 560px; }
+.panel-lateral .dos-columnas { grid-template-columns: minmax(0, 1fr); }
+.panel-contenido { padding: 24px; display: flex; flex-direction: column; gap: 14px; }
+.volver { align-self: flex-start; font-size: 14px; color: var(--acento); text-decoration: none; }
+.enlace-chico { padding: 0; border: 0; background: none; color: var(--acento); font: inherit; font-size: 12px; cursor: pointer; text-decoration: underline; }
+
+/* --- Inicio --- */
+
+.lista-senales { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.lista-senales li { border-bottom: 1px solid var(--borde); }
+.fila-senal { display: flex; align-items: center; gap: 14px; padding: 14px 4px; text-decoration: none; color: var(--texto); }
+.fila-senal:hover { background: color-mix(in srgb, var(--panel) 70%, transparent); }
+.fila-senal .nombre { flex: 1 1 auto; font-family: "Fraunces Variable", serif; font-size: 20px; }
+.fila-senal .pendiente { font-size: 13px; font-weight: 600; color: var(--revisar); }
+.punto { width: 9px; height: 9px; border-radius: 50%; flex: 0 0 9px; }
+.punto.revisar { background: var(--revisar); }
+
+/* --- Base, Configuración y Administrar --- */
+
+.selector-senal-base { min-height: 40px; font-family: "Fraunces Variable", serif; font-size: 20px; max-width: 360px; }
+.pestanas-chicas { display: flex; gap: 4px; padding: 4px; border-radius: 999px; border: 1px solid var(--borde); }
+.pestanas-chicas a { padding: 7px 16px; border-radius: 999px; text-decoration: none; color: var(--texto); font-size: 13px; font-weight: 600; }
+.pestanas-chicas a[aria-current="page"] { background: var(--texto); color: var(--fondo); }
+.fila-tocable { cursor: pointer; }
+.fila-tocable.elegida td { background: var(--panel); }
+.con-secciones { display: flex; gap: 32px; align-items: flex-start; }
+.secciones { flex: 0 0 200px; display: flex; flex-direction: column; gap: 2px; }
+.secciones button { padding: 10px 12px; border: 0; border-left: 3px solid transparent; background: transparent; color: var(--tenue); font: inherit; font-size: 15px; text-align: left; cursor: pointer; }
+.secciones button[aria-current="page"] { color: var(--texto); font-weight: 600; border-left-color: var(--acento); }
+.par-ejemplo { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; gap: 12px; align-items: start; padding-top: 12px; border-top: 1px solid var(--borde); }
+.pestanas-linea { display: flex; flex-wrap: wrap; gap: 4px; border-bottom: 1px solid var(--borde); }
+.pestanas-linea button { padding: 10px 16px; border: 0; border-bottom: 2px solid transparent; background: transparent; color: var(--tenue); font: inherit; font-size: 15px; cursor: pointer; }
+.pestanas-linea button[aria-current="page"] { color: var(--texto); font-weight: 600; border-bottom-color: var(--acento); }
+
 
 .menu {
   flex: 0 0 240px;
@@ -217,7 +282,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
   gap: 32px;
 }
 .contenido.angosto { max-width: 1120px; }
-.contenido > .cabecera-textos { flex: 0 0 auto; }
+.contenido > .cabecera-textos, section > .cabecera-textos, .panel-contenido > .cabecera-textos { flex: 0 0 auto; }
 
 /* --- Textos --- */
 
@@ -446,22 +511,11 @@ dialog.dialogo h2 { margin: 0; font-family: "Fraunces Variable", serif; font-siz
 
 /* --- Panel del agente --- */
 
-.agente {
-  flex: 0 0 340px;
-  max-width: 360px;
-  box-sizing: border-box;
-  padding: 32px 24px;
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-  background: var(--panel);
-  border-left: 1px solid var(--borde);
-  position: sticky;
-  top: 0;
-  align-self: flex-start;
-  height: 100vh;
-}
-.agente.plegado { flex-basis: auto; padding: 24px 12px; }
+.agente { box-sizing: border-box; padding: 18px; display: flex; flex-direction: column; gap: 12px; background: var(--panel); border: 1px solid var(--borde); }
+.agente.flotante { position: fixed; right: 24px; bottom: 24px; z-index: 30; width: min(400px, calc(100vw - 32px)); height: min(620px, calc(100vh - 100px)); border-radius: 18px; box-shadow: 0 16px 40px rgba(0, 0, 0, 0.35); }
+.agente-boton { position: fixed; right: 24px; bottom: 24px; z-index: 30; min-height: 48px; padding: 0 20px; border: 0; border-radius: 999px; background: var(--marca); color: #1a0716; font: inherit; font-weight: 700; font-size: 14px; cursor: pointer; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3); }
+.etiqueta-contexto { align-self: flex-start; padding: 4px 10px; border-radius: 999px; border: 1px solid var(--acento); color: var(--acento); font-size: 12px; }
+
 .agente-cabeza { display: flex; align-items: center; gap: 8px; }
 .agente-cabeza h2 { margin: 0; font-family: "Fraunces Variable", serif; font-weight: 600; font-size: 20px; white-space: nowrap; }
 .hilo { flex: 1 1 auto; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; min-height: 120px; }
@@ -482,7 +536,13 @@ dialog.dialogo h2 { margin: 0; font-family: "Fraunces Variable", serif; font-siz
 }
 
 @media (max-width: 1100px) {
-  .agente { flex-basis: 100%; max-width: none; position: static; height: auto; border-left: 0; border-top: 1px solid var(--borde); }
+  .barra { padding: 0 16px; }
+  .barra-pestana { min-height: 48px; }
+  .pantalla-con-panel, .con-secciones { flex-direction: column; align-items: stretch; }
+  .panel-lateral, .panel-lateral.ancho { flex-basis: auto; max-width: none; position: static; max-height: none; border-left: 0; border-top: 1px solid var(--borde); }
+  .secciones { flex-direction: row; flex-wrap: wrap; flex-basis: auto; }
+  .par-ejemplo { grid-template-columns: minmax(0, 1fr); }
+
 }
 
 /* --- Señal --- */

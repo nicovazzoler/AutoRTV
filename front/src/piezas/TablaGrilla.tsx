@@ -1,32 +1,21 @@
 import { useEffect, useMemo, useState } from "react";
 import { api, textoDeError } from "../api";
 import { normalizar } from "../estado";
-import { numeroSemana } from "../fechas";
-import { CeldaEditable } from "../piezas/CeldaEditable";
-import { Enlace } from "../piezas/Enlace";
-import { cumple, FilaFiltros, type Filtros } from "../piezas/FiltrosColumna";
-import { aSenal } from "../ruta";
+import { CeldaEditable } from "./CeldaEditable";
+import { cumple, FilaFiltros, type Filtros } from "./FiltrosColumna";
 import { useSesion } from "../sesion";
 import type { GrillaAbierta, Grupo } from "../tipos";
 
-type Filtro = "todas" | Grupo["grupo"];
+export type Filtro = "todas" | Grupo["grupo"];
 
-const FILTROS: { id: Filtro; nombre: string }[] = [
-  { id: "todas", nombre: "Todas" },
-  { id: "revisar", nombre: "Para revisar" },
-  { id: "nueva_lista", nombre: "Nuevas" },
-  { id: "base", nombre: "De la base" },
-];
 const MARCA: Record<Grupo["grupo"], string> = { base: "base", nueva_lista: "nueva", revisar: "revisar" };
 const DE_A = 300;
 
-export function Grilla({ senalId }: { senalId: string }) {
-  const { senales, actualizarSemana } = useSesion();
-  const senal = senales?.find((s) => s.id === senalId);
+/** La semana emisión por emisión, filtrada por estado (lo eligen los botones de la Semana) y por columna. */
+export function TablaGrilla({ senalId, filtro }: { senalId: string; filtro: Filtro }) {
+  const { actualizarSemana } = useSesion();
   const [datos, setDatos] = useState<GrillaAbierta | null>(null);
-  const [sinSemana, setSinSemana] = useState(false);
   const [error, setError] = useState("");
-  const [filtro, setFiltro] = useState<Filtro>("todas");
   const [programa, setPrograma] = useState("");
   const [q, setQ] = useState("");
   const [filtros, setFiltros] = useState<Filtros>({});
@@ -38,10 +27,7 @@ export function Grilla({ senalId }: { senalId: string }) {
   };
 
   useEffect(() => {
-    api.get<GrillaAbierta>(`/senales/${senalId}/abierta/grilla`).then(recibir).catch((e) => {
-      if (e?.estado === 404) setSinSemana(true);
-      else setError(textoDeError(e));
-    });
+    api.get<GrillaAbierta>(`/senales/${senalId}/abierta/grilla`).then(recibir).catch((e) => setError(textoDeError(e)));
   }, [senalId]);
 
   const indicePrograma = datos?.programa ? datos.columnas.indexOf(datos.programa) : -1;
@@ -61,23 +47,10 @@ export function Grilla({ senalId }: { senalId: string }) {
     return porCelda;
   }, [datos]);
 
-  if (sinSemana) {
-    return (
-      <main className="contenido angosto">
-        <header className="cabecera-textos">
-          <span className="antetitulo">{senal?.nombre ?? senalId}</span>
-          <h1 className="titulo">Todavía no hay grilla de esta semana</h1>
-          <p className="bajada">Subila y acá vas a ver el EPG completo, fila por fila.</p>
-        </header>
-        <div className="botones"><Enlace a={aSenal(senalId, "subir")} className="boton principal">Subir grilla</Enlace></div>
-      </main>
-    );
-  }
   if (!datos) {
-    return <main className="contenido">{error ? <p className="error" role="alert">{error}</p> : <p className="tenue">Armando la grilla…</p>}</main>;
+    return error ? <p className="error" role="alert">{error}</p> : <p className="tenue">Armando la grilla…</p>;
   }
 
-  const cuenta = (g: Filtro) => (g === "todas" ? datos.grupos.length : datos.grupos.filter((x) => x.grupo === g).length);
   const buscado = normalizar(q.trim());
   const visibles = datos.filas
     .map((fila, i) => ({ fila, i, grupo: datos.grupos[i] }))
@@ -95,28 +68,9 @@ export function Grilla({ senalId }: { senalId: string }) {
     }
   };
 
-  const resumen = datos.semana.resumen;
   return (
-    <main className="contenido">
-      <header className="cabecera-textos">
-        <span className="antetitulo">
-          {resumen?.desde ? `Semana ${numeroSemana(resumen.desde)} · ` : ""}{datos.total_filas} filas · {datos.semana.nombre}
-        </span>
-        <h1 className="titulo">La grilla, fila por fila</h1>
-        <p className="bajada">Así sale el EPG. Doble clic en una celda de contenido para corregirla: el cambio va a la base y vale para todas las veces que aparece esa pauta.</p>
-      </header>
-
+    <section aria-label="Grilla" style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       <div className="filtros" role="group" aria-label="Filtros">
-        <div className="campo">
-          <span id="filtro-estado">Estado</span>
-          <div className="botones" role="group" aria-labelledby="filtro-estado" style={{ gap: 6 }}>
-            {FILTROS.map((f) => (
-              <button key={f.id} type="button" className="boton chico" aria-pressed={filtro === f.id} onClick={() => setFiltro(f.id)}>
-                {f.nombre} · {cuenta(f.id)}
-              </button>
-            ))}
-          </div>
-        </div>
         {programas.length > 0 && (
           <label className="campo">Programa
             <select className="entrada" value={programa} onChange={(e) => setPrograma(e.target.value)}>
@@ -159,6 +113,6 @@ export function Grilla({ senalId }: { senalId: string }) {
         {visibles.length > mostrar && <button type="button" className="boton chico" onClick={() => setMostrar(mostrar + DE_A)}>Ver más</button>}
         {datos.total_filas > datos.filas.length && <span className="chico tenue">La grilla tiene {datos.total_filas} filas; acá se muestran las primeras {datos.filas.length}.</span>}
       </div>
-    </main>
+    </section>
   );
 }

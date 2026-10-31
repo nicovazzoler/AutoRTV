@@ -34,10 +34,11 @@ function texto(v: unknown): string {
   return v === null || v === undefined || v === "" ? "(vacío)" : String(v);
 }
 
-export function Agente({ senalId }: { senalId: string }) {
-  const { yo, senales, tocar } = useSesion();
+/** El agente, flotando abajo a la derecha en todas las pantallas. Sin señal elegida solo explica cómo usarlo. */
+export function Agente({ senalId }: { senalId: string | null }) {
+  const { yo, senales, tocar, contexto } = useSesion();
   const tablaId = senales?.find((s) => s.id === senalId)?.semana?.tabla_id ?? null;
-  const [hilo, setHilo] = useState<Mensaje[]>(() => hilos.get(senalId) ?? []);
+  const [hilo, setHilo] = useState<Mensaje[]>(() => hilos.get(senalId ?? "") ?? []);
   const [propuesta, setPropuesta] = useState<PropuestaAbierta | null>(null);
   const [escrito, setEscrito] = useState("");
   const [trabajando, setTrabajando] = useState<"" | "rapido" | "propuesta">("");
@@ -52,7 +53,7 @@ export function Agente({ senalId }: { senalId: string }) {
     refrescarLimites();
   }, []);
   useEffect(() => {
-    hilos.set(senalId, hilo);
+    hilos.set(senalId ?? "", hilo);
     fondo.current?.scrollIntoView({ block: "nearest" });
   }, [hilo, senalId]);
 
@@ -71,7 +72,7 @@ export function Agente({ senalId }: { senalId: string }) {
     setTrabajando("propuesta");
     try {
       const { datos: receta, version } = await api.conVersion<Receta>(`/senales/${senalId}`);
-      const p = await api.post<Propuesta>("/asistente", { senal: receta, pedido, tabla_id: tablaId, historial, fuerte });
+      const p = await api.post<Propuesta>("/asistente", { senal: receta, pedido, tabla_id: tablaId, historial, fuerte, contexto });
       setPropuesta({ ...p, pedido, historial, version, aplicadas: new Set() });
       decir({ rol: "asistente", texto: p.explicacion || (p.receta ? "Te dejo una propuesta abajo." : "No llegué a una propuesta que sirva.") });
     } catch (e) {
@@ -95,7 +96,7 @@ export function Agente({ senalId }: { senalId: string }) {
       setTrabajando("rapido");
       try {
         const { datos: receta } = await api.conVersion<Receta>(`/senales/${senalId}`);
-        const c = await api.post<Charla>("/asistente/charla", { senal: receta, pedido, tabla_id: tablaId, historial: previo });
+        const c = await api.post<Charla>("/asistente/charla", { senal: receta, pedido, tabla_id: tablaId, historial: previo, contexto });
         if (c.respuesta) decir({ rol: "asistente", texto: c.respuesta });
         setTrabajando("");
         refrescarLimites();
@@ -121,7 +122,7 @@ export function Agente({ senalId }: { senalId: string }) {
     setError("");
     try {
       await api.put(`/senales/${senalId}`, propuesta.receta, { "If-Match": propuesta.version });
-      decir({ rol: "asistente", texto: "(Reglas aplicadas. Se pueden deshacer desde Señal.)" });
+      decir({ rol: "asistente", texto: "(Reglas aplicadas. Se pueden deshacer desde Base › Configuración › Reglas.)" });
       marcarAplicada(-1);
       tocar();
     } catch (e) {
@@ -156,9 +157,17 @@ export function Agente({ senalId }: { senalId: string }) {
   };
 
   if (plegado) {
+    return <button type="button" className="agente-boton" aria-label="Abrir el agente" onClick={() => plegar(false)}>✦ Agente</button>;
+  }
+  if (!senalId) {
     return (
-      <aside className="agente plegado" aria-label="Agente">
-        <button type="button" className="boton chico" onClick={() => plegar(false)}>Abrir el agente</button>
+      <aside className="agente flotante" aria-label="Agente">
+        <div className="agente-cabeza">
+          <h2>Agente</h2>
+          <span style={{ flexGrow: 1 }} />
+          <button type="button" className="boton-redondo" style={{ flexBasis: 32, height: 32 }} aria-label="Cerrar el agente" onClick={() => plegar(true)}>✕</button>
+        </div>
+        <p className="tenue chico">Abrí una señal desde el Inicio o elegila en Base: el agente trabaja sobre la grilla, la base y las reglas de esa señal.</p>
       </aside>
     );
   }
@@ -169,13 +178,14 @@ export function Agente({ senalId }: { senalId: string }) {
   const acciones = yo.admin ? p?.acciones_admin ?? [] : [];
 
   return (
-    <aside className="agente" aria-label="Agente">
+    <aside className="agente flotante" aria-label="Agente">
       <div className="agente-cabeza">
-        <h2>Notas del agente</h2>
+        <h2>Agente</h2>
         <span style={{ flexGrow: 1 }} />
         {hilo.length > 0 && <button type="button" className="boton chico" onClick={() => { setHilo([]); setPropuesta(null); }}>Nueva charla</button>}
-        <button type="button" className="boton-redondo" style={{ flexBasis: 36, height: 36 }} aria-label="Plegar el agente" title="Plegar" onClick={() => plegar(true)}>›</button>
+        <button type="button" className="boton-redondo" style={{ flexBasis: 36, height: 36 }} aria-label="Cerrar el agente" title="Cerrar" onClick={() => plegar(true)}>✕</button>
       </div>
+      {contexto && <span className="etiqueta-contexto">Viendo: {contexto}</span>}
       {limites && <span className="chico tenue">Te quedan {limites.quedan} de {limites.limite_diario} pedidos hoy · ve solo esta señal</span>}
 
       <div className="hilo" aria-live="polite">
