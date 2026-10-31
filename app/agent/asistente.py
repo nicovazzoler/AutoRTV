@@ -143,7 +143,7 @@ def medir(receta: m.Senal, tabla: pd.DataFrame, ejemplos: list[Ejemplo]) -> tupl
     for e in ejemplos:
         sal_e, _ = correr(receta, e.entrada)
         porcentajes[e.nombre] = round(porcentaje_igual(sal_e, e.esperado, e.pares), 2)
-        difs[e.nombre] = diferencias(sal_e, e.esperado, e.pares)[:MAX_DIFERENCIAS]
+        difs[e.nombre] = _repartidas(diferencias(sal_e, e.esperado, e.pares), MAX_DIFERENCIAS)
     detalle = {"salida": salida, "errores": errores, "validacion": validacion, "diferencias": difs}
     return Metricas(len(errores), grilla.resumen(validacion), porcentajes), detalle
 
@@ -226,7 +226,34 @@ def con_criterios(receta: m.Senal, tabla: pd.DataFrame, ejemplos: list[Ejemplo],
     tarjeta = criterios.configurar(tabla, contenido or salida, programa, pares)
     if tarjeta is None:
         return None
-    return receta.model_copy(update={"tarjetas": [tarjeta, *receta.tarjetas]})
+    return receta.model_copy(update={"tarjetas": [tarjeta, *_otros_titulos(tarjeta, tabla, contenido, pares),
+                                                  *receta.tarjetas]})
+
+
+# Una columna del EPG que sale de otra columna cruda en al menos esta parte de las filas es otro título.
+MIN_OTRO_TITULO = 0.6
+
+
+def _otros_titulos(principal: m.Criterios, tabla: pd.DataFrame, contenido: list[str],
+                   pares: list[tuple[dict, dict]]) -> list[m.Criterios]:
+    """Otro título que viene en su propia columna (el nombre en inglés y en castellano): una tarjeta de criterios cada uno."""
+    usadas = {principal.programa, principal.capitulo, principal.temporada, principal.numero, principal.anio,
+              principal.tt, principal.titulo_temporada}
+    tarjetas = []
+    leidas = {principal.columna, principal.detalle}
+    for destino in contenido:
+        if destino in usadas:
+            continue
+        origen, parte = criterios.columna_de_origen(pares, destino, excluir=leidas)
+        textos = [c.get(origen) for c, _ in pares if isinstance(c.get(origen), str)]
+        if origen is None or parte < MIN_OTRO_TITULO or len(textos) < len(pares) / 2:
+            continue
+        tarjetas.append(m.Criterios(id=f"criterios-{len(tarjetas) + 2}", tipo="criterios", columna=origen,
+                                    programa=destino, capitulo=None,
+                                    idioma=criterios.idioma_de(textos) or principal.idioma))
+        leidas.add(origen)
+        usadas.add(destino)
+    return tarjetas
 
 
 def _leer_propuesta(datos: dict | None, receta: m.Senal) -> tuple[m.Senal | None, list[str]]:
@@ -272,6 +299,20 @@ def _errores(e: ValidationError) -> str:
     return "; ".join(f"{'.'.join(map(str, x['loc']))}: {x['msg']}" for x in e.errors()[:10])
 
 
+def _repartidas(difs: list[dict], cuantas: int) -> list[dict]:
+    """Las primeras diferencias de cada columna, turnándose: si la primera columna falla en todas las filas,
+    las otras igual se ven."""
+    por_columna: dict[str, list[dict]] = {}
+    for d in difs:
+        por_columna.setdefault(d["columna"], []).append(d)
+    elegidas = []
+    for vuelta in range(cuantas):
+        elegidas += [ds[vuelta] for ds in por_columna.values() if vuelta < len(ds)]
+        if len(elegidas) >= cuantas:
+            break
+    return sorted(elegidas[:cuantas], key=lambda d: d["fila"])
+
+
 def _problemas(antes: Metricas, errores_antes: list[str], despues: Metricas, detalle: dict,
                objetivo: str | None) -> list[str]:
     # Solo cuentan los errores que trajo la propuesta: los que ya estaban no son culpa de este pedido.
@@ -280,7 +321,8 @@ def _problemas(antes: Metricas, errores_antes: list[str], despues: Metricas, det
         exigido = 100.0 if nombre == objetivo else antes.ejemplos[nombre]
         if pct < exigido:
             difs = "; ".join(f"fila {d['fila'] + 1}, {d['columna']}: quedó {_txt(d['obtenido'])} "
-                             f"y tenía que quedar {_txt(d['esperado'])}" for d in detalle["diferencias"][nombre][:15])
+                             f"y tenía que quedar {_txt(d['esperado'])}"
+                             for d in _repartidas(detalle["diferencias"][nombre], 15))
             motivo = "tiene que llegar al 100 %" if nombre == objetivo else f"antes daba {exigido} %"
             problemas.append(f"El ejemplo {nombre} da {pct} % ({motivo}). Diferencias: {difs}")
     if despues.validaciones["error"] > antes.validaciones["error"]:

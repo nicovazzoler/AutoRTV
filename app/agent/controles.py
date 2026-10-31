@@ -42,6 +42,7 @@ def _candidatas(tabla: pd.DataFrame) -> list[list[tuple | None]]:
         distintas = len({h for _, h in ps if h})
         if con_fecha > mitad and con_hora > mitad and distintas > 1:
             momentos.append(c)
+            horas.append(c)  # su fecha puede ser de relleno ("2009-09-20 13:00"): la hora sirve con otra fecha
         elif con_fecha > mitad:
             fechas.append(c)
         elif con_hora > mitad:
@@ -103,9 +104,11 @@ def pares_con_ejemplo(entrada: pd.DataFrame, esperado: pd.DataFrame) -> list[tup
     if not por_minuto:
         return None
     ejemplo = [(i, _minutos(k)) for i, k in enumerate(del_ejemplo) if k]
+    margen = sorted(range(-TOLERANCIA_MIN, TOLERANCIA_MIN + 1), key=abs)  # primero la hora exacta
     mejor: list[tuple[int, int]] = []
     for horas in CORRIMIENTOS_HORAS:
-        pares = [(i, por_minuto[m + horas * 60]) for i, m in ejemplo if m + horas * 60 in por_minuto]
+        pares = [(i, j) for i, m in ejemplo
+                 if (j := next((por_minuto[x] for d in margen if (x := m + horas * 60 + d) in por_minuto), None)) is not None]
         if len(pares) > len(mejor):
             mejor = pares
     return mejor or None

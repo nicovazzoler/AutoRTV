@@ -80,10 +80,12 @@ def titulo_en(s: str) -> str:
 
 
 SIGLA_CON_PUNTOS = re.compile(r"^(?:[A-Za-z]\.)+$")
+# Sin I, V ni X solas: pueden ser una palabra o una inicial.
+ROMANO = re.compile(r"^(?:II|III|IV|VI|VII|VIII|IX|XI|XII|XIII|XIV|XV|XX)$", re.I)
 
 
 def _capitalizar(palabra: str) -> str:
-    if SIGLA_CON_PUNTOS.match(palabra):  # "R.E.M.", "D.C."
+    if SIGLA_CON_PUNTOS.match(palabra) or ROMANO.match(palabra):  # "R.E.M.", "D.C.", "Omen III"
         return palabra.upper()
     # Se saltean signos de apertura; si arranca con número ("00's") no hay inicial.
     i = 0

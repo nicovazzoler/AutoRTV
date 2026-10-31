@@ -64,7 +64,8 @@ def detectar(contenido: bytes):
     if contenido.startswith(b"PK") or contenido.startswith(b"\xd0\xcf\x11\xe0"):  # xlsx / xls
         if cuadricula.es_cuadricula(contenido):
             return m.EntradaExcel(tipo="excel", cuadricula=True)
-        return m.EntradaExcel(tipo="excel", fila_encabezado=excel.detectar_fila_encabezado(io.BytesIO(contenido)))
+        fila = excel.detectar_fila_encabezado(io.BytesIO(contenido))
+        return m.EntradaExcel(tipo="excel", fila_encabezado=fila, todas_las_hojas=excel.hojas_iguales(contenido, fila))
     inicio = texto.decodificar(contenido[:4000]).lstrip().lower()
     if inicio.startswith("<?xml") or "<programme" in inicio or inicio.startswith("<tv"):
         return m.EntradaXml(tipo="xml")

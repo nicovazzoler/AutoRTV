@@ -38,7 +38,7 @@ def redondear_hora(df, t: m.RedondearHora):
         seg = min(round(seg / paso) * paso, 86400 - paso)
         return dt.time(seg // 3600, seg % 3600 // 60)
 
-    df[col] = df[col].map(redondear)
+    df[t.destino or col] = df[col].map(redondear)
     return df
 
 
