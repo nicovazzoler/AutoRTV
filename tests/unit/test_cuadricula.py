@@ -1,5 +1,6 @@
 import datetime as dt
 import io
+import re
 from pathlib import Path
 
 import pandas as pd
@@ -195,6 +196,42 @@ def test_crear_agape_con_su_ejemplo_saca_casi_todo_de_la_base(cliente):
     assert r.json()["aviso"] is None and r.json()["pautas"]["agregadas"] > 50  # se repiten mucho: el Angelus, la misa
     resumen = cliente.post("/api/senales/agape/abierta", files={"archivo": ("AGAPE.xlsx", AGAPE.read_bytes())}).json()["resumen"]
     assert resumen["base"] / resumen["filas"] > 0.85
+
+
+def _semana_siguiente_de_agape() -> bytes:
+    """La grilla de AGAPE corrida una semana, con otros capítulos: lo que llega de verdad la semana que viene."""
+    import openpyxl
+    wb = openpyxl.load_workbook(AGAPE)
+    ws = wb.active
+    ws["A1"] = "O.R.T. 200 CARTA DE PROGRAMACIÓN DEL 02 DE NOV AL 08 NOV 2026 VERSIÓN 1"
+    for col, dia in zip("BCDEFHJ", ["LUNES 02", "MARTES 03", "MIÉRCOLES 04", "JUEVES 05", "VIERNES 06", "SÁBADO 07",
+                                    "DOMINGO 08"]):
+        ws[f"{col}2"] = dia
+    for fila in ws.iter_rows(min_row=3):
+        for celda in fila:
+            if isinstance(celda.value, str) and (x := re.match(r"\s*#\s*(\d+)", celda.value)):
+                celda.value = f"#{int(x[1]) + 1} Capítulo nuevo {celda.coordinate}"
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
+@pytest.mark.skipif(not AGAPE.exists(), reason="la grilla real no está en el repo")
+def test_la_semana_siguiente_de_agape_sale_con_los_programas_de_la_base(cliente):
+    from app import almacen
+    from app.agent import asistente
+    archivos = {"grilla_cruda": ("AGAPE.xlsx", AGAPE.read_bytes()), "ejemplo": ("IG.xlsx", AGAPE_EJEMPLO.read_bytes())}
+    assert cliente.post("/api/senales/crear", files=archivos, data={"nombre": "Agape"}).status_code == 200
+    receta = almacen.leer("agape")
+    tabla = cuadricula.leer(AGAPE.read_bytes())
+    ejemplos = [asistente.Ejemplo("ej", tabla, pd.read_excel(AGAPE_EJEMPLO, dtype=object))]
+    almacen.guardar(asistente.con_criterios(receta, tabla, ejemplos, "ej"), "admin")  # lo mínimo que arma el agente
+
+    d = cliente.post("/api/senales/agape/abierta", files={"archivo": ("AGAPE 02-11.xlsx", _semana_siguiente_de_agape())}).json()
+    assert d["programa"] == "TIT PROG"
+    assert d["resumen"]["revisar"] <= 3 < d["resumen"]["nueva_lista"]  # los capítulos nuevos de programas conocidos
+    nuevas = {p["salida"]["TIT PROG"]: p["salida"] for p in d["nuevas"]}
+    assert nuevas["¿Y tu que vas a hacer?"]["NRO TEMP"] == 1 and "Capítulo nuevo" in nuevas["¿Y tu que vas a hacer?"]["TIT CAP"]
 
 
 def test_crear_una_senal_con_una_grilla_sin_fecha_ni_hora_avisa(cliente):

@@ -53,3 +53,17 @@ def test_el_boton_pide_ejemplos(cliente, monkeypatch):
     cliente.put("/api/senales/canal", json={"id": "canal", "nombre": "Canal", "entrada": {"tipo": "excel"},
                                             "salida": {"columnas": []}, "tarjetas": []})
     assert cliente.post("/api/senales/canal/reglas/armar").status_code == 422
+
+
+def test_subir_una_semana_a_una_senal_sin_reglas_las_arma(cliente, monkeypatch):
+    _con_asistente(monkeypatch, ["no es JSON"])
+    receta = {"id": "canal", "nombre": "Canal", "entrada": {"tipo": "excel"}, "salida": {"columnas": []}, "tarjetas": []}
+    cliente.put("/api/senales/canal", json=receta)
+    semana = {"archivo": ("g.xlsx", excel(GRILLA))}
+    assert cliente.post("/api/senales/canal/abierta", files=semana).json()["armando_reglas"] is False  # sin ejemplos
+    archivos = {"entrada": ("g.xlsx", excel(GRILLA)), "esperado": ("e.xlsx", excel(EPG))}
+    with monkeypatch.context() as sin_armar:
+        sin_armar.setattr(armados, "lanzar", lambda *a: False)
+        cliente.post("/api/senales/canal/ejemplos", data={"nombre": "ej1"}, files=archivos)
+    assert cliente.post("/api/senales/canal/abierta", files=semana).json()["armando_reglas"]
+    assert cliente.get("/api/senales/canal").json()["tarjetas"][0]["tipo"] == "criterios"

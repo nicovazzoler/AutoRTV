@@ -70,6 +70,7 @@ export interface SemanaAbierta {
   cambios?: CambioVersion[] | null;
   lectura?: { filas: number; columnas: string[] };
   campos_clave?: string[];
+  armando_reglas?: boolean;
 }
 
 export interface CambioVersion {

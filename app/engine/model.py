@@ -67,6 +67,7 @@ class Criterios(TarjetaBase):
     programa: str = "Programa"
     capitulo: str | None = "Capitulo"
     temporada: str | None = None
+    titulo_temporada: str | None = None  # temporada con nombre de año: "T2026"
     numero: str | None = None
     anio: str | None = None
     tt: str | None = None

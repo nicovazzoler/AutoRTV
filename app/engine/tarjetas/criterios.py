@@ -29,6 +29,8 @@ ANIO = re.compile(r"[(\[]\s*((?:19|20)\d{2})\s*[)\]]")
 TEMP_Y_CAP = re.compile(r"\b[ST]\s?0*(\d{1,2})\s?(?:E|C|EP|Ep\.?|Cap\.?)\s?0*(\d{1,4})\b|\b0*(\d{1,2})x0*(\d{1,4})\b", re.I)
 CAPITULO = re.compile(r"\b(?:Cap[ií]tulo|Cap\.?|Episodio|Episode|Epis[oó]dio|Epis\.?|Ep\.?)\s*0*(\d{1,4})\b"
                       r"|\b(?:C|E|EP)0*(\d{1,4})\b|\b0*(\d{1,4})\s*(?:/|de)\s*\d{1,4}\b", re.I)
+# Va antes que TEMPORADA: "T2026" es la temporada de ese año, no la número 20.
+TEMPORADA_ANIO = re.compile(r"\b(?:Temporada|Temp\.?|Season|[TS])\s*((?:19|20)\d{2})\b", re.I)
 TEMPORADA = re.compile(r"\b(?:Temporada|Temp\.?|Season)\s*0*(\d{1,2})\b|\b[TS]0*(\d{1,2})\b", re.I)
 NUMERAL = re.compile(r"#\s*0*(\d{1,4})\b")
 PARTE = re.compile(r"\b(?:Parte|Part|Pt\.?)\s*(\d{1,3})\b", re.I)
@@ -47,6 +49,7 @@ class Lectura:
     numero: int | None = None
     anio: int | None = None
     tt: str = ""
+    titulo_temporada: str = ""
 
 
 def _sin_tildes(texto: str) -> str:
@@ -147,6 +150,9 @@ def leer(titulo: str, detalle: str, t: m.Criterios) -> Lectura:
     texto, x = _sacar(ANIO, texto)
     if x:
         lectura.anio = int(x[1])
+    texto, x = _sacar(TEMPORADA_ANIO, texto)
+    if x:
+        lectura.titulo_temporada = x[1]
     texto = limpiar(re.sub(r"\(\s*\)", " ", texto))
     for prefijo in t.prefijos:
         if _sin_tildes(texto).startswith(_sin_tildes(prefijo)):
@@ -165,6 +171,10 @@ def leer(titulo: str, detalle: str, t: m.Criterios) -> Lectura:
     posiciones = [(texto.find(s), s) for s in t.separadores if texto.find(s) > 0]
     if conocido:
         corte = _cortar_en(texto, len(_clave(conocido)))
+        # El "?" de "¿Y tu que vas a hacer?" no cuenta como letra: va con el programa, no al capítulo.
+        cola = re.search(r"[^\w\s]*$", conocido)[0]
+        if cola and texto[corte:].lstrip().startswith(cola):
+            corte = texto.index(cola, corte) + len(cola)
         programa, capitulo = texto[:corte], texto[corte:]
     elif posiciones and not detalle:
         pos, sep = min(posiciones)
@@ -194,8 +204,8 @@ def _texto(v) -> str:
 def criterios(df: pd.DataFrame, t: m.Criterios, mascara) -> pd.DataFrame:
     if t.columna not in df.columns:
         raise ErrorTarjeta(f"No existe la columna {t.columna}")
-    destinos = {"programa": t.programa, "capitulo": t.capitulo, "temporada": t.temporada, "numero": t.numero,
-                "anio": t.anio, "tt": t.tt}
+    destinos = {"programa": t.programa, "capitulo": t.capitulo, "temporada": t.temporada,
+                "titulo_temporada": t.titulo_temporada, "numero": t.numero, "anio": t.anio, "tt": t.tt}
     for campo, columna in destinos.items():
         if columna and columna not in df.columns:
             df[columna] = None
@@ -258,6 +268,7 @@ def configurar(tabla: pd.DataFrame, salida: list[str], programa: str | None) -> 
         capitulo=capitulo,
         numero=_destino(salida, lambda k: "cap" in k and ("nro" in k or "num" in k or k.startswith("n "))),
         temporada=_destino(salida, lambda k: "temp" in k and "tit" not in k),
+        titulo_temporada=_destino(salida, lambda k: "temp" in k and "tit" in k),
         anio=_destino(salida, lambda k: k in ("ano", "anio", "year", "a o")),
         tt=_destino(salida, lambda k: k == "tt"),
     )
