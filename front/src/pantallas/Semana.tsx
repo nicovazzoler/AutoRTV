@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { api, textoDeError } from "../api";
-import { haceCuanto, numeroSemana, rangoSemana } from "../fechas";
+import { haceCuanto, nombreMes, numeroSemana, rangoSemana } from "../fechas";
 import { CeldaEditable } from "../piezas/CeldaEditable";
 import { Enlace } from "../piezas/Enlace";
 import { TablaGrilla, type Filtro } from "../piezas/TablaGrilla";
@@ -56,6 +56,7 @@ export function Semana({ senalId }: { senalId: string }) {
   const [filtros, setFiltros] = useState<Filtros>({});
   const [desde, setDesde] = useState("");
   const [hasta, setHasta] = useState("");
+  const [repetir, setRepetir] = useState<"" | "mes" | "dos_meses">("");
   const [vista, setVista] = useState<Filtro | null>(null);
   const [subiendo, setSubiendo] = useState(false);
 
@@ -115,6 +116,7 @@ export function Semana({ senalId }: { senalId: string }) {
       const recorte = new URLSearchParams({ formato });
       if (desde) recorte.set("desde", desde);
       if (hasta) recorte.set("hasta", hasta);
+      if (repetir) recorte.set("repetir", repetir);
       await api.descargar(`/senales/${senalId}/abierta/export?${recorte}`);
     } catch (e) {
       setError(textoDeError(e));
@@ -173,9 +175,18 @@ export function Semana({ senalId }: { senalId: string }) {
           </button>
           {menuExportar && (
             <div className="menu-cuenta" role="dialog" aria-label="Exportar" style={{ position: "absolute", right: 0, top: "calc(100% + 6px)", zIndex: 2, minWidth: 260, gap: 8, padding: 10 }}>
-              <span className="chico tenue">Vacío = toda la semana. La hora es opcional.</span>
+              <span className="chico tenue">Desde y hasta vacíos = todo. La hora es opcional.</span>
               <label className="campo chico">Desde<input className="entrada" type="datetime-local" value={desde} onChange={(e) => setDesde(e.target.value)} /></label>
               <label className="campo chico">Hasta<input className="entrada" type="datetime-local" value={hasta} onChange={(e) => setHasta(e.target.value)} /></label>
+              {resumen.hasta && (
+                <label className="campo chico">Repetir la última semana
+                  <select className="entrada" value={repetir} onChange={(e) => setRepetir(e.target.value as typeof repetir)}>
+                    <option value="">No, como vino</option>
+                    <option value="mes">Hasta fin de {nombreMes(resumen.hasta)}</option>
+                    <option value="dos_meses">Hasta fin de {nombreMes(resumen.hasta, 1)}</option>
+                  </select>
+                </label>
+              )}
               <button type="button" onClick={() => confirmar("xlsx")}>Excel (.xlsx)</button>
               <button type="button" onClick={() => confirmar("csv")}>CSV</button>
             </div>

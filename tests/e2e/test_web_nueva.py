@@ -130,12 +130,19 @@ def test_semana_de_punta_a_punta(servidor, tmp_path):
 
         # Exportar solo el lunes.
         pagina.get_by_role("button", name="Confirmar y exportar").click()
-        pagina.get_by_label("Hasta").fill("2026-11-02T23:59")
+        pagina.get_by_label("Hasta", exact=True).fill("2026-11-02T23:59")
         with pagina.expect_download() as bajada:
             pagina.get_by_role("button", name="Excel (.xlsx)").click()
         from openpyxl import load_workbook
         with open(bajada.value.path(), "rb") as f:
             assert load_workbook(f).active.max_row == 2  # encabezado + el lunes
+
+        # Repetir la última semana pide 7 días: esta grilla trae 5.
+        pagina.get_by_role("button", name="Exportar de nuevo").click()
+        pagina.get_by_label("Hasta", exact=True).fill("")
+        pagina.get_by_label("Repetir la última semana").select_option(label="Hasta fin de noviembre")
+        pagina.get_by_role("button", name="Excel (.xlsx)").click()
+        pagina.get_by_role("alert").filter(has_text="hace falta una semana entera").wait_for()
 
         # Volver a la lista: confirmar pasó lo nuevo a la base y no queda nada pendiente.
         pagina.get_by_role("link", name="‹ Señales").click()

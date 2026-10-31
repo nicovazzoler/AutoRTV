@@ -1003,13 +1003,51 @@ def editar_celda_abierta(senal_id: str, datos: Celda, u: auth.Usuario = Depends(
     return _grilla_abierta(senal_id)
 
 
+# Hasta qué mes se repite la última semana: el de su último día, o también el siguiente.
+REPETIR = {"mes": 0, "dos_meses": 1}
+
+
 @api.get("/senales/{senal_id}/abierta/export")
-def exportar_abierta(senal_id: str, formato: str = "xlsx", desde: str | None = None, hasta: str | None = None):
-    """`desde` y `hasta` (2026-11-02 o 2026-11-02T06:00) recortan lo que sale, con las dos puntas adentro."""
+def exportar_abierta(senal_id: str, formato: str = "xlsx", desde: str | None = None, hasta: str | None = None,
+                     repetir: str | None = None):
+    """`desde` y `hasta` (2026-11-02 o 2026-11-02T06:00) recortan lo que sale, con las dos puntas adentro.
+
+    `repetir` copia la última semana hasta fin de mes ("mes") o del mes siguiente ("dos_meses"), antes del recorte.
+    """
     receta, p = _pedido_abierta(senal_id)
     c = _correr(p)
-    salida = _recortar(c.salida, receta, desde, hasta) if desde or hasta else c.salida
+    salida = _repetir(c.salida, receta, repetir) if repetir else c.salida
+    salida = _recortar(salida, receta, desde, hasta) if desde or hasta else salida
+    if salida is not c.salida:
+        salida = _numerar(salida)
     return _archivo(salida, receta.id, formato, c.estados.count("nueva"))
+
+
+def _columnas_de_fecha(salida: pd.DataFrame, receta: m.Senal, para: str) -> dict:
+    cols = grilla.detectar_columnas(list(salida.columns), receta.validaciones)
+    if not cols.get("fecha") or cols["fecha"] not in salida.columns:
+        raise HTTPException(422, f"Esta grilla no tiene una columna de fecha para {para}")
+    return cols
+
+
+def _repetir(salida: pd.DataFrame, receta: m.Senal, repetir: str) -> pd.DataFrame:
+    if repetir not in REPETIR:
+        raise HTTPException(422, f"repetir tiene que ser {' o '.join(REPETIR)}")
+    cols = _columnas_de_fecha(salida, receta, "repetir la semana")
+    dias = [d for f in salida[cols["fecha"]] if (d := a_fecha(f))]
+    if not dias:
+        raise HTTPException(422, "La grilla no tiene fechas que se puedan leer")
+    try:
+        return semanas.repetir_ultima(salida, cols["fecha"], cols.get("hora"), semanas.fin_de_mes(max(dias), REPETIR[repetir]))
+    except ValueError as e:
+        raise HTTPException(422, str(e))
+
+
+def _numerar(salida: pd.DataFrame) -> pd.DataFrame:
+    numero = next((x for x in salida.columns if catalogo.clave(x) == "n"), None)
+    if numero:
+        salida[numero] = range(1, len(salida) + 1)
+    return salida
 
 
 def _momento(texto: str | None, fin: bool) -> dt.datetime | None:
@@ -1024,9 +1062,7 @@ def _momento(texto: str | None, fin: bool) -> dt.datetime | None:
 
 
 def _recortar(salida: pd.DataFrame, receta: m.Senal, desde: str | None, hasta: str | None) -> pd.DataFrame:
-    cols = grilla.detectar_columnas(list(salida.columns), receta.validaciones)
-    if not cols.get("fecha") or cols["fecha"] not in salida.columns:
-        raise HTTPException(422, "Esta grilla no tiene una columna de fecha para recortar")
+    cols = _columnas_de_fecha(salida, receta, "recortar")
     inicio, fin = _momento(desde, False), _momento(hasta, True)
     horas = salida[cols["hora"]] if cols.get("hora") in salida.columns else [None] * len(salida)
     dentro = []
@@ -1034,11 +1070,7 @@ def _recortar(salida: pd.DataFrame, receta: m.Senal, desde: str | None, hasta: s
         dia = a_fecha(f)
         cuando = dt.datetime.combine(dia, a_hora(h) or dt.time(0)) if dia else None
         dentro.append(cuando is not None and (inicio is None or cuando >= inicio) and (fin is None or cuando <= fin))
-    recorte = salida[dentro].reset_index(drop=True)
-    numero = next((x for x in recorte.columns if catalogo.clave(x) == "n"), None)
-    if numero:
-        recorte[numero] = range(1, len(recorte) + 1)
-    return recorte
+    return salida[dentro].reset_index(drop=True)
 
 
 @api.post("/senales/{senal_id}/pautas/limpiar", dependencies=[Depends(auth.solo_admin)])

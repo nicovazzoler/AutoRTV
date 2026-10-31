@@ -8,6 +8,10 @@ function dia(iso: string): Date {
   return new Date(a, m - 1, d);
 }
 
+export function nombreMes(iso: string, mesesDespues = 0): string {
+  return MESES[(dia(iso).getMonth() + mesesDespues) % 12];
+}
+
 export function rangoSemana(desde: string | null, hasta: string | null): string {
   if (!desde || !hasta) return "Semana sin fechas";
   const a = dia(desde);

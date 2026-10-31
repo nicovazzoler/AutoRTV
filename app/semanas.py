@@ -88,6 +88,59 @@ def comparar(antes: pd.DataFrame, ahora: pd.DataFrame, fecha: str, hora: str, co
     return cambios
 
 
+FORMATOS_FECHA = ("%d/%m/%Y", "%Y-%m-%d", "%d-%m-%Y", "%d/%m/%y", "%d.%m.%Y")
+
+
+def fin_de_mes(dia: dt.date, meses_despues: int = 0) -> dt.date:
+    primero = dia.replace(day=1)
+    for _ in range(meses_despues + 1):
+        primero = (primero + dt.timedelta(days=32)).replace(day=1)
+    return primero - dt.timedelta(days=1)
+
+
+def _correr_fecha(v, dias: int):
+    """La misma fecha `dias` después, con el mismo tipo o formato de texto que traía."""
+    if isinstance(v, (dt.date, pd.Timestamp)):
+        return v + dt.timedelta(days=dias)
+    texto = _texto(v)
+    for formato in FORMATOS_FECHA:
+        try:
+            return (dt.datetime.strptime(texto, formato) + dt.timedelta(days=dias)).strftime(formato)
+        except ValueError:
+            pass
+    dia = a_fecha(v)
+    return dia + dt.timedelta(days=dias) if dia else v
+
+
+def repetir_ultima(salida: pd.DataFrame, fecha: str, hora: str | None, hasta: dt.date) -> pd.DataFrame:
+    """Copia los últimos 7 días de la grilla, semana tras semana, hasta `hasta` inclusive.
+
+    Se toma por momento (fecha + hora) y no por día: una grilla de lunes 06:00 a lunes 05:59 sigue pegada al copiarse.
+    """
+    horas = salida[hora] if hora in salida.columns else [None] * len(salida)
+    momentos = [dt.datetime.combine(d, a_hora(h) or dt.time(0)) if (d := a_fecha(f)) else None
+                for f, h in zip(salida[fecha], horas)]
+    validos = [x for x in momentos if x]
+    if not validos:
+        raise ValueError("La grilla no tiene fechas que se puedan leer")
+    ultimo = max(validos)
+    bloque = [i for i, x in enumerate(momentos) if x and x > ultimo - dt.timedelta(days=7)]
+    dias = {momentos[i].date() for i in bloque}
+    if len(dias) < 7:
+        raise ValueError(f"Para repetir hace falta una semana entera y la grilla trae {len(dias)} días")
+    primero = min(dias)
+    copias = []
+    semanas = 1
+    while primero + dt.timedelta(days=7 * semanas) <= hasta:
+        corridos = 7 * semanas
+        filas = [i for i in bloque if momentos[i].date() + dt.timedelta(days=corridos) <= hasta]
+        copia = salida.iloc[filas].copy()
+        copia[fecha] = [_correr_fecha(v, corridos) for v in copia[fecha]]
+        copias.append(copia)
+        semanas += 1
+    return pd.concat([salida, *copias], ignore_index=True) if copias else salida
+
+
 def _meta(fila) -> dict:
     datos = {c: getattr(fila, c) for c in COLUMNAS_META}
     for c in ("subida", "confirmada"):
