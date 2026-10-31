@@ -23,6 +23,8 @@ TARJETA = m.Criterios(id="c", tipo="criterios", columna="Titulo", detalle="Detal
     ("Los cuentos de Chaski R T1", "", Lectura("Los cuentos de Chaski", temporada=1, tt="(r)")),
     ("Mundo matemático 2", "", Lectura("Mundo matemático", numero=2)),
     ("Live at Wembley - Queen", "", Lectura("Live at Wembley", "Queen")),
+    ("Investigacion Cientifica T2026", "#7 Historia", Lectura("Investigacion Cientifica", "Historia", numero=7,
+                                                              titulo_temporada="2026")),
     ("Fútbol en vivo", "", Lectura("Fútbol", tt="(v)")),
     ("Cine: Rocky II", "", Lectura("Rocky II")),
     ("La serie Capítulo 4", "", Lectura("La serie", numero=4)),
@@ -34,6 +36,11 @@ TARJETA = m.Criterios(id="c", tipo="criterios", columna="Titulo", detalle="Detal
 ])
 def test_criterios_generales(titulo, detalle, esperada):
     assert leer(titulo, detalle, TARJETA) == esperada
+
+
+def test_el_programa_conocido_se_queda_con_su_signo_final():
+    t = TARJETA.model_copy(update={"titulos": ["¿Y tu que vas a hacer?"]})
+    assert leer("¿ Y tu que vas a hacer? T1", "#2 Silao", t) == Lectura("¿Y tu que vas a hacer?", "Silao", 1, 2)
 
 
 def test_mayusculas_en_ingles_y_respeta_lo_mezclado():

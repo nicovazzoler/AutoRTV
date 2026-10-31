@@ -52,6 +52,19 @@ def test_columna_de_programa_por_nombre_o_catalogo():
     assert semana.columna_programa(["N", "Tit orig"], v) == "Tit orig"
     assert semana.columna_programa(["N", "Show"], m.Validaciones(programa="Show")) == "Show"
     assert semana.columna_programa(["N"], v) is None
+    assert semana.columna_programa(["Titulo", "TIT PROG", "TIT CAP"], v) == "TIT PROG"  # no el título crudo
+
+
+def test_un_capitulo_nuevo_toma_de_la_base_lo_que_es_del_programa():
+    base = {f"h{i}": {"estado": "revisada", "salida": {"Programa": "Noches de Jazz", "Genero": "Música",
+                                                        "Nro cap": i, "Tit cap": f"Cap {i}", "Pais": p}}
+            for i, p in ((1, "AR"), (2, "UY"))}
+    base["h3"] = {"estado": "revisada", "salida": {"Programa": "Unitario", "Genero": "Cine"}}
+    df = pd.DataFrame({"Programa": ["NOCHES DE JAZZ", "Unitario", "Noches de Jazz"], "Genero": [None] * 3,
+                       "Nro cap": [3, None, 9], "Tit cap": ["Trío Sur", None, "Otro"]}, dtype=object)
+    salida = semana.completar_del_programa(df, ["nueva", "nueva", "conocida"], base, "Programa")
+    assert salida["Genero"].tolist() == ["Música", None, None]  # Unitario: con un solo capítulo no se sabe qué es suyo
+    assert salida.loc[0, "Nro cap"] == 3 and salida.loc[0, "Tit cap"] == "Trío Sur" and "Pais" not in salida
 
 
 def _semana(cliente, titulos):

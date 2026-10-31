@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { api, textoDeError } from "../api";
+import { esperarArmado, type Armado } from "../armado";
 import { haceCuanto, nombreMes, numeroSemana, rangoSemana } from "../fechas";
 import { CeldaEditable } from "../piezas/CeldaEditable";
 import { Enlace } from "../piezas/Enlace";
@@ -59,11 +60,35 @@ export function Semana({ senalId }: { senalId: string }) {
   const [repetir, setRepetir] = useState<"" | "mes" | "dos_meses">("");
   const [vista, setVista] = useState<Filtro | null>(null);
   const [subiendo, setSubiendo] = useState(false);
+  const [armado, setArmado] = useState<Armado | "armando" | null>(null);
+
+  const esperarReglas = async () => {
+    setArmado("armando");
+    try {
+      const a = await esperarArmado(senalId);
+      setArmado(a);
+      recibir(await api.get<SemanaAbierta>(`/senales/${senalId}/abierta`));
+    } catch (e) {
+      setArmado(null);
+      setError(textoDeError(e));
+    }
+  };
 
   const recibirSubida = (d: SemanaAbierta) => {
     setSubiendo(false);
     setVista(null);
     recibir(d);
+    if (d.armando_reglas) void esperarReglas();
+  };
+
+  const rearmarReglas = async () => {
+    setError("");
+    try {
+      await api.post(`/senales/${senalId}/reglas/armar`);
+      await esperarReglas();
+    } catch (e) {
+      setError(textoDeError(e));
+    }
   };
 
   useEffect(() => {
@@ -145,6 +170,7 @@ export function Semana({ senalId }: { senalId: string }) {
   const problemas = (datos.horarios ?? []).filter((a) => a.nivel !== "info");
   const notas = (datos.horarios ?? []).filter((a) => a.nivel === "info");
   const confirmada = semana.confirmada && semana.confirmada >= semana.subida;
+  const casiTodaNueva = resumen.filas >= 10 && resumen.revisar >= resumen.filas / 2;
   const contenido = datos.contenido ?? [];
   const clave = datos.campos_clave?.length ? datos.campos_clave : contenido;
   // Si un error está en una columna que no es clave, se ve todo de entrada para que no quede escondido.
@@ -196,6 +222,16 @@ export function Semana({ senalId }: { senalId: string }) {
 
       {!resumen.desde && (
         <p className="error" role="alert">No encontré la fecha y la hora en la grilla: así no sale la base ni se puede exportar bien. Pasame el archivo para sumar cómo se lee.</p>
+      )}
+      {armado === "armando" && <p className="nota" role="status">El agente está armando las reglas desde los ejemplos: cuando termine, la semana se vuelve a armar sola.</p>}
+      {armado && armado !== "armando" && armado.mensaje && (
+        <p className={armado.estado === "error" ? "error" : "nota"}>{armado.mensaje}</p>
+      )}
+      {casiTodaNueva && armado !== "armando" && (
+        <p className="nota">
+          {resumen.revisar} de {resumen.filas} filas quedaron para revisar: no están en la base y las reglas no alcanzan. Si casi nada sale bien, puede que la grilla cambió de forma o que las reglas quedaron pegadas al ejemplo.{" "}
+          <button type="button" className="boton" onClick={rearmarReglas}>Rearmar las reglas con el agente</button>
+        </p>
       )}
       {semana.version > 1 && !confirmada && (
         <p className="nota">Es la versión {semana.version} de esta semana: reemplazó a «{semana.anterior_nombre}». Lo que cambió está abajo; hay que volver a confirmar y exportar.</p>

@@ -300,6 +300,7 @@ def _correr(p: Pedido) -> Corrida:
     programas = semana.programas_de_la_base(base, semana.columna_programa(columnas_base, p.senal.validaciones))
     r = aplicar(tabla, p.senal.tarjetas, [*p.senal.titulos_conocidos, *programas])
     df, estados, hashes = pautas.aplicar(tabla, r.tabla, base)
+    df = semana.completar_del_programa(df, estados, base, semana.columna_programa(list(df.columns), p.senal.validaciones))
     salida = semana.completar_titulos(armar_salida(df, p.senal.salida), crear=not p.senal.salida.columnas)
     cat = catalogo.leer()
     if cat and not p.senal.salida.columnas:
@@ -790,7 +791,7 @@ def _abrir(receta: m.Senal, contenido: bytes, detectada, nombre: str, usuario: s
     if nueva is not receta:
         almacen.guardar(nueva, usuario)
     semanas.abrir(receta.id, tabla_id, contenido, nombre, usuario, version)
-    return _semana_abierta(receta.id, nueva)
+    return {**_semana_abierta(receta.id, nueva), "armando_reglas": _armar_si_no_tiene(receta.id, usuario)}
 
 
 def _fechas(salida: pd.DataFrame, receta: m.Senal) -> dict:

@@ -6,10 +6,10 @@ from app.engine import model as m
 from app.engine import titulos
 from app.pautas import normalizar
 
-PROGRAMA_CATALOGO = ("tit orig", "tit princ", "tit ing")
+PROGRAMA_CATALOGO = ("tit orig", "tit princ", "tit prog", "tit programa", "tit ing", "programa")
 NIVELES_QUE_FRENAN = {"error", "aviso"}
 # Lo que identifica a un capítulo, en el orden en que se muestra en Revisar.
-CLAVES_TITULO = ("tit orig", "tit princ", "tit ing", "tit port")
+CLAVES_TITULO = ("tit orig", "tit princ", "tit prog", "tit ing", "tit port")
 CLAVES_CAPITULO = ("nro temp", "nro cap", "tit cap orig", "tit cap princ", "tit cap", "tit cap ing", "tit cap port")
 # Para señales sin las columnas del catálogo (Programa, Capitulo...).
 CLAVES_SUELTAS = ("temporada", "capitulo", "episodio", "numero")
@@ -67,6 +67,51 @@ def completar_titulos(df: pd.DataFrame, crear: bool) -> pd.DataFrame:
             df.at[i, orig] = b
         elif vacia(b) and not vacia(a):
             df.at[i, princ] = a
+    return df
+
+
+# Lo que cambia de un capítulo a otro aunque en la base se haya visto siempre igual.
+DEL_CAPITULO = ("nro temp", "nro cap", "temporada", "capitulo", "episodio", "numero", "tt", "ano", "año")
+# Un programa visto una sola vez no dice qué columnas son suyas: hace falta ver al menos dos capítulos.
+MIN_CAPITULOS = 2
+
+
+def columnas_del_programa(base: dict[str, dict], programa: str) -> dict[str, dict[str, object]]:
+    """Por programa (normalizado), las columnas que tienen el mismo valor en todos sus capítulos de la base."""
+    por_programa: dict[str, list[dict]] = {}
+    for pauta in base.values():
+        nombre = normalizar(pauta["salida"].get(programa))
+        if nombre:
+            por_programa.setdefault(nombre, []).append(pauta["salida"])
+    fichas = {}
+    for nombre, salidas in por_programa.items():
+        if len(salidas) < MIN_CAPITULOS:
+            continue
+        ficha = {}
+        for col in {c for s in salidas for c in s}:
+            k = clave(col)
+            if col == programa or k in DEL_CAPITULO or k.startswith(("tit cap", "sin")):
+                continue
+            valores = {normalizar(s.get(col)) for s in salidas}
+            if len(valores) == 1 and "" not in valores:
+                ficha[col] = salidas[0][col]
+        fichas[nombre] = ficha
+    return fichas
+
+
+def completar_del_programa(df: pd.DataFrame, estados: list[str], base: dict[str, dict],
+                           programa: str | None) -> pd.DataFrame:
+    """Un capítulo nuevo de un programa de la base toma de la base lo que es del programa (género, argumento...)."""
+    if not programa or programa not in df.columns or "nueva" not in estados:
+        return df
+    fichas = columnas_del_programa(base, programa)
+    df = df.copy()
+    for i, estado in zip(df.index, estados):
+        ficha = fichas.get(normalizar(df.at[i, programa])) if estado == "nueva" else None
+        for col, valor in (ficha or {}).items():
+            if col not in df.columns:
+                df[col] = None
+            df.at[i, col] = valor
     return df
 
 
