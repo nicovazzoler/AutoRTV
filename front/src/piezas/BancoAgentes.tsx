@@ -9,10 +9,16 @@ interface SenalBanco {
   ultimo: string;
 }
 
+interface Medida {
+  con_horario: number;
+  empareja: number | null;
+}
+
 interface Lectura {
   modelo: string;
   logrado: boolean;
-  medida: { con_horario: number; empareja: number | null } | null;
+  medida: Medida | null;
+  problemas: string[];
   costo: number;
   segundos: number;
 }
@@ -24,6 +30,8 @@ interface Reglas {
   vueltas: number;
   tarjetas: number;
   peores: [string, number][];
+  problemas: string[];
+  explicacion?: string;
   costo: number;
   segundos: number;
 }
@@ -37,6 +45,7 @@ interface Trio<T> {
 interface ResultadoSenal {
   nombre: string;
   error?: string;
+  codigo?: { medida: Medida; problemas: string[] };
   lectura?: Trio<Lectura>;
   reglas?: Trio<Reglas> | { error: string };
 }
@@ -67,22 +76,44 @@ function usd(n: number): string {
   return `US$ ${n.toLocaleString("es-AR", { minimumFractionDigits: 2, maximumFractionDigits: 3 })}`;
 }
 
+function porcentaje(n: number | null | undefined): string {
+  return n === null || n === undefined ? "sin ejemplo" : `${Math.round(n * 100)} %`;
+}
+
+// Lo que el agente no pudo resolver, plegado para que la tabla siga siendo corta.
+function porQue(problemas: string[] | undefined, explicacion?: string) {
+  if (!problemas?.length && !explicacion) return null;
+  return (
+    <details className="chico">
+      <summary className="tenue" style={{ cursor: "pointer" }}>por qué</summary>
+      {explicacion && <p style={{ margin: "4px 0" }}>{explicacion}</p>}
+      {!!problemas?.length && <ul style={{ margin: "4px 0", paddingLeft: 16 }}>{problemas.map((x, i) => <li key={i}>{x.slice(0, 400)}</li>)}</ul>}
+    </details>
+  );
+}
+
 function celdaLectura(x: Lectura | null | undefined) {
   if (!x) return <span className="tenue">—</span>;
-  const emp = x.medida?.empareja;
-  return <span className={x.logrado ? undefined : "c-revisar"}>{x.logrado ? "✔" : "✗"} {emp === null || emp === undefined ? "" : `${Math.round(emp * 100)} %`}
-    <span className="chico tenue"> · {usd(x.costo)} · {x.segundos} s</span></span>;
+  return (
+    <span>
+      <span className={x.logrado ? undefined : "c-revisar"}>{x.logrado ? "✔" : "✗"} {x.medida ? porcentaje(x.medida.empareja) : ""}</span>
+      <span className="chico tenue"> · {usd(x.costo)} · {x.segundos} s</span>
+      {!x.logrado && porQue(x.problemas)}
+    </span>
+  );
 }
 
 function celdaReglas(x: Reglas | null | undefined) {
   if (!x) return <span className="tenue">—</span>;
+  const fallan = x.peores.filter(([, p]) => p < 100);
   return (
     <span>
       <b className={x.despues >= 90 ? "c-nueva" : x.despues >= 70 ? undefined : "c-revisar"}>{Math.round(x.antes)} → {Math.round(x.despues)} %</b>
       <span className="chico tenue"> · {x.vueltas} {x.vueltas === 1 ? "vuelta" : "vueltas"} · {usd(x.costo)}</span>
-      <br /><span className="chico tenue">{x.peores.some(([, p]) => p < 100)
-        ? `falla en: ${x.peores.filter(([, p]) => p < 100).map(([c, p]) => `${c} ${Math.round(p)} %`).join(", ")}`
-        : "todas las columnas al 100 %"}</span>
+      <br />
+      {x.tarjetas ? <span className="chico tenue">{x.tarjetas} tarjetas · </span> : <span className="chico c-revisar">sin tarjetas · </span>}
+      <span className="chico tenue">{fallan.length ? `falla en: ${fallan.map(([c, p]) => `${c} ${Math.round(p)} %`).join(", ")}` : "todas las columnas al 100 %"}</span>
+      {porQue(x.problemas, x.explicacion)}
     </span>
   );
 }
@@ -196,6 +227,8 @@ export function BancoAgentes() {
           <div className="seccion-cabeza">
             <h3 className="serif" style={{ margin: 0, fontSize: 20 }}>Corrida {abierta.id}</h3>
             <span className="chico tenue">{abierta.usuario} · {haceCuanto(abierta.inicio)} · {abierta.estado} · {usd(abierta.gastado)} de {usd(abierta.parametros.tope)}</span>
+            <span style={{ flexGrow: 1 }} />
+            <a className="enlace-chico" href={`/api/admin/banco/${abierta.id}`} download={`banco-${abierta.id}.json`}>Bajar el detalle (JSON)</a>
           </div>
           {abierta.estado === "corriendo" && (
             <p className="tenue" role="status" style={{ margin: 0, display: "flex", alignItems: "center", gap: 8 }}>
@@ -214,13 +247,19 @@ export function BancoAgentes() {
                   {abierta.resultado.senales.flatMap((r) => {
                     if (r.error) return [<tr key={r.nombre}><td>{r.nombre}</td><td colSpan={4} className="c-revisar">{r.error}</td></tr>];
                     const filas = [];
+                    const senal = (
+                      <td>{r.nombre}{r.codigo && (
+                        <><br /><span className={`chico ${r.codigo.problemas.length ? "c-revisar" : "tenue"}`}>
+                          el código lee {Math.round(r.codigo.medida.con_horario * 100)} % con horario · empareja {porcentaje(r.codigo.medida.empareja)}</span></>
+                      )}</td>
+                    );
                     if (r.lectura) filas.push(
-                      <tr key={`${r.nombre}-l`}><td>{r.nombre}</td><td className="tenue">lectura</td>
+                      <tr key={`${r.nombre}-l`}>{senal}<td className="tenue">lectura</td>
                         <td>{celdaLectura(r.lectura.haiku)}</td><td>{celdaLectura(r.lectura.sonnet)}</td><td>{celdaLectura(r.lectura.escalera)}</td></tr>);
                     if (r.reglas && "error" in r.reglas) filas.push(
-                      <tr key={`${r.nombre}-r`}><td>{r.nombre}</td><td className="tenue">reglas</td><td colSpan={3} className="c-revisar">{r.reglas.error}</td></tr>);
+                      <tr key={`${r.nombre}-r`}>{r.lectura ? <td /> : senal}<td className="tenue">reglas</td><td colSpan={3} className="c-revisar">{r.reglas.error}</td></tr>);
                     else if (r.reglas) filas.push(
-                      <tr key={`${r.nombre}-r`}><td>{r.nombre}</td><td className="tenue">reglas</td>
+                      <tr key={`${r.nombre}-r`}>{r.lectura ? <td /> : senal}<td className="tenue">reglas</td>
                         <td>{celdaReglas(r.reglas.haiku)}</td><td>{celdaReglas(r.reglas.sonnet)}</td><td>{celdaReglas(r.reglas.escalera)}</td></tr>);
                     return filas;
                   })}

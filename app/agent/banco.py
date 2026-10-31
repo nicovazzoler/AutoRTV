@@ -80,6 +80,7 @@ def _reglas(par, receta, ejemplo, proveedor, fuerte, caja) -> dict:
     peores = sorted(columnas.items(), key=lambda x: x[1])[:COLUMNAS_PEORES]
     return {"modelo": modelo, "logrado": p.logrado, "antes": antes, "despues": despues,
             "tarjetas": len(final.tarjetas), "vueltas": p.vueltas, "peores": peores, "problemas": p.problemas[:3],
+            "explicacion": p.explicacion,
             "segundos": round(time.time() - inicio, 1), "costo": costo, "_receta": p.receta}
 
 
@@ -108,7 +109,7 @@ def probar_par(par: Par, proveedor, caja: Caja, pasos=PASOS, avisar: Callable[[s
     buena = detectada if not resultado["codigo"]["problemas"] else next(
         (lectura.ENTRADA.validate_python(x["entrada"]) for x in lecturas if x and x["logrado"]), None)
     if buena is None:
-        resultado["reglas"] = {"error": "Ninguna lectura pasó los controles"}
+        resultado["reglas"] = {"error": "Ninguna lectura pasó los controles: " + "; ".join(resultado["codigo"]["problemas"])}
         return resultado
     receta = m.Senal(id="banco", nombre=par.nombre, entrada=buena, tarjetas=[], salida=m.Salida(columnas=[]))
     ejemplo = asistente.Ejemplo(par.nombre, inputs.leer(par.grilla, buena), esperado)
