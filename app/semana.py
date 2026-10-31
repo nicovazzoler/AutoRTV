@@ -17,9 +17,45 @@ CLAVES_SUELTAS = ("temporada", "capitulo", "episodio", "numero")
 MIN_SINOPSIS = 20
 
 
-def columna_programa(columnas: list[str], v: m.Validaciones) -> str | None:
+# Con menos pautas que esto, mirar el contenido no dice nada: se va por el nombre.
+MIN_PARES = 5
+
+
+def _texto_crudo(crudo: dict) -> str:
+    return normalizar(" ".join(str(v) for v in crudo.values() if v not in (None, "")))
+
+
+def programa_por_contenido(pares: list[tuple[dict, dict]], columnas: list[str]) -> str | None:
+    """La columna del EPG que casi siempre aparece dentro de la fila cruda: el programa, se llame como se llame.
+
+    Si dos empatan (Tit orig y Tit princ, o el título entero), gana la que repite más: un programa tiene muchos capítulos.
+    """
+    if len(pares) < MIN_PARES:
+        return None
+    textos = [_texto_crudo(crudo) for crudo, _ in pares]
+    puntajes = []
+    for c in columnas:
+        valores = [normalizar(salida.get(c)) for _, salida in pares]
+        dentro = [v for v, t in zip(valores, textos) if sum(ch.isalpha() for ch in v) >= 3 and v in t]
+        if dentro:
+            puntajes.append((len(dentro) / len(pares), len(set(dentro)), c))
+    if not puntajes:
+        return None
+    mejor = max(p for p, _, _ in puntajes)
+    if mejor < 0.5:
+        return None
+    return min((distintos, c) for p, distintos, c in puntajes if p >= mejor - 0.05)[1]
+
+
+def pares_de_la_base(base: dict[str, dict]) -> list[tuple[dict, dict]]:
+    return [(p.get("crudo") or {}, p["salida"]) for p in base.values()]
+
+
+def columna_programa(columnas: list[str], v: m.Validaciones, pares: list[tuple[dict, dict]] = ()) -> str | None:
     if v.programa and v.programa in columnas:
         return v.programa
+    if por_contenido := programa_por_contenido(list(pares), columnas):
+        return por_contenido
     por_clave = {clave(c): c for c in columnas}
     return next((por_clave[k] for k in PROGRAMA_CATALOGO if k in por_clave), None) or titulos.detectar_columna(columnas)
 
@@ -70,10 +106,12 @@ def completar_titulos(df: pd.DataFrame, crear: bool) -> pd.DataFrame:
     return df
 
 
-# Lo que cambia de un capítulo a otro aunque en la base se haya visto siempre igual.
-DEL_CAPITULO = ("nro temp", "nro cap", "temporada", "capitulo", "episodio", "numero", "tt", "ano", "año")
 # Un programa visto una sola vez no dice qué columnas son suyas: hace falta ver al menos dos capítulos.
 MIN_CAPITULOS = 2
+
+
+def _vacia(v) -> bool:
+    return v is None or (isinstance(v, float) and pd.isna(v)) or (isinstance(v, str) and not v.strip())
 
 
 def columnas_del_programa(base: dict[str, dict], programa: str) -> dict[str, dict[str, object]]:
@@ -88,10 +126,7 @@ def columnas_del_programa(base: dict[str, dict], programa: str) -> dict[str, dic
         if len(salidas) < MIN_CAPITULOS:
             continue
         ficha = {}
-        for col in {c for s in salidas for c in s}:
-            k = clave(col)
-            if col == programa or k in DEL_CAPITULO or k.startswith(("tit cap", "sin")):
-                continue
+        for col in {c for s in salidas for c in s} - {programa}:
             valores = {normalizar(s.get(col)) for s in salidas}
             if len(valores) == 1 and "" not in valores:
                 ficha[col] = salidas[0][col]
@@ -101,7 +136,8 @@ def columnas_del_programa(base: dict[str, dict], programa: str) -> dict[str, dic
 
 def completar_del_programa(df: pd.DataFrame, estados: list[str], base: dict[str, dict],
                            programa: str | None) -> pd.DataFrame:
-    """Un capítulo nuevo de un programa de la base toma de la base lo que es del programa (género, argumento...)."""
+    """Un capítulo nuevo de un programa de la base completa lo que las reglas dejaron vacío con lo que es igual en
+    todos sus capítulos (género, argumento...). Lo que armaron las reglas no se pisa."""
     if not programa or programa not in df.columns or "nueva" not in estados:
         return df
     fichas = columnas_del_programa(base, programa)
@@ -111,7 +147,8 @@ def completar_del_programa(df: pd.DataFrame, estados: list[str], base: dict[str,
         for col, valor in (ficha or {}).items():
             if col not in df.columns:
                 df[col] = None
-            df.at[i, col] = valor
+            if _vacia(df.at[i, col]):
+                df.at[i, col] = valor
     return df
 
 
@@ -210,7 +247,7 @@ def _primera(por_clave: dict[str, str], claves) -> str | None:
     return next((por_clave[k] for k in claves if k in por_clave), None)
 
 
-def foto(salida: pd.DataFrame, grupos: list[dict], v: m.Validaciones) -> list[list]:
+def foto(salida: pd.DataFrame, grupos: list[dict], v: m.Validaciones, programa: str | None) -> list[list]:
     """La semana en filas cortas con COLUMNAS_FOTO, para guardarla y verla junto a las demás señales."""
     from app.engine.tarjetas.estructura import a_fecha, a_hora
     from app.validate.grilla import detectar_columnas
@@ -218,7 +255,7 @@ def foto(salida: pd.DataFrame, grupos: list[dict], v: m.Validaciones) -> list[li
     columnas = list(salida.columns)
     por_clave = {clave(c): c for c in columnas}
     horario = detectar_columnas(columnas, v)
-    cols = [horario.get("fecha"), horario.get("hora"), horario.get("duracion"), columna_programa(columnas, v),
+    cols = [horario.get("fecha"), horario.get("hora"), horario.get("duracion"), programa,
             _primera(por_clave, ("nro temp", "temporada", "season")),
             _primera(por_clave, ("nro cap", "numero", "number")),
             _primera(por_clave, ("tit cap orig", "tit cap princ", "tit cap", "tit cap ing", "tit cap port", "capitulo",
