@@ -707,7 +707,7 @@ def _receta(senal_id: str) -> m.Senal:
 def _con_entrada(receta: m.Senal, detectada) -> m.Senal:
     """Si la grilla llegó en otro formato que la anterior, la señal pasa a leerla así."""
     entrada = receta.entrada
-    if entrada.tipo != detectada.tipo:
+    if not inputs.mismo_formato(entrada, detectada):
         entrada = detectada
     elif entrada.tipo == "texto" and entrada.fecha_inicio != detectada.fecha_inicio:
         entrada = entrada.model_copy(update={"fecha_inicio": detectada.fecha_inicio})
