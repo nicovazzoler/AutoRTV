@@ -10,7 +10,7 @@ from pathlib import Path
 import pandas as pd
 from pydantic import BaseModel, ConfigDict, TypeAdapter, ValidationError
 
-from app import acciones, export
+from app import acciones, export, pautas
 from app.agent import controles
 from app.agent.cliente import Proveedor
 from app.engine import model as m
@@ -208,12 +208,22 @@ def pedir(receta: m.Senal, tabla: pd.DataFrame, pedido: str, proveedor: Proveedo
     return resultado
 
 
+def _pares_crudos(ejemplo: "Ejemplo") -> list[tuple[dict, dict]]:
+    """(fila cruda sin horario, fila del EPG) de cada fila del ejemplo emparejada con la grilla."""
+    crudas = pautas.crudas(ejemplo.entrada)
+    esperadas = ejemplo.esperado.to_dict("records")
+    pares = ejemplo.pares or [(i, i) for i in range(min(len(crudas), len(esperadas)))]
+    return [(crudas[j], esperadas[i]) for i, j in pares]
+
+
 def con_criterios(receta: m.Senal, tabla: pd.DataFrame, ejemplos: list[Ejemplo], objetivo: str) -> m.Senal | None:
     """La receta con la tarjeta de criterios generales al principio, configurada para esta grilla y este EPG."""
     ejemplo = next((e for e in ejemplos if e.nombre == objetivo), None)
     salida = receta.salida.columnas or (list(ejemplo.esperado.columns) if ejemplo is not None else [])
-    programa = columna_programa(salida, receta.validaciones) if salida else None
-    tarjeta = criterios.configurar(tabla, salida, programa)
+    pares = _pares_crudos(ejemplo) if ejemplo is not None else []
+    contenido = [c for c in salida if c in pautas.columnas_de_contenido(ejemplo.esperado)] if ejemplo is not None else salida
+    programa = columna_programa(contenido or salida, receta.validaciones, pares) if salida else None
+    tarjeta = criterios.configurar(tabla, contenido or salida, programa, pares)
     if tarjeta is None:
         return None
     return receta.model_copy(update={"tarjetas": [tarjeta, *receta.tarjetas]})

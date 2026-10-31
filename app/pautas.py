@@ -303,9 +303,9 @@ def migrar_hashes(con) -> None:
 
 def base(senal_id: str) -> dict[str, dict]:
     with db.transaccion() as con:
-        filas = con.execute(select(db.pautas.c.hash, db.pautas.c.salida, db.pautas.c.estado)
+        filas = con.execute(select(db.pautas.c.hash, db.pautas.c.salida, db.pautas.c.estado, db.pautas.c.crudo)
                             .where(db.pautas.c.senal_id == senal_id)).all()
-    return {h: {"salida": s, "estado": e} for h, s, e in filas}
+    return {h: {"salida": s, "estado": e, "crudo": c} for h, s, e, c in filas}
 
 
 def leer(senal_id: str, h: str) -> dict | None:

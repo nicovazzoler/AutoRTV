@@ -216,22 +216,30 @@ def _semana_siguiente_de_agape() -> bytes:
     return buf.getvalue()
 
 
+# Las columnas del EPG se reconocen por lo que tienen: con nombres que no dicen nada tiene que salir igual.
+RAROS = {"TIT PROG": "Show", "TIT CAP": "Sub", "NRO TEMP": "S", "NRO CAP": "E", "TIT TEMP": "Ciclo", "TT": "Marca"}
+
+
 @pytest.mark.skipif(not AGAPE.exists(), reason="la grilla real no está en el repo")
-def test_la_semana_siguiente_de_agape_sale_con_los_programas_de_la_base(cliente):
+@pytest.mark.parametrize("nombres", [{}, RAROS])
+def test_la_semana_siguiente_de_agape_sale_con_los_programas_de_la_base(cliente, nombres):
     from app import almacen
     from app.agent import asistente
-    archivos = {"grilla_cruda": ("AGAPE.xlsx", AGAPE.read_bytes()), "ejemplo": ("IG.xlsx", AGAPE_EJEMPLO.read_bytes())}
+    from tests.unit.test_api import excel
+    esperado = pd.read_excel(AGAPE_EJEMPLO, dtype=object).rename(columns=nombres)
+    archivos = {"grilla_cruda": ("AGAPE.xlsx", AGAPE.read_bytes()), "ejemplo": ("IG.xlsx", excel(esperado))}
     assert cliente.post("/api/senales/crear", files=archivos, data={"nombre": "Agape"}).status_code == 200
     receta = almacen.leer("agape")
     tabla = cuadricula.leer(AGAPE.read_bytes())
-    ejemplos = [asistente.Ejemplo("ej", tabla, pd.read_excel(AGAPE_EJEMPLO, dtype=object))]
+    ejemplos = [asistente.Ejemplo("ej", tabla, pd.read_excel(io.BytesIO(excel(esperado)), dtype=object))]
     almacen.guardar(asistente.con_criterios(receta, tabla, ejemplos, "ej"), "admin")  # lo mínimo que arma el agente
 
     d = cliente.post("/api/senales/agape/abierta", files={"archivo": ("AGAPE 02-11.xlsx", _semana_siguiente_de_agape())}).json()
-    assert d["programa"] == "TIT PROG"
+    prog, temp, cap = (nombres.get(c, c) for c in ("TIT PROG", "NRO TEMP", "TIT CAP"))
+    assert d["programa"] == prog
     assert d["resumen"]["revisar"] <= 3 < d["resumen"]["nueva_lista"]  # los capítulos nuevos de programas conocidos
-    nuevas = {p["salida"]["TIT PROG"]: p["salida"] for p in d["nuevas"]}
-    assert nuevas["¿Y tu que vas a hacer?"]["NRO TEMP"] == 1 and "Capítulo nuevo" in nuevas["¿Y tu que vas a hacer?"]["TIT CAP"]
+    nuevas = {p["salida"][prog]: p["salida"] for p in d["nuevas"]}
+    assert nuevas["¿Y tu que vas a hacer?"][temp] == 1 and "Capítulo nuevo" in nuevas["¿Y tu que vas a hacer?"][cap]
 
 
 def test_crear_una_senal_con_una_grilla_sin_fecha_ni_hora_avisa(cliente):

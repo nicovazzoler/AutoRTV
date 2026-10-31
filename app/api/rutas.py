@@ -285,6 +285,7 @@ class Corrida:
     crudo: pd.DataFrame
     programas: list[str]
     base: dict[str, dict]
+    programa: str | None  # la columna del programa en la salida
 
 
 def _correr(p: Pedido) -> Corrida:
@@ -297,15 +298,19 @@ def _correr(p: Pedido) -> Corrida:
         raise HTTPException(422, f"No se pudo leer la grilla: {e}")
     base = pautas.base(p.senal.id)
     columnas_base = sorted({c for pauta in base.values() for c in pauta["salida"]})
-    programas = semana.programas_de_la_base(base, semana.columna_programa(columnas_base, p.senal.validaciones))
+    del_programa = semana.columna_programa(columnas_base, p.senal.validaciones, semana.pares_de_la_base(base))
+    programas = semana.programas_de_la_base(base, del_programa)
     r = aplicar(tabla, p.senal.tarjetas, [*p.senal.titulos_conocidos, *programas])
     df, estados, hashes = pautas.aplicar(tabla, r.tabla, base)
-    df = semana.completar_del_programa(df, estados, base, semana.columna_programa(list(df.columns), p.senal.validaciones))
+    if del_programa not in df.columns:
+        del_programa = semana.columna_programa(list(df.columns), p.senal.validaciones)
+    df = semana.completar_del_programa(df, estados, base, del_programa)
     salida = semana.completar_titulos(armar_salida(df, p.senal.salida), crear=not p.senal.salida.columnas)
     cat = catalogo.leer()
     if cat and not p.senal.salida.columnas:
         salida = salida[catalogo.ordenar(list(salida.columns), cat)]
-    return Corrida(salida, r.informes, cat, estados, hashes, pautas.crudas(tabla), tabla, programas, base)
+    return Corrida(salida, r.informes, cat, estados, hashes, pautas.crudas(tabla), tabla, programas, base,
+                   del_programa if del_programa in salida.columns else None)
 
 
 def _validar(c: Corrida, receta: m.Senal) -> list:
@@ -314,7 +319,7 @@ def _validar(c: Corrida, receta: m.Senal) -> list:
 
 def _clasificar(c: Corrida, receta: m.Senal, avisos: list) -> list[dict]:
     columnas = list(c.salida.columns)
-    columna = semana.columna_programa(columnas, receta.validaciones)
+    columna = c.programa
     capitulo = [x for x in semana.campos_clave(columnas, columna) if x != columna]
     repetidas = semana.sinopsis_repetidas(c.salida, [p["salida"] for p in c.base.values()], columna, capitulo)
     return semana.clasificar(c.salida, c.estados, avisos, c.informes, c.programas, columna, repetidas)
@@ -371,12 +376,12 @@ def _armar_semana(c: Corrida, receta: m.Senal) -> dict:
     nuevas = [detalle(g) for g in semana.agrupar(grupos, c.hashes, "nueva_lista")]
     cuenta = {k: sum(g["grupo"] == k for g in grupos) for k in ("base", "nueva_lista", "revisar")}
     return {
-        "_foto": semana.foto(c.salida, grupos, receta.validaciones),
+        "_foto": semana.foto(c.salida, grupos, receta.validaciones, c.programa),
         "lectura": {"filas": len(c.crudo), "columnas": [str(x) for x in c.crudo.columns]},
         "resumen": {"filas": len(c.salida), **cuenta, "pautas_revisar": len(revisar)},
         "contenido": contenido,
-        "programa": semana.columna_programa(contenido, receta.validaciones),
-        "campos_clave": semana.campos_clave(contenido, semana.columna_programa(contenido, receta.validaciones)),
+        "programa": c.programa,
+        "campos_clave": semana.campos_clave(contenido, c.programa),
         "revisar": revisar,
         "nuevas": nuevas,
         "horarios": [asdict(a) for a in avisos if a.regla not in ("catalogo", "titulo_nuevo")],
@@ -608,10 +613,12 @@ def listar_pautas(senal_id: str, estado: str | None = None, q: str = "", desde: 
 def columnas_pautas(senal_id: str):
     """Las columnas que guarda la base, en el orden del catálogo, y cuál es la del programa."""
     receta = _receta(senal_id)
-    vistas = list(dict.fromkeys(c for pauta in pautas.base(senal_id).values() for c in pauta["salida"]))
+    base = pautas.base(senal_id)
+    vistas = list(dict.fromkeys(c for pauta in base.values() for c in pauta["salida"]))
     cat = catalogo.leer()
     columnas = catalogo.ordenar(vistas, cat) if cat else vistas
-    return {"columnas": columnas, "programa": semana.columna_programa(columnas, receta.validaciones)}
+    return {"columnas": columnas,
+            "programa": semana.columna_programa(columnas, receta.validaciones, semana.pares_de_la_base(base))}
 
 
 @api.get("/senales/{senal_id}/pautas/valores")

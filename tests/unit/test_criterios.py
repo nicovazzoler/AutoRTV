@@ -43,6 +43,17 @@ def test_el_programa_conocido_se_queda_con_su_signo_final():
     assert leer("¿ Y tu que vas a hacer? T1", "#2 Silao", t) == Lectura("¿Y tu que vas a hacer?", "Silao", 1, 2)
 
 
+def test_los_destinos_salen_de_lo_que_hay_en_cada_columna():
+    pares = [({"Titulo": f"Serie T{t} #{c} Episodio {c} (R)" if c % 2 else f"Serie T{t} #{c} Episodio {c}",
+               "Extra": f"Ciclo T2026"},
+              {"N": i, "Show": "Serie", "Sub": f"Episodio {c}", "S": t, "E": c, "Marca": "(r)" if c % 2 else None,
+               "Ciclo": 2026})
+             for i, (t, c) in enumerate([(1, 1), (1, 2), (1, 3), (2, 4), (2, 5), (2, 6)])]
+    pares.append(({"Titulo": "Noticias"}, {"N": 7, "Show": "Noticias"}))
+    t = configurar(pd.DataFrame({"Titulo": ["x"]}), ["N", "Show", "Sub", "S", "E", "Marca", "Ciclo"], "Show", pares)
+    assert (t.capitulo, t.temporada, t.numero, t.tt, t.titulo_temporada, t.anio) == ("Sub", "S", "E", "Marca", "Ciclo", None)
+
+
 def test_mayusculas_en_ingles_y_respeta_lo_mezclado():
     en = TARJETA.model_copy(update={"idioma": "en"})
     assert leer("THE NIGHT OF THE LIVING DEAD", "", en).programa == "The Night of the Living Dead"

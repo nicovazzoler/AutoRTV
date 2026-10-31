@@ -250,8 +250,67 @@ def _destino(salida: list[str], prueba) -> str | None:
     return next((c for c in salida if prueba(_clave_columna(c))), None)
 
 
-def configurar(tabla: pd.DataFrame, salida: list[str], programa: str | None) -> m.Criterios | None:
-    """Una tarjeta de criterios generales para esta grilla, con destinos en las columnas del EPG (o nombres comunes)."""
+MARCAS_TT = {"r", "v", "d", "g"}
+
+
+def _entero(v) -> int | None:
+    if isinstance(v, bool):
+        return None
+    if isinstance(v, (int, float)) and not pd.isna(v) and float(v).is_integer():
+        return int(v)
+    return int(v) if isinstance(v, str) and v.strip().isdigit() else None
+
+
+def destinos_por_contenido(pares: list[tuple[dict, dict]], salida: list[str], programa: str | None) -> dict[str, str]:
+    """Capítulo, temporada, número, año y TT del EPG, mirando qué columna saca qué cosa de la fila cruda.
+
+    `pares` son (fila cruda, fila del EPG). Lo que no se reconoce queda afuera y se busca por el nombre.
+    """
+    if len(pares) < 5:
+        return {}
+    crudos = [" | ".join(str(v) for v in c.values() if v not in (None, "")) for c, _ in pares]
+    claves = [_clave(t) for t in crudos]
+    numeros = [{int(n) for n in re.findall(r"\d+", t)} for t in crudos]
+    elegidos: dict[str, str] = {}
+    enteros, textos = [], []
+    for col in salida:
+        if col == programa:
+            continue
+        valores = [(i, e[col]) for i, (_, e) in enumerate(pares) if e.get(col) not in (None, "") and not (
+            isinstance(e.get(col), float) and pd.isna(e[col]))]
+        if not valores:
+            continue
+        if {_clave(str(v)) for _, v in valores} <= MARCAS_TT:
+            elegidos.setdefault("tt", col)
+        elif all(_entero(v) is not None for _, v in valores):
+            dentro = sum(_entero(v) in numeros[i] for i, v in valores) / len(valores)
+            if dentro >= 0.6 and len(valores) < len(pares):  # N y la duración están en todas las filas
+                anio = all(1900 <= _entero(v) <= 2099 for _, v in valores)
+                if anio and sum(bool(TEMPORADA_ANIO.search(crudos[i])) for i, _ in valores) > len(valores) / 2:
+                    elegidos.setdefault("titulo_temporada", col)
+                    continue
+                enteros.append((len({_entero(v) for _, v in valores}), col, anio))
+        else:
+            dentro = [v for i, v in valores if len(_clave(str(v))) >= 3 and _clave(str(v)) in claves[i]]
+            if len(dentro) >= 3 and len(dentro) >= len(valores) / 2:
+                textos.append((len(dentro), col))
+    if textos:
+        elegidos["capitulo"] = max(textos)[1]
+    anios = [col for _, col, es_anio in enteros if es_anio]
+    if anios:
+        elegidos["anio"] = anios[0]
+    resto = sorted(((d, col) for d, col, es_anio in enteros if not es_anio), reverse=True)
+    for campo, (_, col) in zip(("numero", "temporada"), resto):  # el número cambia más que la temporada
+        elegidos[campo] = col
+    return elegidos
+
+
+def configurar(tabla: pd.DataFrame, salida: list[str], programa: str | None,
+               pares: list[tuple[dict, dict]] = ()) -> m.Criterios | None:
+    """Una tarjeta de criterios generales para esta grilla, con destinos en las columnas del EPG.
+
+    Los destinos salen de lo que hay en cada columna (`pares`); el nombre se usa solo para lo que eso no resuelve.
+    """
     por_clave = {_clave_columna(c): c for c in tabla.columns}
     titulo = next((por_clave[k] for k in TITULO_CRUDO if k in por_clave), None) or _columna_de_texto(tabla)
     if titulo is None:
@@ -261,14 +320,24 @@ def configurar(tabla: pd.DataFrame, salida: list[str], programa: str | None) -> 
         return m.Criterios(id="criterios", tipo="criterios", columna=titulo, detalle=detalle)
     clave_prog = _clave_columna(programa or "")
     idioma = "en" if "ing" in clave_prog.split() else "pt" if "port" in clave_prog.split() else "es"
-    capitulo = _destino(salida, lambda k: "cap" in k and "tit" in k or k in ("capitulo", "tit cap"))
+    vistos = destinos_por_contenido(list(pares), salida, programa)
+    por_nombre = {
+        "capitulo": lambda k: "cap" in k and "tit" in k or k in ("capitulo", "tit cap"),
+        "numero": lambda k: "cap" in k and ("nro" in k or "num" in k or k.startswith("n ")),
+        "temporada": lambda k: "temp" in k and "tit" not in k,
+        "anio": lambda k: k in ("ano", "anio", "year", "a o"),
+        "tt": lambda k: k == "tt",
+    }
+    usadas = set(vistos.values()) | {programa}
+    for campo, prueba in por_nombre.items():
+        if campo not in vistos and (col := _destino([c for c in salida if c not in usadas], prueba)):
+            vistos[campo] = col
+            usadas.add(col)
+    titulo_temporada = vistos.get("titulo_temporada") or _destino([c for c in salida if c not in usadas],
+                                                                  lambda k: "temp" in k and "tit" in k)
     return m.Criterios(
         id="criterios", tipo="criterios", columna=titulo, detalle=detalle, idioma=idioma,
         programa=programa or _destino(salida, lambda k: k in ("programa", "p", "tit prog")) or "Programa",
-        capitulo=capitulo,
-        numero=_destino(salida, lambda k: "cap" in k and ("nro" in k or "num" in k or k.startswith("n "))),
-        temporada=_destino(salida, lambda k: "temp" in k and "tit" not in k),
-        titulo_temporada=_destino(salida, lambda k: "temp" in k and "tit" in k),
-        anio=_destino(salida, lambda k: k in ("ano", "anio", "year", "a o")),
-        tt=_destino(salida, lambda k: k == "tt"),
+        capitulo=vistos.get("capitulo"), numero=vistos.get("numero"), temporada=vistos.get("temporada"),
+        titulo_temporada=titulo_temporada, anio=vistos.get("anio"), tt=vistos.get("tt"),
     )

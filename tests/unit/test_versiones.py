@@ -141,7 +141,7 @@ def test_limpiar_la_base_junta_las_pautas_que_separaba_la_hora(cliente):
     r = cliente.post("/api/senales/canal/pautas/limpiar").json()
     assert r == {"antes": 2, "despues": 1, "columnas": ["AM/PM", "Turno"]}
     (pauta,) = pautas.base("canal").values()
-    assert pauta == {"salida": {"TIT ING": "Memory Lane (editada)"}, "estado": "editada"}
+    assert pauta == {"salida": {"TIT ING": "Memory Lane (editada)"}, "estado": "editada", "crudo": {"Programa": "Memory Lane"}}
 
 
 def test_ejemplo_pegado_en_una_senal_de_excel(cliente):

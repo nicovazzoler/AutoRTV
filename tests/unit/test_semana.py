@@ -55,6 +55,13 @@ def test_columna_de_programa_por_nombre_o_catalogo():
     assert semana.columna_programa(["Titulo", "TIT PROG", "TIT CAP"], v) == "TIT PROG"  # no el título crudo
 
 
+def test_la_columna_del_programa_se_reconoce_por_lo_que_tiene_no_por_el_nombre():
+    pares = [({"Titulo": f"Noches de Jazz - Cap {i}"}, {"Show": "Noches de Jazz", "Sub": f"Cap {i}", "Full": f"Noches de Jazz Cap {i}"})
+             for i in range(4)] + [({"Titulo": "Unitario"}, {"Show": "Unitario", "Sub": None, "Full": "Unitario"})]
+    assert semana.columna_programa(["Show", "Sub", "Full"], m.Validaciones(), pares) == "Show"  # repite más que Full
+    assert semana.columna_programa(["Show", "Sub", "Full"], m.Validaciones(), pares[:2]) is None  # pocas: por nombre
+
+
 def test_un_capitulo_nuevo_toma_de_la_base_lo_que_es_del_programa():
     base = {f"h{i}": {"estado": "revisada", "salida": {"Programa": "Noches de Jazz", "Genero": "Música",
                                                         "Nro cap": i, "Tit cap": f"Cap {i}", "Pais": p}}
@@ -65,6 +72,8 @@ def test_un_capitulo_nuevo_toma_de_la_base_lo_que_es_del_programa():
     salida = semana.completar_del_programa(df, ["nueva", "nueva", "conocida"], base, "Programa")
     assert salida["Genero"].tolist() == ["Música", None, None]  # Unitario: con un solo capítulo no se sabe qué es suyo
     assert salida.loc[0, "Nro cap"] == 3 and salida.loc[0, "Tit cap"] == "Trío Sur" and "Pais" not in salida
+    df.loc[0, "Genero"] = "Jazz"
+    assert semana.completar_del_programa(df, ["nueva"] * 3, base, "Programa").loc[0, "Genero"] == "Jazz"  # no pisa reglas
 
 
 def _semana(cliente, titulos):
