@@ -32,9 +32,22 @@ def leer(contenido: bytes, entrada) -> pd.DataFrame:
 
 
 def leer_ejemplo(contenido: bytes, entrada) -> pd.DataFrame:
-    """Un ejemplo se lee como la señal; si vino en otro formato (un HTML en una señal de Excel), como el suyo."""
+    """Un ejemplo se lee como la señal; si vino en otro formato (un HTML en una señal de Excel), como el suyo.
+
+    Si la detección dice otro formato pero la lectura de la señal le encuentra fecha y hora, gana la de la señal:
+    es la que eligió el agente para una grilla que la detección no entiende.
+    """
+    from app.pautas import tiene_horario
     propia = detectar(contenido)
-    return leer(contenido, entrada if mismo_formato(propia, entrada) else propia)
+    if mismo_formato(propia, entrada):
+        return leer(contenido, entrada)
+    try:
+        tabla = leer(contenido, entrada)
+        if tiene_horario(tabla):
+            return tabla
+    except Exception:
+        pass
+    return leer(contenido, propia)
 
 
 def mismo_formato(a, b) -> bool:

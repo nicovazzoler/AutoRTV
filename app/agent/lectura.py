@@ -11,7 +11,7 @@ import pandas as pd
 from pydantic import TypeAdapter, ValidationError
 
 from app import inputs
-from app.agent import controles
+from app.agent import cliente, controles
 from app.agent.cliente import Proveedor
 from app.engine import model as m
 
@@ -152,3 +152,11 @@ def proponer(contenido: bytes, proveedor: Proveedor, modelo: str, esperado: pd.D
                                         + "\n\nCorregí y devolvé la configuración completa otra vez."},
         ]
     return resultado
+
+
+def buscar(contenido: bytes, proveedor: Proveedor, esperado: pd.DataFrame | None = None) -> list[PropuestaLectura]:
+    """Haiku y, si no pasa los controles, Sonnet arrancando de lo de Haiku. La última propuesta es la que vale."""
+    haiku = proponer(contenido, proveedor, cliente.MODELO, esperado)
+    if haiku.logrado:
+        return [haiku]
+    return [haiku, proponer(contenido, proveedor, cliente.MODELO_FUERTE, esperado, previa=haiku)]

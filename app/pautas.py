@@ -167,6 +167,13 @@ def columnas_por_tipo(df: pd.DataFrame) -> dict[str, str]:
     return elegidas
 
 
+def tiene_horario(tabla: pd.DataFrame, v: m.Validaciones | None = None) -> bool:
+    """Si la tabla trae columnas de fecha y de hora, por el nombre o por lo que tienen."""
+    nombradas = grilla.detectar_columnas(list(tabla.columns), v or m.Validaciones())
+    cols = columnas_por_tipo(tabla) | {k: c for k, c in nombradas.items() if c}
+    return cols.get("fecha") in tabla.columns and cols.get("hora") in tabla.columns
+
+
 def desde_ejemplo(crudo: pd.DataFrame, esperado: pd.DataFrame, v: m.Validaciones | None = None
                   ) -> tuple[dict[str, dict], int]:
     """Pautas del par grilla cruda → EPG terminado: {hash: {crudo, salida}} y cuántos conflictos hubo.
