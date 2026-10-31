@@ -481,11 +481,26 @@ async def crear_senal(nombre: str = Form(""), grilla_cruda: UploadFile = File(..
         raise HTTPException(422, str(e))
     tabla_id = tablas.subir(crudo)
     resultado = {"id": senal_id, "nombre": receta.nombre, "ejemplo": sello, "tabla_id": tabla_id,
-                 "pautas": _cargar_pautas(senal_id, crudo, terminado, u.usuario), "semana_abierta": False}
+                 "pautas": _cargar_pautas(senal_id, crudo, terminado, u.usuario), "semana_abierta": False,
+                 "aviso": SIN_HORARIO if _sin_horario(crudo, receta) else None}
     if not agregar_a and _es_de_ahora(terminado, receta):
         semanas.abrir(senal_id, tabla_id, crudo, grilla_cruda.filename or "grilla", u.usuario, es_version=False)
         resultado["semana_abierta"] = True
     return resultado
+
+
+SIN_HORARIO = ("No encontré la fecha y la hora en la grilla: así no se puede emparejar con el ejemplo ni armar "
+               "la semana. Pasame el archivo para sumar cómo se lee.")
+
+
+def _sin_horario(crudo: bytes, receta: m.Senal) -> bool:
+    try:
+        tabla = inputs.leer(crudo, receta.entrada)
+    except Exception:
+        return True
+    nombradas = grilla.detectar_columnas(list(tabla.columns), receta.validaciones)
+    cols = pautas.columnas_por_tipo(tabla) | {k: v for k, v in nombradas.items() if v}
+    return not (cols.get("fecha") in tabla.columns and cols.get("hora") in tabla.columns)
 
 
 def _es_de_ahora(terminado: bytes, receta: m.Senal) -> bool:

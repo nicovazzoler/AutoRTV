@@ -2,6 +2,7 @@ import datetime as dt
 import io
 from pathlib import Path
 
+import pandas as pd
 import pytest
 from openpyxl import Workbook
 
@@ -111,3 +112,98 @@ def test_grilla_real_de_nuestra_tele():
     tabla = inputs.leer(contenido, inputs.detectar(contenido))
     assert len(tabla) == 214
     assert set(tabla.groupby("Fecha")["Duracion"].sum()) == {1440}
+
+
+AGAPE = MUESTRA.parent / "AGAPE cuadricula (26-10).xlsx"
+AGAPE_EJEMPLO = MUESTRA.parent / "AGAPE ejemplo (26-10).xlsx"
+
+
+def _por_programa() -> bytes:
+    """Título arriba, días como texto, una columna HORA para lunes y martes y otra para el miércoles, horas de 12 h."""
+    wb = Workbook()
+    h = wb.active
+    h.append(["CARTA DE PROGRAMACIÓN DEL 2 DE NOV AL 8 NOV 2026"])
+    h.append([None, "LUNES 2", "MARTES 3", "HORA", "MIÉRCOLES 4"])
+    h.append([dt.time(11), "NOTICIAS", None, dt.time(11), "CINE\nLa película"])
+    h.append([None, "#1 Uno", "#2 Dos"])
+    h.append([dt.time(12), "MISA", None, dt.time(1), "DEPORTES"])
+    h.append([dt.time(1), "TARDE", "TARDE"])
+    h.append([dt.time(2), None, None, dt.time(2)])
+    h.append([dt.time(3), "CIERRE"])
+    h.append([dt.time(4), None, None, dt.time(4)])
+    for rango in ("B3:C3", "B5:C5", "B8:E8"):  # la última cruza la columna HORA del miércoles
+        h.merge_cells(rango)
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
+def _con_detalle(df) -> list[tuple]:
+    return [(f.date(), h.strftime("%H:%M"), d, t, None if pd.isna(x) else x)
+            for f, h, d, t, x in df[["Fecha", "Hora", "Duracion", "Titulo", "Detalle"]].itertuples(index=False)]
+
+
+def test_cuadricula_por_programa_con_horas_de_12_y_detalle_abajo():
+    contenido = _por_programa()
+    assert inputs.detectar(contenido).cuadricula
+    lunes, martes, miercoles = LUNES, LUNES + dt.timedelta(1), LUNES + dt.timedelta(2)
+    assert _con_detalle(cuadricula.leer(contenido)) == [
+        (lunes, "11:00", 60, "NOTICIAS", "#1 Uno"), (lunes, "12:00", 60, "MISA", None),
+        (lunes, "13:00", 120, "TARDE", None), (lunes, "15:00", 60, "CIERRE", None),
+        (martes, "11:00", 60, "NOTICIAS", "#2 Dos"), (martes, "12:00", 60, "MISA", None),
+        (martes, "13:00", 120, "TARDE", None), (martes, "15:00", 60, "CIERRE", None),
+        (miercoles, "11:00", 120, "CINE", "La película"), (miercoles, "13:00", 120, "DEPORTES", None),
+        (miercoles, "15:00", 60, "CIERRE", None),
+    ]
+
+
+def test_cuadricula_por_programa_de_24_horas_cruza_la_medianoche():
+    wb = Workbook()
+    h = wb.active
+    h.append(["Semana del 2 de noviembre de 2026"])
+    h.append([None, "Lun 2", "Mar 3", "Mie 4"])
+    h.append([dt.time(22), "NOTICIAS"])
+    h.append([None, "#5 Final"])
+    h.append([dt.time(23, 30), "CINE"])
+    h.append([dt.time(0, 30), "MADRUGADA"])
+    h.append([dt.time(1)])
+    for fila in range(3, 7):
+        h.merge_cells(f"B{fila}:D{fila}")
+    buf = io.BytesIO()
+    wb.save(buf)
+    filas = _con_detalle(cuadricula.leer(buf.getvalue()))
+    assert filas[:3] == [(LUNES, "22:00", 90, "NOTICIAS", "#5 Final"), (LUNES, "23:30", 60, "CINE", None),
+                         (LUNES + dt.timedelta(1), "00:30", 30, "MADRUGADA", None)]
+    assert len(filas) == 9
+
+
+@pytest.mark.skipif(not AGAPE.exists(), reason="la grilla real no está en el repo")
+def test_grilla_real_de_agape_contra_su_ejemplo():
+    tabla = cuadricula.leer(AGAPE.read_bytes())
+    ejemplo = pd.read_excel(AGAPE_EJEMPLO)
+    leido = {(f.date(), h.strftime("%H:%M")): t.lower() for f, h, t in tabla[["Fecha", "Hora", "Titulo"]].itertuples(index=False)}
+    iguales = sum(str(p).lower()[:8] in leido.get((f.date(), h.strftime("%H:%M")), "")
+                  for f, h, p in ejemplo[["FECHA", "HORA", "TIT PROG"]].itertuples(index=False))
+    assert iguales / len(ejemplo) > 0.85  # lo que falta lo cambió una persona: "Fin de transmisión", programas partidos
+
+
+@pytest.mark.skipif(not AGAPE.exists(), reason="la grilla real no está en el repo")
+def test_crear_agape_con_su_ejemplo_saca_casi_todo_de_la_base(cliente):
+    archivos = {"grilla_cruda": ("AGAPE.xlsx", AGAPE.read_bytes()), "ejemplo": ("IG.xlsx", AGAPE_EJEMPLO.read_bytes())}
+    r = cliente.post("/api/senales/crear", files=archivos, data={"nombre": "Agape"})
+    assert r.status_code == 200, r.text
+    assert r.json()["aviso"] is None and r.json()["pautas"]["agregadas"] > 50  # se repiten mucho: el Angelus, la misa
+    resumen = cliente.post("/api/senales/agape/abierta", files={"archivo": ("AGAPE.xlsx", AGAPE.read_bytes())}).json()["resumen"]
+    assert resumen["base"] / resumen["filas"] > 0.85
+
+
+def test_crear_una_senal_con_una_grilla_sin_fecha_ni_hora_avisa(cliente):
+    wb = Workbook()
+    wb.active.append(["Programa", "Capitulo"])
+    wb.active.append(["Noticias", "Uno"])
+    buf = io.BytesIO()
+    wb.save(buf)
+    archivos = {"grilla_cruda": ("rara.xlsx", buf.getvalue()), "ejemplo": ("ej.xlsx", _xlsx())}
+    r = cliente.post("/api/senales/crear", files=archivos, data={"nombre": "Rara"})
+    assert r.status_code == 200, r.text
+    assert "No encontré la fecha y la hora" in r.json()["aviso"]
