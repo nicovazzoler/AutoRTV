@@ -3,11 +3,12 @@ import { api, textoDeError } from "../api";
 import { haceCuanto, numeroSemana, rangoSemana } from "../fechas";
 import { CeldaEditable } from "../piezas/CeldaEditable";
 import { Enlace } from "../piezas/Enlace";
+import { TablaGrilla, type Filtro } from "../piezas/TablaGrilla";
+import { Subir } from "./Subir";
 import { cumple, FilaFiltros, type Filtros } from "../piezas/FiltrosColumna";
-import { aSenal } from "../ruta";
 import { tomarSemana } from "../semanaReciente";
 import { useSesion } from "../sesion";
-import type { CambioVersion, Celdas, Pauta, SemanaAbierta } from "../tipos";
+import type { CambioVersion, Celdas, SemanaAbierta } from "../tipos";
 
 function valores(celdas: Celdas, sin: string | null | undefined, cuantos: number, yaVistos: Celdas = {}): string {
   const vistos = new Set(Object.values(yaVistos).map(String));
@@ -16,11 +17,6 @@ function valores(celdas: Celdas, sin: string | null | undefined, cuantos: number
     .slice(0, cuantos)
     .map(([, v]) => String(v))
     .join(" · ");
-}
-
-function programaDe(p: Pauta, columna: string | null | undefined): string {
-  const v = columna ? p.salida[columna] : null;
-  return v ? String(v) : valores(p.salida, null, 1) || "(sin programa)";
 }
 
 const DIAS_CORTOS = ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"];
@@ -41,8 +37,16 @@ function fraseCambioVersion(c: CambioVersion, programa: string | null | undefine
   return mostrar.map((k) => `${k === programa ? "" : `${k}: `}${c.antes?.[k] || "(vacío)"} → ${c.ahora?.[k] || "(vacío)"}`).join(" · ");
 }
 
-export function Revisar({ senalId }: { senalId: string }) {
-  const { senales, actualizarSemana } = useSesion();
+const VISTAS: { id: Filtro; nombre: string }[] = [
+  { id: "revisar", nombre: "Para revisar" },
+  { id: "nueva_lista", nombre: "Nuevas" },
+  { id: "base", nombre: "De la base" },
+  { id: "todas", nombre: "Todas" },
+];
+
+/** La semana de una señal: subir la grilla, revisar lo que frena, ver la grilla entera y confirmar. */
+export function Semana({ senalId }: { senalId: string }) {
+  const { senales, actualizarSemana, setContexto } = useSesion();
   const senal = senales?.find((s) => s.id === senalId);
   const [datos, setDatos] = useState<SemanaAbierta | null>(() => tomarSemana(senalId));
   const [error, setError] = useState("");
@@ -52,6 +56,21 @@ export function Revisar({ senalId }: { senalId: string }) {
   const [filtros, setFiltros] = useState<Filtros>({});
   const [desde, setDesde] = useState("");
   const [hasta, setHasta] = useState("");
+  const [vista, setVista] = useState<Filtro | null>(null);
+  const [subiendo, setSubiendo] = useState(false);
+
+  const recibirSubida = (d: SemanaAbierta) => {
+    setSubiendo(false);
+    setVista(null);
+    recibir(d);
+  };
+
+  useEffect(() => {
+    const nombre = senal?.nombre ?? senalId;
+    const pendientes = datos?.resumen?.revisar ?? 0;
+    const v = datos?.semana ? VISTAS.find((x) => x.id === (vista ?? (pendientes > 0 ? "revisar" : "todas")))?.nombre : "sin grilla";
+    setContexto(`${nombre} · Semana${v ? ` · ${v}` : ""}`);
+  }, [senal?.nombre, senalId, vista, datos, setContexto]);
 
   const recibir = useCallback((d: SemanaAbierta) => {
     setDatos(d);
@@ -103,31 +122,24 @@ export function Revisar({ senalId }: { senalId: string }) {
     setOcupado(null);
   };
 
+  const volver = <Enlace a="/" className="volver">‹ Señales</Enlace>;
   if (!datos) {
     return (
       <main className="contenido">
+        {volver}
         {error ? <p className="error" role="alert">{error}</p> : <p className="tenue">Armando la semana…</p>}
-        {error && <div className="botones"><Enlace a={aSenal(senalId, "subir")} className="boton">Subir la grilla</Enlace></div>}
       </main>
     );
   }
 
   if (!datos.semana || !datos.resumen) {
-    return (
-      <main className="contenido angosto">
-        <header className="cabecera-textos">
-          <span className="antetitulo">{senal?.nombre ?? senalId}</span>
-          <h1 className="titulo">Todavía no hay grilla de esta semana</h1>
-          <p className="bajada">Subila como venga y te muestro qué sale de la base y qué hay que mirar.</p>
-        </header>
-        <div className="botones"><Enlace a={aSenal(senalId, "subir")} className="boton principal">Subir grilla</Enlace></div>
-      </main>
-    );
+    return <main className="contenido">{volver}<Subir senalId={senalId} alLeer={recibirSubida} /></main>;
   }
 
   const { semana, resumen } = datos;
+  const elegida: Filtro = vista ?? (resumen.revisar > 0 ? "revisar" : "todas");
+  const cuenta: Record<Filtro, number> = { revisar: resumen.revisar, nueva_lista: resumen.nueva_lista, base: resumen.base, todas: resumen.filas };
   const revisar = datos.revisar ?? [];
-  const nuevas = datos.nuevas ?? [];
   const problemas = (datos.horarios ?? []).filter((a) => a.nivel !== "info");
   const notas = (datos.horarios ?? []).filter((a) => a.nivel === "info");
   const confirmada = semana.confirmada && semana.confirmada >= semana.subida;
@@ -141,10 +153,11 @@ export function Revisar({ senalId }: { senalId: string }) {
 
   return (
     <main className="contenido">
+      {volver}
       <header className="cabecera">
         <div className="cabecera-textos">
           <span className="antetitulo">
-            {resumen.desde ? `Semana ${numeroSemana(resumen.desde)} · ` : ""}{semana.version > 1 ? `v${semana.version} · ` : ""}{semana.nombre} · subida por {semana.subida_por} {haceCuanto(semana.subida)}
+            {senal?.nombre ?? senalId} · {resumen.desde ? `Semana ${numeroSemana(resumen.desde)} · ` : ""}{semana.version > 1 ? `v${semana.version} · ` : ""}{semana.nombre} · subida por {semana.subida_por} {haceCuanto(semana.subida)}
           </span>
           <h1 className="titulo">{rangoSemana(resumen.desde, resumen.hasta)}</h1>
           <p className="bajada">
@@ -153,7 +166,7 @@ export function Revisar({ senalId }: { senalId: string }) {
           </p>
         </div>
         <div className="botones" style={{ position: "relative" }}>
-          <Enlace a={aSenal(senalId, "subir")} className="boton">Subir otra grilla</Enlace>
+          <button type="button" className="boton" onClick={() => setSubiendo(true)}>Subir otra</button>
           <button type="button" className="boton principal" aria-haspopup="menu" aria-expanded={menuExportar}
             disabled={ocupado === "confirmar"} onClick={() => setMenuExportar(!menuExportar)}>
             {ocupado === "confirmar" ? "Confirmando…" : confirmada ? "Exportar de nuevo" : "Confirmar y exportar"}
@@ -178,91 +191,95 @@ export function Revisar({ senalId }: { senalId: string }) {
       )}
       {error && <p className="error" role="alert">{error}</p>}
 
-      <section aria-label="Para revisar" className="seccion">
-        <div className="seccion-cabeza">
-          <h2>Para revisar</h2>
-          <span className="chico tenue">{resumen.pautas_revisar} {resumen.pautas_revisar === 1 ? "pauta" : "pautas"} · {resumen.revisar} {resumen.revisar === 1 ? "emisión" : "emisiones"} · doble clic en una celda para corregirla</span>
-          <span style={{ flexGrow: 1 }} />
-          {revisar.length > 0 && (
-            <button type="button" className="boton chico" aria-pressed={todo} onClick={() => setVerTodo(!todo)}>
-              {todo ? "Solo los campos clave" : `Ver todo (${contenido.length} columnas)`}
-            </button>
-          )}
-        </div>
-        {revisar.length === 0 ? (
-          <p className="tenue" style={{ marginTop: 12 }}>Nada para revisar: todo salió de la base o entra solo.</p>
-        ) : (
-          <div className="desplazable con-alto">
-            <table className="tabla-datos">
-              <thead>
-                <tr>
-                  <th><span className="solo-lector">Acción</span></th>
-                  <th>Motivo</th>
-                  {columnas.map((c) => <th key={c}>{c}</th>)}
-                  <th>Veces</th><th>Cómo vino</th>
-                </tr>
-                <FilaFiltros columnas={["Motivo", ...columnas]} filtros={filtros} alCambiar={setFiltros} antes={1} />
-              </thead>
-              <tbody>
-                {filtradas.map((p) => (
-                  <tr key={p.hash}>
-                    <td>
-                      <button type="button" className="boton chico" disabled={ocupado === p.hash} onClick={() => aceptar(p.hash)}>
-                        {ocupado === p.hash ? "Guardando…" : "Está bien"}
-                      </button>
-                    </td>
-                    <td className="motivos"><ul>{p.motivos.map((m) => <li key={m}>{m}</li>)}</ul></td>
-                    {columnas.map((c) => (
-                      <CeldaEditable key={c} columna={c} valor={p.salida[c]} editable clase={c === datos.programa ? "programa" : ""}
-                        aviso={p.motivos.find((m) => m.startsWith(`${c}:`))} alGuardar={(v) => corregir(p.filas[0], c, v)} />
-                    ))}
-                    <td className="tenue">{p.veces}</td>
-                    <td className="tenue"><span className="dos-renglones">{valores(p.crudo, null, 4)}</span></td>
-                  </tr>
+      {subiendo ? <Subir senalId={senalId} alLeer={recibirSubida} alCancelar={() => setSubiendo(false)} /> : (
+        <>
+          {datos.cambios && (
+            <details className="plegable" open={datos.cambios.length > 0 && datos.cambios.length <= 20}>
+              <summary>Cambios contra la v{semana.version - 1} <span className="chico tenue" style={{ fontFamily: "Inter Variable, sans-serif" }}>
+                {datos.cambios.length === 0 ? "ninguno: vino igual" : `${datos.cambios.length}${datos.cambios.length >= 300 ? " o más" : ""}`}</span></summary>
+              <ul style={{ margin: "12px 0 0", padding: 0, listStyle: "none", display: "flex", flexDirection: "column", gap: 8, fontSize: 14 }}>
+                {datos.cambios.map((c) => (
+                  <li key={`${c.fecha}-${c.hora}`}>
+                    <span className="tenue" style={{ display: "inline-block", minWidth: 110 }}>{cuandoCorto(c)}</span>{" "}
+                    <span className={c.tipo === "sacado" ? "c-revisar" : c.tipo === "agregado" ? "c-nueva" : undefined}>{fraseCambioVersion(c, datos.programa, datos.lectura?.columnas ?? [])}</span>
+                  </li>
                 ))}
-                {filtradas.length === 0 && <tr><td colSpan={columnas.length + 4} className="tenue">Ninguna pauta cumple esos filtros.</td></tr>}
-              </tbody>
-            </table>
+              </ul>
+            </details>
+          )}
+
+          <div className="dos-columnas">
+            <details className="plegable">
+              <summary>Horarios <span className={`chico ${problemas.length ? "c-revisar" : "tenue"}`} style={{ fontFamily: "Inter Variable, sans-serif" }}>
+                {problemas.length ? `${problemas.length} ${problemas.length === 1 ? "aviso" : "avisos"}` : "24 h todos los días, sin huecos"}</span></summary>
+              <ul style={{ margin: "12px 0 0", paddingLeft: 18, display: "flex", flexDirection: "column", gap: 6, fontSize: 14 }}>
+                {problemas.map((a, i) => <li key={i}>{a.fila ? `Fila ${a.fila}: ` : ""}{a.mensaje}</li>)}
+                {notas.map((a, i) => <li key={`n${i}`} className="tenue">{a.mensaje}</li>)}
+                {problemas.length === 0 && notas.length === 0 && <li className="tenue">Sin huecos ni superposiciones.</li>}
+              </ul>
+            </details>
           </div>
-        )}
-      </section>
 
-      {datos.cambios && (
-        <details className="plegable" open={datos.cambios.length > 0 && datos.cambios.length <= 20}>
-          <summary>Cambios contra la v{semana.version - 1} <span className="chico tenue" style={{ fontFamily: "Inter Variable, sans-serif" }}>
-            {datos.cambios.length === 0 ? "ninguno: vino igual" : `${datos.cambios.length}${datos.cambios.length >= 300 ? " o más" : ""}`}</span></summary>
-          <ul style={{ margin: "12px 0 0", padding: 0, listStyle: "none", display: "flex", flexDirection: "column", gap: 8, fontSize: 14 }}>
-            {datos.cambios.map((c) => (
-              <li key={`${c.fecha}-${c.hora}`}>
-                <span className="tenue" style={{ display: "inline-block", minWidth: 110 }}>{cuandoCorto(c)}</span>{" "}
-                <span className={c.tipo === "sacado" ? "c-revisar" : c.tipo === "agregado" ? "c-nueva" : undefined}>{fraseCambioVersion(c, datos.programa, datos.lectura?.columnas ?? [])}</span>
-              </li>
+          <div className="botones" role="group" aria-label="Qué ver" style={{ gap: 6, paddingBottom: 12, borderBottom: "2px solid var(--texto)" }}>
+            {VISTAS.map((v) => (
+              <button key={v.id} type="button" className="boton chico" aria-pressed={elegida === v.id} onClick={() => setVista(v.id)}>
+                {v.nombre} · {cuenta[v.id]}
+              </button>
             ))}
-          </ul>
-        </details>
+          </div>
+
+          {elegida === "revisar" ? (
+            <section aria-label="Para revisar" className="seccion">
+              <div className="seccion-cabeza">
+                <h2>Para revisar</h2>
+                <span className="chico tenue">{resumen.pautas_revisar} {resumen.pautas_revisar === 1 ? "pauta" : "pautas"} · {resumen.revisar} {resumen.revisar === 1 ? "emisión" : "emisiones"} · doble clic en una celda para corregirla</span>
+                <span style={{ flexGrow: 1 }} />
+                {revisar.length > 0 && (
+                  <button type="button" className="boton chico" aria-pressed={todo} onClick={() => setVerTodo(!todo)}>
+                    {todo ? "Solo los campos clave" : `Ver todo (${contenido.length} columnas)`}
+                  </button>
+                )}
+              </div>
+              {revisar.length === 0 ? (
+                <p className="tenue" style={{ marginTop: 12 }}>Nada para revisar: todo salió de la base o entra solo.</p>
+              ) : (
+                <div className="desplazable con-alto">
+                  <table className="tabla-datos">
+                    <thead>
+                      <tr>
+                        <th><span className="solo-lector">Acción</span></th>
+                        <th>Motivo</th>
+                        {columnas.map((c) => <th key={c}>{c}</th>)}
+                        <th>Veces</th><th>Cómo vino</th>
+                      </tr>
+                      <FilaFiltros columnas={["Motivo", ...columnas]} filtros={filtros} alCambiar={setFiltros} antes={1} />
+                    </thead>
+                    <tbody>
+                      {filtradas.map((p) => (
+                        <tr key={p.hash}>
+                          <td>
+                            <button type="button" className="boton chico" disabled={ocupado === p.hash} onClick={() => aceptar(p.hash)}>
+                              {ocupado === p.hash ? "Guardando…" : "Está bien"}
+                            </button>
+                          </td>
+                          <td className="motivos"><ul>{p.motivos.map((m) => <li key={m}>{m}</li>)}</ul></td>
+                          {columnas.map((c) => (
+                            <CeldaEditable key={c} columna={c} valor={p.salida[c]} editable clase={c === datos.programa ? "programa" : ""}
+                              aviso={p.motivos.find((m) => m.startsWith(`${c}:`))} alGuardar={(v) => corregir(p.filas[0], c, v)} />
+                          ))}
+                          <td className="tenue">{p.veces}</td>
+                          <td className="tenue"><span className="dos-renglones">{valores(p.crudo, null, 4)}</span></td>
+                        </tr>
+                      ))}
+                      {filtradas.length === 0 && <tr><td colSpan={columnas.length + 4} className="tenue">Ninguna pauta cumple esos filtros.</td></tr>}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </section>
+          ) : <TablaGrilla key={elegida} senalId={senalId} filtro={elegida} />}
+        </>
       )}
-
-      <div className="dos-columnas">
-        <details className="plegable">
-          <summary>Nuevas listas <span className="chico c-nueva" style={{ fontFamily: "Inter Variable, sans-serif" }}>{resumen.nueva_lista} · entran solas al confirmar</span></summary>
-          <ul style={{ margin: "12px 0 0", padding: 0, listStyle: "none", display: "flex", flexDirection: "column", gap: 8, fontSize: 14 }}>
-            {nuevas.slice(0, 20).map((p) => (
-              <li key={p.hash}>{programaDe(p, datos.programa)} <span className="tenue">· {valores(p.salida, datos.programa, 2)}</span></li>
-            ))}
-            {nuevas.length > 20 && <li className="tenue">y {nuevas.length - 20} más</li>}
-            {nuevas.length === 0 && <li className="tenue">Esta semana no hay capítulos nuevos.</li>}
-          </ul>
-        </details>
-        <details className="plegable">
-          <summary>Horarios <span className={`chico ${problemas.length ? "c-revisar" : "tenue"}`} style={{ fontFamily: "Inter Variable, sans-serif" }}>
-            {problemas.length ? `${problemas.length} ${problemas.length === 1 ? "aviso" : "avisos"}` : "24 h todos los días, sin huecos"}</span></summary>
-          <ul style={{ margin: "12px 0 0", paddingLeft: 18, display: "flex", flexDirection: "column", gap: 6, fontSize: 14 }}>
-            {problemas.map((a, i) => <li key={i}>{a.fila ? `Fila ${a.fila}: ` : ""}{a.mensaje}</li>)}
-            {notas.map((a, i) => <li key={`n${i}`} className="tenue">{a.mensaje}</li>)}
-            {problemas.length === 0 && notas.length === 0 && <li className="tenue">Sin huecos ni superposiciones.</li>}
-          </ul>
-        </details>
-      </div>
     </main>
   );
 }

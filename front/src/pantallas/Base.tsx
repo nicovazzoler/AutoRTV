@@ -2,6 +2,9 @@ import { useCallback, useEffect, useState } from "react";
 import { api, textoDeError } from "../api";
 import { haceCuanto } from "../fechas";
 import { CeldaEditable } from "../piezas/CeldaEditable";
+import { PanelPauta } from "../piezas/PanelPauta";
+import { Enlace } from "../piezas/Enlace";
+import { aBase, navegar } from "../ruta";
 import { useSesion } from "../sesion";
 import type { Celdas, ColumnasBase, ListaPautas, PautaBase, ValorColumna } from "../tipos";
 
@@ -19,9 +22,41 @@ interface Filtros {
 
 const SIN_FILTROS: Filtros = { programa: "", columna: "", valor: "", q: "", estado: "" };
 
-export function Base({ senalId }: { senalId: string }) {
+/** Arriba de Base y de Configuración: qué señal y cuál de las dos pestañas. */
+export function CabeceraBase({ senalId, config }: { senalId: string | null; config: boolean }) {
   const { senales } = useSesion();
-  const senal = senales?.find((s) => s.id === senalId);
+  return (
+    <div className="botones" style={{ alignItems: "center", gap: 14 }}>
+      <select className="entrada selector-senal-base" aria-label="Señal" value={senalId ?? ""}
+        onChange={(e) => e.target.value && navegar(aBase(e.target.value, config))}>
+        {!senalId && <option value="">Elegí una señal…</option>}
+        {(senales ?? []).map((s) => <option key={s.id} value={s.id}>{s.nombre}</option>)}
+      </select>
+      {senalId && (
+        <nav aria-label="Base" className="pestanas-chicas">
+          <Enlace a={aBase(senalId)} aria-current={!config ? "page" : undefined}>Pautas</Enlace>
+          <Enlace a={aBase(senalId, true)} aria-current={config ? "page" : undefined}>Configuración</Enlace>
+        </nav>
+      )}
+    </div>
+  );
+}
+
+export function Base({ senalId }: { senalId: string | null }) {
+  if (!senalId) {
+    return (
+      <main className="contenido">
+        <CabeceraBase senalId={null} config={false} />
+        <p className="tenue">Elegí una señal para ver lo que ya aprendió: cada programa que pasó, tal como quedó en el EPG.</p>
+      </main>
+    );
+  }
+  return <BaseDe senalId={senalId} />;
+}
+
+function BaseDe({ senalId }: { senalId: string }) {
+  const { setContexto } = useSesion();
+  const [abierta, setAbierta] = useState<string | null>(null);
   const [columnas, setColumnas] = useState<ColumnasBase | null>(null);
   const [programas, setProgramas] = useState<ValorColumna[]>([]);
   const [filtros, setFiltros] = useState<Filtros>(SIN_FILTROS);
@@ -129,14 +164,17 @@ export function Base({ senalId }: { senalId: string }) {
 
   const total = Object.values(lista?.por_estado ?? {}).reduce((a, b) => a + b, 0);
   const cols = columnas?.columnas ?? [];
+  const pautaAbierta = pautas.find((p) => p.hash === abierta) ?? null;
+
+  useEffect(() => {
+    setContexto(`Base · Pautas${cuantas ? ` · ${cuantas} marcadas` : ""}${filtros.programa ? ` · programa ${filtros.programa}` : ""}`);
+  }, [cuantas, filtros.programa, setContexto]);
 
   return (
+    <div className="pantalla-con-panel">
     <main className="contenido">
-      <header className="cabecera-textos">
-        <span className="antetitulo">{senal?.nombre ?? senalId} · {total} pautas guardadas</span>
-        <h1 className="titulo">La base</h1>
-        <p className="bajada">Cada programa que ya pasó, tal como quedó en el EPG. Lo que corrijas acá sale así todas las semanas, y la semana abierta se vuelve a armar sola.</p>
-      </header>
+      <CabeceraBase senalId={senalId} config={false} />
+      <p className="bajada" style={{ margin: 0 }}><b>{total}</b> pautas guardadas. Lo que corrijas acá sale así todas las semanas; tocá una fila para editarla entera.</p>
 
       <div className="filtros" role="group" aria-label="Filtros">
         {columnas?.programa && (
@@ -188,7 +226,8 @@ export function Base({ senalId }: { senalId: string }) {
           </thead>
           <tbody>
             {pautas.map((p) => (
-              <tr key={p.hash}>
+              <tr key={p.hash} className={`fila-tocable${abierta === p.hash ? " elegida" : ""}`}
+                onClick={(e) => { if (!(e.target as HTMLElement).closest("input,textarea,button")) setAbierta(p.hash); }}>
                 <td><input type="checkbox" checked={todasDelFiltro || marcadas.has(p.hash)} onChange={() => alternar(p.hash)}
                   aria-label={`Marcar ${vinoComo(p.crudo)}`} style={{ width: 18, height: 18, accentColor: "var(--acento)" }} /></td>
                 <td className="chico tenue" style={{ minWidth: 220 }}>{vinoComo(p.crudo)}</td>
@@ -216,20 +255,23 @@ export function Base({ senalId }: { senalId: string }) {
 
       {cuantas > 0 && (
         <div className="barra-acciones" role="group" aria-label="Cambiar las marcadas">
-          <b>Con las {cuantas} marcadas:</b>
-          <label className="campo" style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>cambiar
-            <select className="entrada" value={cambiarColumna} onChange={(e) => setCambiarColumna(e.target.value)}>
-              {cols.map((c) => <option key={c} value={c}>{c}</option>)}
-            </select>
-          </label>
-          <label className="campo" style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>a
-            <input className="entrada" style={{ width: 160 }} value={cambiarValor} onChange={(e) => setCambiarValor(e.target.value)} placeholder="vacío" />
-          </label>
-          <button type="button" className="boton principal chico" onClick={aplicar} disabled={!cambiarColumna}>Aplicar</button>
+          <span>Cambiar</span>
+          <select className="entrada" aria-label="Columna" value={cambiarColumna} onChange={(e) => setCambiarColumna(e.target.value)} style={{ fontWeight: 600 }}>
+            {cols.map((c) => <option key={c} value={c}>{c}</option>)}
+          </select>
+          <span>a</span>
+          <input className="entrada" aria-label="Valor" style={{ width: 160 }} value={cambiarValor} onChange={(e) => setCambiarValor(e.target.value)} placeholder="vacío" />
+          <span>en <b>{cuantas} {cuantas === 1 ? "pauta" : "pautas"}</b></span>
+          <button type="button" className="boton principal chico" onClick={aplicar} disabled={!cambiarColumna}>Cambiar</button>
           <span style={{ flexGrow: 1 }} />
-          <button type="button" className="boton chico" onClick={olvidar}>Olvidar</button>
+          <button type="button" className="boton chico" onClick={olvidar}>Olvidar {cuantas === 1 ? "la marcada" : `las ${cuantas}`}</button>
         </div>
       )}
     </main>
+    {pautaAbierta && (
+      <PanelPauta key={pautaAbierta.hash} senalId={senalId} pauta={pautaAbierta} columnas={cols} programa={columnas?.programa ?? null}
+        alCambiar={() => cargar()} alCerrar={() => setAbierta(null)} />
+    )}
+    </div>
   );
 }

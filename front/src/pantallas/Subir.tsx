@@ -3,7 +3,6 @@ import { api, textoDeError } from "../api";
 import { haceCuanto, rangoSemana } from "../fechas";
 import { CopiarPagina } from "../piezas/CopiarPagina";
 import { ZonaArchivo } from "../piezas/ZonaArchivo";
-import { aSenal, navegar } from "../ruta";
 import { recordarSemana } from "../semanaReciente";
 import { useSesion } from "../sesion";
 import type { SemanaAbierta } from "../tipos";
@@ -16,7 +15,8 @@ const FORMAS: { id: Forma; nombre: string }[] = [
   { id: "web", nombre: "Web" },
 ];
 
-export function Subir({ senalId }: { senalId: string }) {
+/** Subir la grilla de la semana: archivo, texto pegado o HTML de la página. Va adentro de la Semana. */
+export function Subir({ senalId, alLeer, alCancelar }: { senalId: string; alLeer: (d: SemanaAbierta) => void; alCancelar?: () => void }) {
   const { senales, actualizarSemana } = useSesion();
   const senal = senales?.find((s) => s.id === senalId);
   const abierta = senal?.semana ?? null;
@@ -45,7 +45,7 @@ export function Subir({ senalId }: { senalId: string }) {
       }
       actualizarSemana(senalId, datos.semana);
       recordarSemana(senalId, datos);
-      navegar(aSenal(senalId, "revisar"));
+      alLeer(datos);
     } catch (e) {
       setError(textoDeError(e));
       setLeyendo(false);
@@ -53,10 +53,10 @@ export function Subir({ senalId }: { senalId: string }) {
   };
 
   return (
-    <main className="contenido" style={{ maxWidth: 900 }}>
+    <section aria-label="Subir la grilla" style={{ display: "flex", flexDirection: "column", gap: 24, maxWidth: 900 }}>
       <header className="cabecera-textos">
         <span className="antetitulo">{senal?.nombre ?? senalId}</span>
-        <h1 className="titulo">Subir la grilla de la semana</h1>
+        <h1 className="titulo">Soltá la grilla de la semana</h1>
         <p className="bajada">Como venga: archivo, texto copiado o la página de la señal. Después te muestro qué salió de la base y qué hay que mirar.</p>
       </header>
 
@@ -110,7 +110,8 @@ export function Subir({ senalId }: { senalId: string }) {
         <button type="button" className="boton principal" disabled={!listo || leyendo} onClick={leer} style={{ minHeight: 48, fontSize: 15 }}>
           {leyendo ? "Leyendo la grilla…" : "Leer la grilla"}
         </button>
+        {alCancelar && <button type="button" className="boton" onClick={alCancelar} style={{ minHeight: 48 }}>Cancelar</button>}
       </div>
-    </main>
+    </section>
   );
 }

@@ -1131,6 +1131,10 @@ class PedidoAsistente(BaseModel):
     ejemplo: str | None = None  # "armar desde este ejemplo": la grilla es la entrada del ejemplo
     historial: list[MensajeHilo] = []
     fuerte: bool = False  # modelo más caro, solo para lo que el barato no resolvió
+    contexto: str = ""  # qué está mirando la persona en la web ("Canal Demo · Para revisar · 3 marcadas")
+
+    def pedido_con_contexto(self) -> str:
+        return f"(La persona está mirando: {self.contexto[:300]})\n{self.pedido}" if self.contexto.strip() else self.pedido
 
 
 def _proveedor_disponible(u: auth.Usuario, pedido: str):
@@ -1150,7 +1154,7 @@ def charla_asistente(p: PedidoAsistente, u: auth.Usuario = Depends(auth.usuario_
     proveedor = _proveedor_disponible(u, p.pedido)
     tabla = _correr_tabla(p.tabla_id, p.senal) if p.tabla_id else None
     try:
-        c = asistente_ia.charlar(p.senal, tabla, [h.model_dump() for h in p.historial], p.pedido, proveedor)
+        c = asistente_ia.charlar(p.senal, tabla, [h.model_dump() for h in p.historial], p.pedido_con_contexto(), proveedor)
     except cliente.ErrorAgente as e:
         raise HTTPException(502, str(e))
     uso.registrar(u.usuario, p.senal.id, "[charla] " + p.pedido, 1, c.tokens_entrada, c.tokens_salida, True, c.modelo)
@@ -1185,7 +1189,7 @@ def asistente(p: PedidoAsistente, u: auth.Usuario = Depends(auth.usuario_actual)
         foco=[i for i, g in enumerate(semana_antes[1]) if g["grupo"] == "revisar"] if semana_antes else [],
         es_admin=u.admin, reglas_catalogo=[f"{c.nombre}: {c.regla or c.tipo}" for c in cat])
     try:
-        propuesta = asistente_ia.pedir(p.senal, tabla, p.pedido, proveedor, ejemplos, objetivo=p.ejemplo,
+        propuesta = asistente_ia.pedir(p.senal, tabla, p.pedido_con_contexto(), proveedor, ejemplos, objetivo=p.ejemplo,
                                        orden_columnas=[c.nombre for c in cat],
                                        historial=[h.model_dump() for h in p.historial], entorno=entorno,
                                        fuerte=p.fuerte)

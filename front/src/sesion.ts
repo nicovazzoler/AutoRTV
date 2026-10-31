@@ -11,6 +11,9 @@ export interface Sesion {
   /** Sube cada vez que cambian las reglas o la base desde el agente: las pantallas se vuelven a armar. */
   revision: number;
   tocar: () => void;
+  /** Qué está mirando la persona ("Canal Demo · Para revisar · 3 marcadas"), para el agente. */
+  contexto: string;
+  setContexto: (texto: string) => void;
 }
 
 export const ContextoSesion = createContext<Sesion | null>(null);

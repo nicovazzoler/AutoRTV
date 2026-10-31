@@ -344,3 +344,12 @@ def test_charla_del_asistente(cliente, monkeypatch):
     assert r.json()["respuesta"] == "¡Hola! ¿Qué querés cambiar?" and not r.json()["proponer_cambios"]
     assert cliente.post("/api/asistente/charla", json={"senal": RECETA, "pedido": " "}).status_code == 422
     assert cliente.get("/api/asistente/uso").json()["usuarios"][0]["pedidos"] == 1
+
+
+def test_el_agente_sabe_que_pantalla_se_esta_mirando(cliente, monkeypatch):
+    proveedor = _con_asistente(monkeypatch, [{"respuesta": "Dale.", "proponer_cambios": False}])
+    r = cliente.post("/api/asistente/charla", json={"senal": RECETA, "pedido": "¿por qué frena?", "historial": [],
+                                                    "contexto": "Canal Demo · Semana · Para revisar"})
+    assert r.status_code == 200, r.text
+    enviado = json.dumps(proveedor.pedidos[-1], ensure_ascii=False)
+    assert "(La persona está mirando: Canal Demo · Semana · Para revisar)\\n¿por qué frena?" in enviado
