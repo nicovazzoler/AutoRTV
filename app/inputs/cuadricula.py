@@ -140,15 +140,33 @@ def _fechas_de_nombres(nombrados: dict[int, tuple], referencia: dt.date) -> dict
     return fechas
 
 
-def _fila_de_dias(celdas: list[list]) -> tuple[int, dict[int, dt.date]] | None:
-    for r, fila in enumerate(celdas[:FILAS_PARA_BUSCAR]):
-        fechas = {c: f for c, v in enumerate(fila) if c > 0 and (f := _fecha(v))}
-        if len(fechas) >= MIN_DIAS:
-            return r, fechas
-        nombrados = {c: d for c, v in enumerate(fila) if (d := _dia_nombrado(v))}
-        if len(nombrados) >= MIN_DIAS:
-            return r, _fechas_de_nombres(nombrados, _referencia(celdas, r))
+def _dias_de_fila(celdas: list[list], r: int, minimo: int) -> dict[int, dt.date] | None:
+    fila = celdas[r]
+    fechas = {c: f for c, v in enumerate(fila) if c > 0 and (f := _fecha(v))}
+    if len(fechas) >= minimo:
+        return fechas
+    nombrados = {c: d for c, v in enumerate(fila) if (d := _dia_nombrado(v))}
+    if len(nombrados) >= minimo:
+        return _fechas_de_nombres(nombrados, _referencia(celdas, r))
     return None
+
+
+def _fila_de_dias(celdas: list[list], fila_dada: int | None = None) -> tuple[int, dict[int, dt.date]] | None:
+    if fila_dada is not None:
+        r = fila_dada - 1
+        dias = _dias_de_fila(celdas, r, 1) if 0 <= r < len(celdas) else None
+        return (r, dias) if dias else None
+    for r in range(min(FILAS_PARA_BUSCAR, len(celdas))):
+        if dias := _dias_de_fila(celdas, r, MIN_DIAS):
+            return r, dias
+    return None
+
+
+def _indice_columna(letras: str) -> int:
+    n = 0
+    for letra in letras.strip().upper():
+        n = n * 26 + ord(letra) - ord("A") + 1
+    return n - 1
 
 
 def _columnas_de_hora(celdas: list[list], r_dias: int, dias: dict[int, dt.date]) -> list[int]:
@@ -163,12 +181,14 @@ def _columnas_de_hora(celdas: list[list], r_dias: int, dias: dict[int, dt.date])
     return columnas
 
 
-def _estructura(celdas: list[list]) -> tuple[int, dict[int, dt.date], list[int]] | None:
-    dias = _fila_de_dias(celdas)
+def _estructura(celdas: list[list], fila_dias: int | None = None,
+                columnas_hora: list[str] = ()) -> tuple[int, dict[int, dt.date], list[int]] | None:
+    dias = _fila_de_dias(celdas, fila_dias)
     if dias is None:
         return None
     r, fechas = dias
-    horas = _columnas_de_hora(celdas, r, fechas)
+    horas = sorted(_indice_columna(c) for c in columnas_hora) if columnas_hora else _columnas_de_hora(celdas, r, fechas)
+    fechas = {c: f for c, f in fechas.items() if c not in horas}
     if not fechas or not horas or not any(h < min(fechas) for h in horas):
         return None
     return r, fechas, horas
@@ -204,16 +224,20 @@ def _duenos(combinadas: list[tuple]) -> dict[tuple, tuple]:
     return dueno
 
 
-def leer(contenido: bytes, hoja=0) -> pd.DataFrame:
-    """Una emisión por bloque y por día, con Fecha, Hora, Duracion (minutos) y Titulo (y Detalle, por programa)."""
+def leer(contenido: bytes, hoja=0, fila_dias: int | None = None, columnas_hora: list[str] = (),
+         doce_horas: bool | None = None) -> pd.DataFrame:
+    """Una emisión por bloque y por día, con Fecha, Hora, Duracion (minutos) y Titulo (y Detalle, por programa).
+
+    `fila_dias`, `columnas_hora` y `doce_horas` fuerzan lo que la detección no encuentra sola (los propone el agente).
+    """
     celdas, combinadas = _celdas(contenido, hoja)
-    estructura = _estructura(celdas)
+    estructura = _estructura(celdas, fila_dias, columnas_hora)
     if estructura is None:
         raise ValueError("No encontré la fila con los días y la columna de las horas")
     r_dias, dias, horas = estructura
-    if _por_franjas(celdas, r_dias, horas):
+    if doce_horas is None and _por_franjas(celdas, r_dias, horas):
         return _leer_franjas(celdas, combinadas, r_dias, dias)
-    return _leer_programas(celdas, combinadas, r_dias, dias, horas)
+    return _leer_programas(celdas, combinadas, r_dias, dias, horas, doce_horas)
 
 
 def _leer_franjas(celdas: list[list], combinadas: list[tuple], r_dias: int, dias: dict[int, dt.date]) -> pd.DataFrame:
@@ -263,7 +287,7 @@ def _lineas(v) -> list[str]:
 CAPITULO_SUELTO = re.compile(r"#\s*\d")
 
 
-def _leer_programas(celdas, combinadas, r_dias, dias, horas) -> pd.DataFrame:
+def _leer_programas(celdas, combinadas, r_dias, dias, horas, doce_horas: bool | None = None) -> pd.DataFrame:
     dueno = _duenos(combinadas)
 
     def celda(r, c):
@@ -283,7 +307,8 @@ def _leer_programas(celdas, combinadas, r_dias, dias, horas) -> pd.DataFrame:
         r0, c0 = dueno.get((r, c), (r, c))
         return _lineas(celda(r0, c0)) if r0 == r else []  # lo combinado hacia abajo ya se leyó en su primera fila
 
-    doce = all(h.hour <= 12 for r in range(r_dias + 1, len(celdas)) for t in horas if (h := _hora(celda(r, t))))
+    doce = doce_horas if doce_horas is not None else all(
+        h.hour <= 12 for r in range(r_dias + 1, len(celdas)) for t in horas if (h := _hora(celda(r, t))))
     emisiones = []
     for c, dia in dias.items():
         arranques = [(r, h) for r in range(r_dias + 1, len(celdas)) if (h := hora_en(r, c))]

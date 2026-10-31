@@ -23,5 +23,5 @@ def test_tipo_desconocido_falla():
 def test_no_hay_json_de_senales_fuera_de_ejemplos():
     """Las recetas del laburo van en el repo privado, nunca acá."""
     sueltos = [p for p in RAIZ.rglob("*.json")
-               if not {".venv", "privado", "ejemplos", "node_modules", "front"} & set(p.relative_to(RAIZ).parts)]
+               if not {".venv", "privado", "muestras", "ejemplos", "node_modules", "front"} & set(p.relative_to(RAIZ).parts)]
     assert sueltos == []

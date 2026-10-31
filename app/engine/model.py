@@ -182,6 +182,10 @@ class EntradaExcel(EntradaComun):
     hoja: int | str = 0
     fila_encabezado: int = 1  # 1 = primera fila del Excel
     cuadricula: bool = False  # un día por columna y una franja por fila, con celdas combinadas (inputs.cuadricula)
+    # Solo en cuadrícula, para cuando la detección sola no alcanza; None o vacío = detectar.
+    fila_dias: int | None = None  # 1 = primera fila del Excel
+    columnas_hora: list[str] = []  # letras de columna, ej. ["A", "G", "I"]
+    doce_horas: bool | None = None  # horas de 12 h sin AM/PM (después de 12:30 viene 01:00)
 
 
 class EntradaTexto(EntradaComun):

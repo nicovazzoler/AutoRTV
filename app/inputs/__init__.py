@@ -12,7 +12,7 @@ def leer(contenido: bytes, entrada) -> pd.DataFrame:
     if entrada.tipo == "excel" and entrada.cuadricula:
         from app.inputs import cuadricula
 
-        tabla = cuadricula.leer(contenido, entrada.hoja)
+        tabla = cuadricula.leer(contenido, entrada.hoja, entrada.fila_dias, entrada.columnas_hora, entrada.doce_horas)
     elif entrada.tipo == "excel":
         tabla = excel.leer(io.BytesIO(contenido), entrada)
     elif entrada.tipo == "pdf":

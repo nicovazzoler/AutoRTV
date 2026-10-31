@@ -55,6 +55,8 @@ class Proveedor(Protocol):
 
     def charlar(self, sistema: str, mensajes: list[dict]) -> Respuesta: ...
 
+    def pedir_json(self, sistema: str, mensajes: list[dict], formato: dict, modelo: str, effort: str) -> Respuesta: ...
+
 
 class Claude:
     def __init__(self):
@@ -87,6 +89,23 @@ class Claude:
             output_config={"effort": effort, "format": {"type": "json_schema", "schema": FORMATO}},
             **respaldo,
         )
+        return _leer(r)
+
+    def pedir_json(self, sistema: str, mensajes: list[dict], formato: dict, modelo: str, effort: str) -> Respuesta:
+        """Un pedido con su propio formato de respuesta y el modelo elegido por quien llama."""
+        import anthropic
+
+        respaldo = {} if "haiku" in modelo else {"betas": ["server-side-fallback-2026-07-01"], "fallbacks": "default"}
+        try:
+            r = self._cliente.beta.messages.create(
+                model=modelo, max_tokens=16000,
+                system=[{"type": "text", "text": sistema, "cache_control": {"type": "ephemeral"}}],
+                messages=mensajes,
+                output_config={"effort": effort, "format": {"type": "json_schema", "schema": formato}},
+                **respaldo,
+            )
+        except anthropic.APIError as e:
+            raise ErrorAgente(explicar(e, modelo)) from e
         return _leer(r)
 
     def charlar(self, sistema: str, mensajes: list[dict]) -> Respuesta:
@@ -154,9 +173,14 @@ class Grabado:
         self.respuestas = [r for r in respuestas if not (isinstance(r, dict) and "respuesta" in r)]
         self.pedidos: list[list[dict]] = []
         self.fuertes: list[bool] = []
+        self.modelos: list[str] = []
 
     def pedir(self, sistema: str, mensajes: list[dict], effort: str, fuerte: bool = False) -> Respuesta:
         self.fuertes.append(fuerte)
+        return self._siguiente(self.respuestas, mensajes)
+
+    def pedir_json(self, sistema: str, mensajes: list[dict], formato: dict, modelo: str, effort: str) -> Respuesta:
+        self.modelos.append(modelo)
         return self._siguiente(self.respuestas, mensajes)
 
     def charlar(self, sistema: str, mensajes: list[dict]) -> Respuesta:
