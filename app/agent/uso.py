@@ -20,11 +20,16 @@ def poner_limite_diario(valor: int) -> None:
         con.execute(insert(db.ajustes).values(clave="limite_diario", valor=str(valor)))
 
 
+# Lo que el agente hace solo (banco de pruebas, armado de reglas) se registra pero no gasta el tope de la persona.
+SIN_TOPE = ("[banco]", "[armar reglas]")
+
+
 def pedidos_de_hoy(usuario: str) -> int:
     hoy = dt.datetime.combine(dt.date.today(), dt.time(0))
     t = db.uso_agente
     with db.transaccion() as con:
-        return con.execute(select(func.count()).where(t.c.usuario == usuario, t.c.fecha >= hoy)).scalar()
+        return con.execute(select(func.count()).where(t.c.usuario == usuario, t.c.fecha >= hoy,
+                                                      t.c.pedido.notin_(SIN_TOPE))).scalar()
 
 
 # USD por millón de tokens (entrada, salida). Las lecturas de caché se cobran menos: es un tope, no la factura.
