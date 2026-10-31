@@ -339,3 +339,21 @@ def test_admin_usuarios_y_tope(servidor):
         pagina.get_by_text("Listo: se borró la señal Para Borrar").wait_for()
         assert pagina.request.get(servidor + "/api/senales/para-borrar").status == 404
         navegador.close()
+
+
+def test_banco_de_agentes_desde_administrar(servidor, tmp_path):
+    with playwright.sync_playwright() as p:
+        navegador, pagina = _entrar(p, servidor)
+        archivos = {"grilla_cruda": {"name": "g.xlsx", "mimeType": "application/octet-stream", "buffer": _grilla(tmp_path).read_bytes()},
+                    "ejemplo": {"name": "e.xlsx", "mimeType": "application/octet-stream", "buffer": _ejemplo(tmp_path).read_bytes()}}
+        assert pagina.request.post(servidor + "/api/senales/crear", multipart={**archivos, "nombre": "Canal Demo"}).ok
+
+        pagina.goto(servidor + "/admin")
+        pagina.get_by_role("navigation", name="Administrar").get_by_role("button", name="Banco de agentes").click()
+        banco = pagina.locator("section[aria-label='Banco de agentes']")
+        assert banco.get_by_label("Canal Demo").is_checked()
+        banco.get_by_role("button", name="Correr banco").click()
+        banco.locator("tbody tr", has_text="reglas").wait_for(timeout=20000)
+        assert banco.locator("tbody tr", has_text="lectura").count() == 1
+        banco.get_by_text("Reglas: Haiku alcanzó").wait_for()
+        navegador.close()

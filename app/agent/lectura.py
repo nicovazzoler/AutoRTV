@@ -1,0 +1,154 @@
+"""El agente decide cómo leer una grilla que llega: mira el comienzo del archivo y propone la configuración
+del lector. El servidor la prueba con los controles y, si falla, le devuelve qué pasó."""
+import datetime as dt
+import io
+import json
+import re
+from dataclasses import dataclass, field
+from pathlib import Path
+
+import pandas as pd
+from pydantic import TypeAdapter, ValidationError
+
+from app import inputs
+from app.agent import controles
+from app.agent.cliente import Proveedor
+from app.engine import model as m
+
+MAX_VUELTAS = 2
+FILAS_VISTA = 40
+COLUMNAS_VISTA = 15
+MAX_TEXTO = 6000
+ENTRADA = TypeAdapter(m.Entrada)
+FORMATO = {
+    "type": "object",
+    "properties": {"explicacion": {"type": "string"}, "entrada_json": {"type": "string"}},
+    "required": ["explicacion", "entrada_json"],
+    "additionalProperties": False,
+}
+
+
+@dataclass
+class PropuestaLectura:
+    logrado: bool
+    entrada: dict | None = None
+    explicacion: str = ""
+    medida: dict | None = None
+    problemas: list[str] = field(default_factory=list)
+    vueltas: int = 0
+    tokens_entrada: int = 0
+    tokens_salida: int = 0
+    modelo: str = ""
+
+
+def sistema() -> str:
+    return (Path(__file__).parent / "prompts" / "lectura.md").read_text(encoding="utf-8")
+
+
+def _letra(c: int) -> str:
+    letras = ""
+    c += 1
+    while c:
+        c, resto = divmod(c - 1, 26)
+        letras = chr(ord("A") + resto) + letras
+    return letras
+
+
+def _celda(v) -> str:
+    if isinstance(v, dt.datetime):
+        return v.strftime("%Y-%m-%d %H:%M") if v.time() != dt.time() else v.strftime("%Y-%m-%d")
+    if isinstance(v, dt.date):
+        return v.isoformat()
+    if isinstance(v, dt.time):
+        return v.strftime("%H:%M")
+    return " ".join(str(v).split())[:80]
+
+
+def _vista_excel(contenido: bytes) -> str:
+    from app.inputs import cuadricula
+
+    celdas, combinadas = cuadricula._celdas(contenido, 0)
+    filas = []
+    for r, fila in enumerate(celdas[:FILAS_VISTA]):
+        valores = [f"{_letra(c)}={_celda(v)}" for c, v in enumerate(fila[:COLUMNAS_VISTA]) if v not in (None, "")]
+        if valores:
+            filas.append(f"Fila {r + 1}: " + " | ".join(valores))
+    rangos = [f"{_letra(c0)}{r0 + 1}:{_letra(c1 - 1)}{r1}" for r0, r1, c0, c1 in combinadas if r0 < FILAS_VISTA]
+    return ("Excel, primera hoja. Celdas con valor (columna=valor):\n" + "\n".join(filas)
+            + "\n\nCeldas combinadas: " + (", ".join(rangos[:120]) or "ninguna"))
+
+
+def _vista_pdf(contenido: bytes) -> str:
+    import pdfplumber
+
+    with pdfplumber.open(io.BytesIO(contenido)) as pdf:
+        textos = [f"--- Página {i + 1} ---\n{p.extract_text() or ''}" for i, p in enumerate(pdf.pages[:2])]
+        return f"PDF de {len(pdf.pages)} páginas. Texto de las primeras:\n" + "\n".join(textos)[:MAX_TEXTO]
+
+
+def _vista_texto(contenido: bytes) -> str:
+    from app.inputs import texto as lector_texto
+
+    texto = lector_texto.decodificar(contenido)
+    if "<" in texto[:2000]:
+        texto = re.sub(r"(?is)<(script|style)\b.*?</\1>", "", texto)
+        inicio = max(texto.lower().find("<body"), 0)
+        texto = texto[inicio:]
+    return re.sub(r"\s+", " ", texto)[:MAX_TEXTO]
+
+
+def vista_cruda(contenido: bytes) -> str:
+    """El comienzo del archivo tal como vino, en texto, para que el agente vea su forma."""
+    if contenido.startswith(b"PK") or contenido.startswith(b"\xd0\xcf\x11\xe0"):
+        return _vista_excel(contenido)
+    if contenido.startswith(b"%PDF"):
+        return _vista_pdf(contenido)
+    return "Texto (HTML, XML o texto pegado):\n" + _vista_texto(contenido)
+
+
+def _probar(contenido: bytes, datos: dict | None, esperado: pd.DataFrame | None) -> tuple[dict | None, dict | None, list[str]]:
+    """(entrada, medida, problemas) de lo que propuso el agente."""
+    if not datos:
+        return None, None, ["La respuesta no fue un JSON válido."]
+    try:
+        entrada = ENTRADA.validate_python(json.loads(datos.get("entrada_json") or "{}"))
+    except (json.JSONDecodeError, ValidationError) as e:
+        return None, None, [f"La configuración no es válida: {str(e)[:500]}"]
+    try:
+        tabla = inputs.leer(contenido, entrada)
+    except Exception as e:
+        return entrada.model_dump(exclude_defaults=True), None, [f"El lector falló con esa configuración: {e}"]
+    medida = controles.lectura(tabla, esperado)
+    return entrada.model_dump(exclude_defaults=True), medida, controles.problemas_de_lectura(medida)
+
+
+def proponer(contenido: bytes, proveedor: Proveedor, modelo: str, esperado: pd.DataFrame | None = None,
+             previa: PropuestaLectura | None = None) -> PropuestaLectura:
+    """Pide al agente cómo leer el archivo y lo prueba. `previa` es lo que intentó otro modelo, para partir de ahí."""
+    pedido = vista_cruda(contenido)
+    if previa and previa.entrada:
+        pedido += (f"\n\nOtro intento propuso {json.dumps(previa.entrada, ensure_ascii=False)} y falló:\n- "
+                   + "\n- ".join(previa.problemas))
+    mensajes = [{"role": "user", "content": pedido}]
+    resultado = PropuestaLectura(logrado=False)
+    for vuelta in range(1, MAX_VUELTAS + 1):
+        r = proveedor.pedir_json(sistema(), mensajes, FORMATO, modelo, "low")
+        resultado.vueltas = vuelta
+        resultado.tokens_entrada += r.tokens_entrada
+        resultado.tokens_salida += r.tokens_salida
+        resultado.modelo = r.modelo or modelo
+        if r.rechazo:
+            resultado.problemas = [f"El agente no quiso responder ({r.rechazo})."]
+            return resultado
+        entrada, medida, problemas = _probar(contenido, r.datos, esperado)
+        resultado.entrada, resultado.medida, resultado.problemas = entrada, medida, problemas
+        resultado.explicacion = (r.datos or {}).get("explicacion", "")
+        if not problemas:
+            resultado.logrado = True
+            return resultado
+        mensajes += [
+            {"role": "assistant", "content": r.texto or "(respuesta vacía)"},
+            {"role": "user", "content": "Probé esa lectura y pasó esto:\n- " + "\n- ".join(problemas)
+                                        + "\n\nCorregí y devolvé la configuración completa otra vez."},
+        ]
+    return resultado

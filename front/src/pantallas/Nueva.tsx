@@ -13,6 +13,7 @@ interface Creada {
   ejemplo: string;
   pautas: { agregadas?: number; conflictos?: number; error?: string } | null;
   semana_abierta?: boolean;
+  aviso?: string | null;
 }
 
 interface SenalCorta {
@@ -208,6 +209,7 @@ export function Nueva({ enPanel = false, alCerrar }: { enPanel?: boolean; alCerr
                     : <><b>Base cargada:</b> {pautas?.agregadas ?? 0} pautas a partir del ejemplo.</>}
                   {creada.semana_abierta && " Como la grilla es de esta semana, también quedó abierta para revisar."}
                 </p>
+                {creada.aviso && <p className="error" role="alert" style={{ margin: 0 }}>{creada.aviso}</p>}
                 {reglas?.estado === "trabajando" && (
                   <p className="tenue" role="status" style={{ margin: 0, display: "flex", alignItems: "center", gap: 8 }}>
                     <span className="punto-vivo" aria-hidden="true" />El agente arma las reglas desde el ejemplo… (puede tardar un minuto)

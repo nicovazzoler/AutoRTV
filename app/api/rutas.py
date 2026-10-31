@@ -12,9 +12,9 @@ import pandas as pd
 from fastapi import APIRouter, Cookie, Depends, Header, File, Form, HTTPException, Query, Response, UploadFile
 from pydantic import BaseModel, TypeAdapter, ValidationError
 
-from app import acciones, almacen, auth, catalogo, export, inputs, pautas, semana, semanas, tablas
+from app import acciones, almacen, auth, catalogo, corridas, export, inputs, pautas, semana, semanas, tablas
 from app.agent import asistente as asistente_ia
-from app.agent import cliente, uso
+from app.agent import banco, cliente, controles, uso
 from app.engine import model as m
 from app.engine import titulos
 from app.engine.comparar import diferencias, porcentaje_igual, sugerir_correcciones
@@ -481,11 +481,26 @@ async def crear_senal(nombre: str = Form(""), grilla_cruda: UploadFile = File(..
         raise HTTPException(422, str(e))
     tabla_id = tablas.subir(crudo)
     resultado = {"id": senal_id, "nombre": receta.nombre, "ejemplo": sello, "tabla_id": tabla_id,
-                 "pautas": _cargar_pautas(senal_id, crudo, terminado, u.usuario), "semana_abierta": False}
+                 "pautas": _cargar_pautas(senal_id, crudo, terminado, u.usuario), "semana_abierta": False,
+                 "aviso": SIN_HORARIO if _sin_horario(crudo, receta) else None}
     if not agregar_a and _es_de_ahora(terminado, receta):
         semanas.abrir(senal_id, tabla_id, crudo, grilla_cruda.filename or "grilla", u.usuario, es_version=False)
         resultado["semana_abierta"] = True
     return resultado
+
+
+SIN_HORARIO = ("No encontré la fecha y la hora en la grilla: así no se puede emparejar con el ejemplo ni armar "
+               "la semana. Pasame el archivo para sumar cómo se lee.")
+
+
+def _sin_horario(crudo: bytes, receta: m.Senal) -> bool:
+    try:
+        tabla = inputs.leer(crudo, receta.entrada)
+    except Exception:
+        return True
+    nombradas = grilla.detectar_columnas(list(tabla.columns), receta.validaciones)
+    cols = pautas.columnas_por_tipo(tabla) | {k: v for k, v in nombradas.items() if v}
+    return not (cols.get("fecha") in tabla.columns and cols.get("hora") in tabla.columns)
 
 
 def _es_de_ahora(terminado: bytes, receta: m.Senal) -> bool:
@@ -1129,21 +1144,23 @@ def evaluar_ejemplos(senal_id: str, receta: m.Senal):
     for nombre in nombres:
         entrada, esperado_xlsx = almacen.leer_ejemplo(senal_id, nombre)
         try:
-            salida, _ = correr(receta, inputs.leer_ejemplo(entrada, receta.entrada))
+            tabla = inputs.leer_ejemplo(entrada, receta.entrada)
+            salida, _ = correr(receta, tabla)
             esperado = pd.read_excel(io.BytesIO(esperado_xlsx), dtype=object)
         except Exception as e:
             resultados.append({"nombre": nombre, "error": f"No se pudo correr: {e}"})
             continue
-        difs = diferencias(salida, esperado)
+        pares = controles.pares_con_ejemplo(tabla, esperado)
+        difs = diferencias(salida, esperado, pares)
         texto = [c for c in esperado.columns if esperado[c].map(lambda v: isinstance(v, str)).any()]
         resultados.append({
             "nombre": nombre,
-            "porcentaje": round(porcentaje_igual(salida, esperado), 2),
+            "porcentaje": round(porcentaje_igual(salida, esperado, pares), 2),
             "filas": [len(salida), len(esperado)],
             "total_diferencias": len(difs),
             "diferencias": [{**d, "obtenido": export.celda_json(d["obtenido"]),
                              "esperado": export.celda_json(d["esperado"])} for d in difs[:100]],
-            "correcciones": sugerir_correcciones(salida, esperado, texto),
+            "correcciones": sugerir_correcciones(salida, esperado, texto, pares),
             "resumen_validaciones": grilla.resumen(grilla.validar(salida, receta.validaciones, receta.titulos_conocidos)),
         })
     return resultados
@@ -1267,6 +1284,55 @@ def _efecto(antes: tuple[Corrida, list[dict]], p: Pedido) -> dict:
 def limites_asistente(u: auth.Usuario = Depends(auth.usuario_actual)):
     usados, limite = uso.pedidos_de_hoy(u.usuario), uso.limite_diario()
     return {"limite_diario": limite, "usados_hoy": usados, "quedan": max(limite - usados, 0)}
+
+
+class PedidoBanco(BaseModel):
+    senales: list[str]
+    tope: float = 5.0
+    pasos: list[str] = list(banco.PASOS)
+
+
+@api.get("/admin/banco/senales", dependencies=[Depends(auth.solo_admin)])
+def senales_para_banco():
+    """Las señales que tienen al menos un ejemplo, con la fecha del más reciente: las que el banco puede probar."""
+    con_ejemplos = []
+    for s in almacen.listar():
+        nombres = almacen.listar_ejemplos(s["id"])
+        if nombres:
+            con_ejemplos.append({"id": s["id"], "nombre": s["nombre"], "ejemplos": len(nombres), "ultimo": nombres[-1]})
+    return sorted(con_ejemplos, key=lambda s: s["ultimo"], reverse=True)
+
+
+@api.post("/admin/banco")
+def lanzar_banco(p: PedidoBanco, u: auth.Usuario = Depends(auth.solo_admin)):
+    """Arranca una corrida del banco de agentes en segundo plano; gasta API de verdad hasta `tope` dólares."""
+    if not p.senales:
+        raise HTTPException(422, "Elegí al menos una señal")
+    if not 0 < p.tope <= 50:
+        raise HTTPException(422, "El tope tiene que ser de más de 0 y hasta 50 dólares")
+    pasos = [x for x in p.pasos if x in banco.PASOS]
+    if not pasos:
+        raise HTTPException(422, f"Los pasos posibles son {', '.join(banco.PASOS)}")
+    proveedor = cliente.proveedor_configurado()
+    if proveedor is None:
+        raise HTTPException(503, "El asistente no está configurado: falta la variable ANTHROPIC_API_KEY en el servidor")
+    try:
+        return {"id": corridas.lanzar(u.usuario, p.senales, p.tope, pasos, proveedor)}
+    except corridas.YaCorriendo as e:
+        raise HTTPException(409, str(e))
+
+
+@api.get("/admin/banco", dependencies=[Depends(auth.solo_admin)])
+def corridas_del_banco():
+    return corridas.listar()
+
+
+@api.get("/admin/banco/{corrida_id}", dependencies=[Depends(auth.solo_admin)])
+def corrida_del_banco(corrida_id: int):
+    c = corridas.leer(corrida_id)
+    if c is None:
+        raise HTTPException(404, "No existe esa corrida")
+    return c
 
 
 class AccionesAdmin(BaseModel):

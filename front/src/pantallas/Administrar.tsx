@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { api, textoDeError } from "../api";
+import { BancoAgentes } from "../piezas/BancoAgentes";
 import { ZonaArchivo } from "../piezas/ZonaArchivo";
 import { useSesion } from "../sesion";
 
@@ -44,16 +45,17 @@ function usd(n: number): string {
   return n < 0.01 && n > 0 ? "menos de 0,01 USD" : `${n.toLocaleString("es-AR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD`;
 }
 
-type Pestana = "usuarios" | "senales" | "catalogo" | "uso";
+type Pestana = "usuarios" | "senales" | "catalogo" | "uso" | "banco";
 
 const PESTANAS: { id: Pestana; nombre: string }[] = [
   { id: "usuarios", nombre: "Usuarios" },
   { id: "senales", nombre: "Señales" },
   { id: "catalogo", nombre: "Catálogo de columnas" },
   { id: "uso", nombre: "Uso del agente" },
+  { id: "banco", nombre: "Banco de agentes" },
 ];
 
-/** Solo admin, desde el menú de la cuenta: usuarios, señales, catálogo y gasto del agente. */
+/** Solo admin, desde el menú de la cuenta: usuarios, señales, catálogo, gasto del agente y banco de agentes. */
 export function Administrar() {
   const { yo, senales, refrescarSenales, setContexto } = useSesion();
   const [pestana, setPestana] = useState<Pestana>("usuarios");
@@ -266,6 +268,8 @@ export function Administrar() {
         <p className="chico tenue">El número real está en la Console de Anthropic. Este es un tope: no descuenta lo que se cobra menos por la caché.</p>
       </section>
       )}
+
+      {pestana === "banco" && <BancoAgentes />}
     </main>
   );
 }

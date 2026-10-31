@@ -194,6 +194,9 @@ export function Semana({ senalId }: { senalId: string }) {
         </div>
       </header>
 
+      {!resumen.desde && (
+        <p className="error" role="alert">No encontré la fecha y la hora en la grilla: así no sale la base ni se puede exportar bien. Pasame el archivo para sumar cómo se lee.</p>
+      )}
       {semana.version > 1 && !confirmada && (
         <p className="nota">Es la versión {semana.version} de esta semana: reemplazó a «{semana.anterior_nombre}». Lo que cambió está abajo; hay que volver a confirmar y exportar.</p>
       )}

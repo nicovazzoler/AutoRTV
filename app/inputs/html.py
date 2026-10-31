@@ -56,7 +56,8 @@ def _campos_automaticos(bloques) -> dict[str, m.CampoHtml]:
 
 
 def _leer_campo(bloque, campo: m.CampoHtml):
-    el = bloque.select_one(campo.css) if campo.css else bloque
+    # ":scope" es el bloque mismo en CSS, pero el selector de BeautifulSoup no lo resuelve solo.
+    el = bloque.select_one(campo.css) if campo.css and campo.css.strip() != ":scope" else bloque
     if el is None:
         return None
     if campo.attr:
