@@ -64,3 +64,12 @@ def test_el_control_tolera_la_zona_horaria_y_cuenta_solo_los_dias_de_la_grilla()
 def test_una_columna_con_fecha_y_hora_juntas_cuenta_como_horario():
     leida = pd.DataFrame({"start": ["2026-11-02T06:00:00", "2026-11-02T07:30:00"], "title": ["A", "B"]})
     assert controles.lectura(leida)["con_horario"] == 1.0
+
+
+def test_html_con_scope_lee_el_atributo_del_bloque_mismo():
+    from app import inputs
+    pagina = ('<table><tr class="fila" data-inicio="2026-11-02T06:00"><td class="t">Uno</td></tr>'
+              '<tr class="fila" data-inicio="2026-11-02T07:00"><td class="t">Dos</td></tr></table>').encode()
+    entrada = lectura.ENTRADA.validate_python({"tipo": "html", "bloque": "tr.fila", "campos": {
+        "Inicio": {"css": ":scope", "attr": "data-inicio"}, "Titulo": {"css": ".t"}}})
+    assert inputs.leer(pagina, entrada)["Inicio"].tolist() == ["2026-11-02T06:00", "2026-11-02T07:00"]
