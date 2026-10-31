@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 import pandas as pd
 
 from app.engine import model as m
-from app.engine.tarjetas import estructura, texto
+from app.engine.tarjetas import criterios, estructura, texto
 from app.engine.util import ErrorTarjeta, mascara
 
 DE_TEXTO = {
@@ -17,6 +17,7 @@ DE_TEXTO = {
     "asignar": texto.asignar,
     "a_numero": texto.a_numero,
     "correcciones": texto.correcciones,
+    "criterios": criterios.criterios,
 }
 DE_ESTRUCTURA = {
     "renombrar": estructura.renombrar,
@@ -47,12 +48,12 @@ class Resultado:
 def aplicar(tabla: pd.DataFrame, tarjetas: list[m.Tarjeta], titulos: list[str] = ()) -> Resultado:
     """Corre las tarjetas activas. Una tarjeta con error se saltea y las demás siguen.
 
-    `titulos` son los títulos conocidos de la señal: se suman a los de cada tarjeta `separar`.
+    `titulos` son los títulos conocidos de la señal: se suman a los de cada tarjeta `separar` y `criterios`.
     """
     df = tabla.copy().astype(object)
     informes = []
     for t in tarjetas:
-        if t.tipo == "separar" and titulos:
+        if t.tipo in ("separar", "criterios") and titulos:
             t = t.model_copy(update={"titulos": [*t.titulos, *titulos]})
         informe = InformeTarjeta(t.id)
         informes.append(informe)

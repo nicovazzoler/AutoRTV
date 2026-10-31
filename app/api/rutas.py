@@ -1162,6 +1162,31 @@ async def cargar_catalogo(archivo: UploadFile = File(...)):
     return [asdict(c) for c in columnas]
 
 
+@api.post("/senales/{senal_id}/reglas/criterios")
+def sumar_criterios(senal_id: str, u: auth.Usuario = Depends(auth.usuario_actual)):
+    """Pone los criterios generales al principio de las reglas, configurados con el ejemplo más reciente.
+
+    Se guarda solo si ningún ejemplo empeora; si no, se devuelve cuánto daba para que la persona decida.
+    """
+    receta = _receta(senal_id)
+    if any(t.tipo == "criterios" for t in receta.tarjetas):
+        raise HTTPException(409, "La señal ya usa los criterios generales")
+    nombres = list(reversed(almacen.listar_ejemplos(senal_id)))[:3]
+    if not nombres:
+        raise HTTPException(422, "Hace falta un ejemplo para saber a qué columnas va cada cosa")
+    ejemplos = [_leer_ejemplo(receta, n) for n in nombres]
+    nueva = asistente_ia.con_criterios(receta, ejemplos[0].entrada, ejemplos, ejemplos[0].nombre)
+    if nueva is None:
+        raise HTTPException(422, "No encontré la columna del título en la grilla del ejemplo")
+    antes, _ = asistente_ia.medir(receta, ejemplos[0].entrada, ejemplos)
+    despues, _ = asistente_ia.medir(nueva, ejemplos[0].entrada, ejemplos)
+    empeora = [n for n in antes.ejemplos if despues.ejemplos[n] < antes.ejemplos[n]]
+    if not empeora:
+        almacen.guardar(nueva, u.usuario)
+    return {"aplicado": not empeora, "antes": antes.ejemplos, "despues": despues.ejemplos,
+            "tarjeta": nueva.tarjetas[0].model_dump(exclude_none=True)}
+
+
 @api.post("/senales/{senal_id}/ejemplos/evaluar")
 def evaluar_ejemplos(senal_id: str, receta: m.Senal):
     """Corre la receta (aunque no esté guardada) contra cada ejemplo de la señal."""

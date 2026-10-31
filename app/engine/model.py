@@ -59,6 +59,23 @@ class Separar(TarjetaBase):
     respaldo: Literal["ninguno", "min_mayus"] = "ninguno"
 
 
+class Criterios(TarjetaBase):
+    """Los criterios generales para leer un título (app/engine/tarjetas/criterios.py), con sus columnas de destino."""
+    tipo: Literal["criterios"]
+    columna: str  # el título como viene
+    detalle: str | None = None  # columna con el capítulo aparte ("#1 León y Jalpa"), si la grilla la trae
+    programa: str = "Programa"
+    capitulo: str | None = "Capitulo"
+    temporada: str | None = None
+    numero: str | None = None
+    anio: str | None = None
+    tt: str | None = None
+    idioma: Literal["es", "en", "pt"] = "es"
+    separadores: list[str] = [" - ", " – ", ": ", " | "]
+    prefijos: list[str] = ["Cine:", "Película:", "Serie:", "Ciclo:"]
+    titulos: list[str] = []  # programas conocidos; se suman los de la base
+
+
 class Extraer(TarjetaBase):
     tipo: Literal["extraer"]
     columna: str
@@ -155,7 +172,7 @@ class ConvertirZona(TarjetaBase):
 
 Tarjeta = Annotated[
     Union[
-        LimpiarEspacios, Reemplazar, Quitar, Separar, Extraer, MayusMinus, Asignar, ANumero, Correcciones,
+        LimpiarEspacios, Reemplazar, Quitar, Separar, Extraer, MayusMinus, Asignar, ANumero, Correcciones, Criterios,
         Renombrar, Numerar, RedondearHora, DiaSemana, Duracion, ClasificarSinopsis, ConvertirZona,
     ],
     Field(discriminator="tipo"),
