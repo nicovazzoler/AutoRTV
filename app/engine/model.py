@@ -181,6 +181,7 @@ class EntradaExcel(EntradaComun):
     tipo: Literal["excel"]
     hoja: int | str = 0
     fila_encabezado: int = 1  # 1 = primera fila del Excel
+    cuadricula: bool = False  # un día por columna y una franja por fila, con celdas combinadas (inputs.cuadricula)
 
 
 class EntradaTexto(EntradaComun):
