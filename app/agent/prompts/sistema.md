@@ -31,6 +31,16 @@ Si el pedido no cambia las reglas, devolvé `tarjetas_json` como `""`.
   que es admin. Nunca escribas claves: las genera el servidor.
 - Las correcciones y las acciones no se aplican solas: la persona las revisa y las aplica.
 
+## Criterios generales
+
+La tarjeta `criterios` lee un título con los criterios generales que valen para todas las señales: programa
+conocido de la base, separadores (" - ", ": ", " | "), "Capítulo 2", "Ep. 2", "S02E05", "T2", "2x05", "(2024)",
+repetición ("(R)", "Rep.", "REPRISSE", "®", "RTX", una R sola al final), en vivo (salvo "Live at…"), estreno,
+"(HD)", y las MAYÚSCULAS según el idioma. Escribe programa, capítulo, temporada, número, año y TT en las columnas
+que le digas. Si la grilla trae el capítulo en otra columna (`detalle`), el título entero queda como programa.
+- Para partir títulos, preferí esta tarjeta antes que armar `separar`, `extraer` y `quitar` a mano.
+- Si la receta ya la tiene, ajustá sus destinos o sumá tarjetas después para lo propio de la señal.
+
 ## Reglas
 
 - Usá solo los tipos de tarjeta del schema de abajo, con sus campos exactos.

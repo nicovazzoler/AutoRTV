@@ -16,6 +16,8 @@ from app.agent.cliente import Proveedor
 from app.engine import model as m
 from app.engine.comparar import diferencias, porcentaje_igual
 from app.engine.pipeline import correr
+from app.engine.tarjetas import criterios
+from app.semana import columna_programa
 from app.validate import grilla
 
 MAX_VUELTAS = 3
@@ -154,7 +156,13 @@ def pedir(receta: m.Senal, tabla: pd.DataFrame, pedido: str, proveedor: Proveedo
     `fuerte` usa el modelo más capaz (y más caro), para cuando el barato no lo logró.
     """
     entorno = entorno or Entorno()
+    receta_original = receta
     antes, detalle = medir(receta, tabla, ejemplos)
+    # Armar desde cero arranca de los criterios generales: el agente suma lo propio de la señal encima.
+    sembrada = con_criterios(receta, tabla, ejemplos, objetivo) if objetivo and not receta.tarjetas else None
+    if sembrada is not None:
+        receta = sembrada
+        _, detalle = medir(receta, tabla, ejemplos)
     contexto = _contexto(receta, tabla, detalle, antes, ejemplos, pedido, objetivo, orden_columnas, historial, entorno)
     mensajes = [{"role": "user", "content": contexto}]
     effort = "medium" if objetivo else "low"
@@ -191,7 +199,24 @@ def pedir(receta: m.Senal, tabla: pd.DataFrame, pedido: str, proveedor: Proveedo
             {"role": "user", "content": "Probé tu propuesta y pasó esto:\n- " + "\n- ".join(problemas)
                                         + "\n\nCorregí y devolvé la respuesta completa otra vez."},
         ]
+    if sembrada is not None and resultado.receta is None:
+        # Ninguna propuesta sirvió: quedan al menos los criterios generales, si mejoran el ejemplo.
+        solo, _ = medir(sembrada, tabla, ejemplos)
+        if solo.ejemplos.get(objetivo, 0) > antes.ejemplos.get(objetivo, 0):
+            resultado.receta, resultado.despues = sembrada.model_dump(exclude_none=True), solo
+            resultado.cambios = cambios(receta_original, sembrada)
     return resultado
+
+
+def con_criterios(receta: m.Senal, tabla: pd.DataFrame, ejemplos: list[Ejemplo], objetivo: str) -> m.Senal | None:
+    """La receta con la tarjeta de criterios generales al principio, configurada para esta grilla y este EPG."""
+    ejemplo = next((e for e in ejemplos if e.nombre == objetivo), None)
+    salida = receta.salida.columnas or (list(ejemplo.esperado.columns) if ejemplo is not None else [])
+    programa = columna_programa(salida, receta.validaciones) if salida else None
+    tarjeta = criterios.configurar(tabla, salida, programa)
+    if tarjeta is None:
+        return None
+    return receta.model_copy(update={"tarjetas": [tarjeta, *receta.tarjetas]})
 
 
 def _leer_propuesta(datos: dict | None, receta: m.Senal) -> tuple[m.Senal | None, list[str]]:

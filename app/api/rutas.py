@@ -12,7 +12,7 @@ import pandas as pd
 from fastapi import APIRouter, Cookie, Depends, Header, File, Form, HTTPException, Query, Response, UploadFile
 from pydantic import BaseModel, TypeAdapter, ValidationError
 
-from app import acciones, almacen, auth, catalogo, corridas, export, inputs, pautas, semana, semanas, tablas
+from app import acciones, almacen, armados, auth, catalogo, corridas, export, inputs, pautas, semana, semanas, tablas
 from app.agent import asistente as asistente_ia
 from app.agent import banco, cliente, controles, uso
 from app.engine import model as m
@@ -421,7 +421,35 @@ async def subir_ejemplo(senal_id: str, nombre: str = Form(...), entrada: UploadF
         almacen.guardar_ejemplo(senal_id, nombre, crudo, terminado, u.usuario)
     except ValueError as e:
         raise HTTPException(422, str(e))
-    return {"ok": True, "pautas": _cargar_pautas(senal_id, crudo, terminado, u.usuario)}
+    base = _cargar_pautas(senal_id, crudo, terminado, u.usuario)
+    return {"ok": True, "pautas": base, "armando_reglas": _armar_si_no_tiene(senal_id, u.usuario)}
+
+
+def _armar_si_no_tiene(senal_id: str, usuario: str) -> bool:
+    """Una señal sin reglas que recibe un ejemplo: el agente las arma solo."""
+    try:
+        sin_reglas = not almacen.leer(senal_id).tarjetas
+    except almacen.NoExiste:
+        return False
+    return sin_reglas and armados.lanzar(senal_id, usuario)
+
+
+@api.get("/senales/{senal_id}/reglas/armado")
+def estado_del_armado(senal_id: str):
+    """El último armado automático de reglas de la señal (o null si nunca hubo)."""
+    return armados.leer(senal_id)
+
+
+@api.post("/senales/{senal_id}/reglas/armar")
+def armar_reglas(senal_id: str, u: auth.Usuario = Depends(auth.usuario_actual)):
+    """El agente arma las reglas desde los ejemplos, en segundo plano; el estado se consulta en /reglas/armado."""
+    _receta(senal_id)
+    if cliente.proveedor_configurado() is None:
+        raise HTTPException(503, "El asistente no está configurado: falta la variable ANTHROPIC_API_KEY en el servidor")
+    if not almacen.listar_ejemplos(senal_id):
+        raise HTTPException(422, "La señal no tiene ejemplos para armar las reglas")
+    armados.lanzar(senal_id, u.usuario)
+    return armados.leer(senal_id)
 
 
 def _cargar_pautas(senal_id: str, crudo: bytes, terminado: bytes, usuario: str) -> dict | None:
@@ -486,6 +514,7 @@ async def crear_senal(nombre: str = Form(""), grilla_cruda: UploadFile = File(..
     if not agregar_a and _es_de_ahora(terminado, receta):
         semanas.abrir(senal_id, tabla_id, crudo, grilla_cruda.filename or "grilla", u.usuario, es_version=False)
         resultado["semana_abierta"] = True
+    resultado["armando_reglas"] = _armar_si_no_tiene(senal_id, u.usuario)
     return resultado
 
 
@@ -1131,6 +1160,31 @@ async def cargar_catalogo(archivo: UploadFile = File(...)):
         raise HTTPException(422, "El Excel no tiene columnas")
     catalogo.guardar(columnas)
     return [asdict(c) for c in columnas]
+
+
+@api.post("/senales/{senal_id}/reglas/criterios")
+def sumar_criterios(senal_id: str, u: auth.Usuario = Depends(auth.usuario_actual)):
+    """Pone los criterios generales al principio de las reglas, configurados con el ejemplo más reciente.
+
+    Se guarda solo si ningún ejemplo empeora; si no, se devuelve cuánto daba para que la persona decida.
+    """
+    receta = _receta(senal_id)
+    if any(t.tipo == "criterios" for t in receta.tarjetas):
+        raise HTTPException(409, "La señal ya usa los criterios generales")
+    nombres = list(reversed(almacen.listar_ejemplos(senal_id)))[:3]
+    if not nombres:
+        raise HTTPException(422, "Hace falta un ejemplo para saber a qué columnas va cada cosa")
+    ejemplos = [_leer_ejemplo(receta, n) for n in nombres]
+    nueva = asistente_ia.con_criterios(receta, ejemplos[0].entrada, ejemplos, ejemplos[0].nombre)
+    if nueva is None:
+        raise HTTPException(422, "No encontré la columna del título en la grilla del ejemplo")
+    antes, _ = asistente_ia.medir(receta, ejemplos[0].entrada, ejemplos)
+    despues, _ = asistente_ia.medir(nueva, ejemplos[0].entrada, ejemplos)
+    empeora = [n for n in antes.ejemplos if despues.ejemplos[n] < antes.ejemplos[n]]
+    if not empeora:
+        almacen.guardar(nueva, u.usuario)
+    return {"aplicado": not empeora, "antes": antes.ejemplos, "despues": despues.ejemplos,
+            "tarjeta": nueva.tarjetas[0].model_dump(exclude_none=True)}
 
 
 @api.post("/senales/{senal_id}/ejemplos/evaluar")

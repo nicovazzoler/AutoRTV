@@ -150,6 +150,18 @@ banco_corridas = Table(
     Column("resultado", JSON),
 )
 
+armados = Table(
+    "armados", metadata,
+    Column("senal_id", String(64), primary_key=True),  # solo el último armado de cada señal
+    Column("usuario", String(100), nullable=False),
+    Column("inicio", DateTime, nullable=False),
+    Column("fin", DateTime),
+    Column("estado", String(20), nullable=False),  # armando | aplicado | sin_mejora | error
+    Column("mensaje", Text),
+    Column("antes", Float),
+    Column("despues", Float),
+)
+
 _motores: dict[str, Engine] = {}
 
 

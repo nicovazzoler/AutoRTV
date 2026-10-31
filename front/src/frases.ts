@@ -6,6 +6,7 @@ export const NOMBRES: Record<string, string> = {
   correcciones: "Correcciones fijas", renombrar: "Renombrar columnas", numerar: "Numerar filas",
   redondear_hora: "Redondear hora", dia_semana: "Día de la semana", duracion: "Duración",
   clasificar_sinopsis: "Sinopsis: programa o capítulo", convertir_zona: "Convertir zona horaria",
+  criterios: "Criterios generales",
 };
 
 const OPERADORES: Record<string, string> = { igual: "es igual a", distinto: "es distinto de", contiene: "contiene",
@@ -44,6 +45,10 @@ export function frase(t: Tarjeta): string {
     dia_semana: () => `Escribe en ${x.destino || "Dia"} el día de la semana de ${x.columna}`,
     duracion: () => `${x.destino || "Duracion"} = minutos hasta el programa siguiente${x.ultimo_hasta ? ` (el último termina a las ${x.ultimo_hasta})` : ""}`,
     convertir_zona: () => `Pasa ${x.columna}${x.hora ? ` y ${x.hora}` : ""} de ${x.desde} a ${x.hacia} (en ${x.destino_fecha || "Fecha"} y ${x.destino_hora || "Hora"})`,
+    criterios: () => {
+      const destinos = [x.programa, x.capitulo, x.temporada, x.numero, x.anio, x.tt].filter(Boolean).join(", ");
+      return `Lee ${x.columna}${x.detalle ? ` y ${x.detalle}` : ""} con los criterios generales (programa conocido, separadores, temporada y capítulo, año, repetición, vivo, mayúsculas) y lo pasa a ${destinos}`;
+    },
     clasificar_sinopsis: () => `Si la sinopsis de ${x.sinopsis} se repite en todos los capítulos va a ${x.destino_programa}; si cambia, a ${x.destino_capitulo}`,
   };
   let texto = textos[t.tipo]?.() ?? NOMBRES[t.tipo] ?? t.tipo;

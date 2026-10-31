@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { esperarArmado, type Armado } from "../armado";
 import { api, ErrorApi, textoDeError } from "../api";
 import { frase, fraseCambio, fraseEntrada, fraseIdiomas } from "../frases";
 import { haceCuanto } from "../fechas";
@@ -7,7 +8,7 @@ import { EpgCrudo } from "../piezas/EpgCrudo";
 import { ParesEjemplos } from "../piezas/ParesEjemplos";
 import { CabeceraBase } from "./Base";
 import { useSesion } from "../sesion";
-import type { Evaluacion, Propuesta, Receta, Version } from "../tipos";
+import type { Evaluacion, Receta, Version } from "../tipos";
 
 interface Informe {
   id: string;
@@ -89,27 +90,53 @@ export function Configuracion({ senalId }: { senalId: string }) {
     setContexto(`Base · Configuración · ${SECCIONES.find((x) => x.id === seccion)?.nombre}`);
   }, [seccion, setContexto]);
 
-  const armarReglas = async () => {
-    if (!receta || !evaluaciones?.length) return;
+  const esperarYContar = async () => {
     setArmando(true);
+    const a = await esperarArmado(senalId);
+    setArmando(false);
+    if (!a) return;
+    if (a.estado === "aplicado") {
+      setAviso(a.mensaje ?? "Reglas armadas por el agente.");
+      tocar();
+    } else if (a.estado !== "armando") {
+      setError(a.mensaje ?? "El agente no pudo armar las reglas.");
+    }
+  };
+
+  // Si el agente está armando las reglas (porque se creó la señal o llegó un ejemplo), se espera y se avisa.
+  useEffect(() => {
+    api.get<Armado | null>(`/senales/${senalId}/reglas/armado`)
+      .then((a) => { if (a?.estado === "armando") esperarYContar().catch(() => setArmando(false)); })
+      .catch(() => {});
+  }, [senalId]);
+
+  const armarReglas = async () => {
     setError("");
     setAviso("");
     try {
-      const p = await api.post<Propuesta>("/asistente", { senal: receta, ejemplo: evaluaciones[0].nombre, fuerte: true,
-        pedido: "Ajustá las tarjetas para que la grilla de entrada de este ejemplo quede igual al EPG esperado." });
-      const antes = p.antes?.ejemplos[evaluaciones[0].nombre] ?? null;
-      const despues = p.despues?.ejemplos[evaluaciones[0].nombre] ?? null;
-      if (p.receta && despues !== null && (antes === null || despues > antes)) {
-        await api.put(`/senales/${senalId}`, p.receta, { "If-Match": version });
-        setAviso(`Reglas armadas: aciertan el ${despues} % del ejemplo.${p.aviso ? ` ${p.aviso}` : ""}`);
+      await api.post(`/senales/${senalId}/reglas/armar`);
+      await esperarYContar();
+    } catch (e) {
+      setArmando(false);
+      setError(textoDeError(e));
+    }
+  };
+
+  const sumarCriterios = async () => {
+    setError("");
+    setAviso("");
+    try {
+      const r = await api.post<{ aplicado: boolean; antes: Record<string, number>; despues: Record<string, number> }>(`/senales/${senalId}/reglas/criterios`);
+      const resumen = Object.keys(r.antes).map((n) => `${nombreEjemplo(n)}: ${r.antes[n]} % → ${r.despues[n]} %`).join(" · ");
+      if (r.aplicado) {
+        setAviso(`Criterios generales sumados al principio de las reglas. ${resumen}`);
         tocar();
       } else {
-        setError(`El agente no encontró reglas que mejoren el ejemplo. ${p.problemas.join(" ")}`);
+        setError(`No los sumé porque algún ejemplo empeora con las reglas de ahora: ${resumen}. Pedile al agente que los combine.`);
       }
     } catch (e) {
       setError(textoDeError(e));
     }
-    setArmando(false);
   };
 
   const limpiarBase = async () => {
@@ -178,6 +205,11 @@ export function Configuracion({ senalId }: { senalId: string }) {
                   <li className="tenue chico" style={{ flexWrap: "wrap" }}>Sin reglas: todo sale de la base o como vino.
                     {!!evaluaciones?.length && <button type="button" className="boton chico" onClick={armarReglas} disabled={armando}>
                       {armando ? "Armando… (puede tardar un minuto)" : "Armar reglas desde los ejemplos"}</button>}
+                  </li>
+                )}
+                {receta.tarjetas.length > 0 && !receta.tarjetas.some((t) => t.tipo === "criterios") && !!evaluaciones?.length && (
+                  <li className="tenue chico" style={{ flexWrap: "wrap" }}>Estas reglas no usan los criterios generales.
+                    <button type="button" className="boton chico" onClick={sumarCriterios}>Sumar los criterios generales</button>
                   </li>
                 )}
                 {receta.tarjetas.map((t, i) => {

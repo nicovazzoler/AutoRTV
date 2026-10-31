@@ -1,11 +1,11 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { api, ErrorApi, textoDeError } from "../api";
+import { esperarArmado } from "../armado";
 import { Enlace } from "../piezas/Enlace";
 import { CopiarPagina } from "../piezas/CopiarPagina";
 import { ZonaArchivo } from "../piezas/ZonaArchivo";
 import { aSenal } from "../ruta";
 import { useSesion } from "../sesion";
-import type { Propuesta, Receta } from "../tipos";
 
 interface Creada {
   id: string;
@@ -14,6 +14,7 @@ interface Creada {
   pautas: { agregadas?: number; conflictos?: number; error?: string } | null;
   semana_abierta?: boolean;
   aviso?: string | null;
+  armando_reglas?: boolean;
 }
 
 interface SenalCorta {
@@ -32,7 +33,6 @@ type Reglas =
   | { estado: "listo"; porcentaje: number | null; aplicadas: boolean; problemas: string[]; aviso?: string }
   | { estado: "sin-agente" | "error"; mensaje: string };
 
-const PEDIDO = "Ajustá las tarjetas para que la grilla de entrada de este ejemplo quede igual al EPG esperado.";
 
 /** Alta de una señal con la grilla como vino y la macro hecha. Se abre como panel al costado del Inicio. */
 export function Nueva({ enPanel = false, alCerrar }: { enPanel?: boolean; alCerrar?: () => void }) {
@@ -64,21 +64,16 @@ export function Nueva({ enPanel = false, alCerrar }: { enPanel?: boolean; alCerr
   const grillaCruda = () => cruda ?? new File([pegada], pegada.trimStart().startsWith("<") ? "grilla.html" : "grilla.txt");
   const listo = nombre.trim() && (forma === "archivo" ? !!cruda : !!pegada.trim()) && !!ejemplo;
 
-  const armarReglas = async (c: Creada) => {
+  // Las reglas las arma el servidor solo al crear la señal; acá se espera el resultado (o se pide de nuevo).
+  const armarReglas = async (c: Creada, otraVez = false) => {
     setReglas({ estado: "trabajando" });
     try {
-      const { datos: receta, version } = await api.conVersion<Receta>(`/senales/${c.id}`);
-      // Armar todas las reglas desde cero le queda grande al modelo barato; pasa una vez por señal.
-      const p = await api.post<Propuesta>("/asistente", { senal: receta, pedido: PEDIDO, ejemplo: c.ejemplo, fuerte: true });
-      const antes = p.antes?.ejemplos[c.ejemplo] ?? null;
-      const despues = p.despues?.ejemplos[c.ejemplo] ?? null;
-      // Solo se aplican si mejoran: una propuesta peor que no tener reglas no sirve de punto de partida.
-      if (p.receta && despues !== null && (antes === null || despues > antes)) {
-        await api.put(`/senales/${c.id}`, p.receta, { "If-Match": version });
-        setReglas({ estado: "listo", porcentaje: despues, aplicadas: true, problemas: [], aviso: p.aviso });
-      } else {
-        setReglas({ estado: "listo", porcentaje: antes, aplicadas: false, problemas: p.problemas, aviso: p.aviso });
-      }
+      if (otraVez) await api.post(`/senales/${c.id}/reglas/armar`);
+      const a = await esperarArmado(c.id);
+      if (!a) setReglas({ estado: "sin-agente", mensaje: "El agente no está configurado: la señal arranca solo con la base." });
+      else if (a.estado === "error") setReglas({ estado: "error", mensaje: a.mensaje ?? "El agente falló" });
+      else setReglas({ estado: "listo", porcentaje: a.estado === "aplicado" ? a.despues : a.antes, aplicadas: a.estado === "aplicado",
+        problemas: a.estado === "aplicado" ? [] : [a.mensaje ?? ""], aviso: a.estado === "aplicado" ? a.mensaje ?? undefined : undefined });
     } catch (e) {
       setReglas(e instanceof ErrorApi && e.estado === 503
         ? { estado: "sin-agente", mensaje: "El agente no está configurado: la señal arranca solo con la base." }
@@ -101,7 +96,8 @@ export function Nueva({ enPanel = false, alCerrar }: { enPanel?: boolean; alCerr
       setCreada(c);
       await refrescarSenales();
       if (extra.agregar_a) setAgregadaA(c.nombre);
-      else await armarReglas(c);
+      if (c.armando_reglas) await armarReglas(c);
+      else if (!extra.agregar_a) setReglas({ estado: "sin-agente", mensaje: "El agente no está configurado: la señal arranca solo con la base." });
     } catch (e) {
       if (e instanceof ErrorApi && e.estado === 409 && e.detalle && typeof e.detalle === "object") setParecidas(e.detalle as Parecidas);
       else setError(textoDeError(e));
@@ -224,7 +220,7 @@ export function Nueva({ enPanel = false, alCerrar }: { enPanel?: boolean; alCerr
                         <ul style={{ margin: "6px 0 0", paddingLeft: 18 }}>{reglas.problemas.map((x) => <li key={x}>{x}</li>)}</ul>
                       </details>
                     )}
-                    {!reglas.aplicadas && <button type="button" className="boton chico" style={{ alignSelf: "flex-start" }} onClick={() => armarReglas(creada)}>Probar de nuevo</button>}
+                    {!reglas.aplicadas && <button type="button" className="boton chico" style={{ alignSelf: "flex-start" }} onClick={() => armarReglas(creada, true)}>Probar de nuevo</button>}
                     {reglas.porcentaje !== null && (
                       <div role="progressbar" aria-label="Las reglas aciertan" aria-valuenow={reglas.porcentaje} aria-valuemin={0} aria-valuemax={100} className="barra-progreso">
                         <div style={{ width: `${reglas.porcentaje}%` }} />

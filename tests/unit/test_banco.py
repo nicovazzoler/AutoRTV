@@ -106,6 +106,7 @@ def test_corrida_desde_la_api_con_progreso_y_uso_registrado(cliente, monkeypatch
     assert c["resultado"]["resumen"]["lectura"]["haiku"] == 1
     assert cliente.get("/api/admin/banco").json()[0]["id"] == r.json()["id"]
     assert cliente.get("/api/asistente/uso").json()["usuarios"][0]["pedidos"] == 4
+    assert cliente.get("/api/asistente/limites").json()["usados_hoy"] == 0  # el banco no gasta el tope diario
 
 
 def test_no_se_lanzan_dos_corridas_a_la_vez_y_solo_el_admin(cliente, monkeypatch):
