@@ -93,7 +93,7 @@ def test_semana_por_api(cliente):
     pedido = _semana(cliente, ["Memory Lane - Outkast", "Memory Lane - Prince", "Ruta Sonora - Live", "Ruta Sonora - Live"])
     r = cliente.post("/api/semana", json=pedido).json()
     assert r["resumen"] == {"filas": 4, "base": 1, "nueva_lista": 1, "revisar": 2, "pautas_revisar": 1}
-    assert r["lectura"] == {"filas": 4, "columnas": ["Fecha", "Hora", "Titulo"]}
+    assert r["lectura"] == {"filas": 4, "columnas": ["Fecha", "Hora", "Titulo"], "hojas": 1}
     assert r["revisar"][0]["motivos"] == ["Programa nuevo: Ruta Sonora"] and r["revisar"][0]["veces"] == 2
     assert r["revisar"][0]["salida"]["Capitulo"] == "Live"
     assert r["nuevas"][0]["salida"]["Capitulo"] == "Prince"

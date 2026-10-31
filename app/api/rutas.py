@@ -377,7 +377,8 @@ def _armar_semana(c: Corrida, receta: m.Senal) -> dict:
     cuenta = {k: sum(g["grupo"] == k for g in grupos) for k in ("base", "nueva_lista", "revisar")}
     return {
         "_foto": semana.foto(c.salida, grupos, receta.validaciones, c.programa),
-        "lectura": {"filas": len(c.crudo), "columnas": [str(x) for x in c.crudo.columns]},
+        "lectura": {"filas": len(c.crudo), "columnas": [str(x) for x in c.crudo.columns],
+                    "hojas": c.crudo.attrs.get("hojas", 1)},
         "resumen": {"filas": len(c.salida), **cuenta, "pautas_revisar": len(revisar)},
         "contenido": contenido,
         "programa": c.programa,
@@ -800,6 +801,8 @@ def _con_entrada(receta: m.Senal, detectada, contenido: bytes) -> m.Senal:
         entrada = detectada
     elif entrada.tipo == "texto" and entrada.fecha_inicio != detectada.fecha_inicio:
         entrada = entrada.model_copy(update={"fecha_inicio": detectada.fecha_inicio})
+    elif entrada.tipo == "excel" and not entrada.cuadricula:
+        entrada = inputs.con_todas_las_hojas(entrada, detectada)
     return receta if entrada is receta.entrada else receta.model_copy(update={"entrada": entrada})
 
 

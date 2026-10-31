@@ -68,7 +68,7 @@ export interface SemanaAbierta {
   nuevas?: Pauta[];
   horarios?: Aviso[];
   cambios?: CambioVersion[] | null;
-  lectura?: { filas: number; columnas: string[] };
+  lectura?: { filas: number; columnas: string[]; hojas?: number };
   campos_clave?: string[];
   armando_reglas?: boolean;
   lectura_agente?: LecturaAgente | null;

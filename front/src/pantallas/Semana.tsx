@@ -187,7 +187,7 @@ export function Semana({ senalId }: { senalId: string }) {
       <header className="cabecera">
         <div className="cabecera-textos">
           <span className="antetitulo">
-            {senal?.nombre ?? senalId} · {resumen.desde ? `Semana ${numeroSemana(resumen.desde)} · ` : ""}{semana.version > 1 ? `v${semana.version} · ` : ""}{semana.nombre} · subida por {semana.subida_por} {haceCuanto(semana.subida)}
+            {senal?.nombre ?? senalId} · {resumen.desde ? `Semana ${numeroSemana(resumen.desde)} · ` : ""}{semana.version > 1 ? `v${semana.version} · ` : ""}{semana.nombre}{(datos.lectura?.hojas ?? 1) > 1 ? ` (leí ${datos.lectura?.hojas} hojas)` : ""} · subida por {semana.subida_por} {haceCuanto(semana.subida)}
           </span>
           <h1 className="titulo">{rangoSemana(resumen.desde, resumen.hasta)}</h1>
           <p className="bajada">
