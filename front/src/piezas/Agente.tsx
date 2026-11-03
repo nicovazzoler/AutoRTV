@@ -52,6 +52,13 @@ export function pedirAlAgente(senalId: string) {
   }
 }
 
+const PEDIDO = "autortv:pedir-agente";
+
+/** Abre el agente y le manda un pedido armado por la pantalla (por ejemplo, desde un grupo de motivos). */
+export function pedirAgente(pedido: string) {
+  window.dispatchEvent(new CustomEvent(PEDIDO, { detail: pedido }));
+}
+
 const anchoInicial = () => Number(leer(ANCHO)) || Math.round(window.innerWidth / 3);
 const limitarAncho = (a: number) => Math.min(Math.max(a, 320), Math.round(window.innerWidth * 0.7));
 
@@ -109,6 +116,17 @@ export function Agente({ senalId }: { senalId: string | null }) {
     elegirChat(null);
     void enviar(PEDIDO_SIN_EJEMPLO);
   }, [senalId]);
+
+  // El listener se registra una vez y llama siempre al enviar de este render.
+  const enviarActual = useRef<(fijo?: string) => Promise<void>>(async () => {});
+  useEffect(() => {
+    const escuchar = (e: Event) => {
+      plegar(false);
+      void enviarActual.current((e as CustomEvent<string>).detail);
+    };
+    window.addEventListener(PEDIDO, escuchar);
+    return () => window.removeEventListener(PEDIDO, escuchar);
+  }, []);
 
   const plegar = (si: boolean) => {
     setPlegado(si);
@@ -198,7 +216,7 @@ export function Agente({ senalId }: { senalId: string | null }) {
       setError("Escribí qué querés que haga el agente");
       return;
     }
-    const previo = fijo ? [] : hilo;  // el pedido fijo arranca un chat nuevo
+    const previo = fijo === PEDIDO_SIN_EJEMPLO ? [] : hilo;  // la señal sin ejemplo arranca un chat nuevo
     setError("");
     setEscrito("");
     decir({ rol: "persona", texto: pedido });
@@ -218,6 +236,8 @@ export function Agente({ senalId }: { senalId: string | null }) {
     }
     await proponer(pedido, previo);
   };
+
+  enviarActual.current = enviar;
 
   const enviarFormulario = (e: FormEvent) => {
     e.preventDefault();

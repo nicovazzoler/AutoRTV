@@ -29,6 +29,7 @@ def test_clasificar_separa_conocidas_nuevas_listas_y_para_revisar():
     assert grupos[2]["motivos"] == ["Programa nuevo: Ruta Sonora"]
     assert grupos[3]["motivos"] == ["Programa vacío"]
     assert grupos[4]["motivos"] == ["Año: no es un año"]  # la nota informativa no frena
+    assert [g["codigos"] for g in grupos[2:]] == [["programa_nuevo"], ["vacia:Programa"], ["catalogo:Año"]]
 
 
 def test_una_regla_con_error_manda_a_revisar_todas_las_nuevas():
@@ -36,14 +37,15 @@ def test_una_regla_con_error_manda_a_revisar_todas_las_nuevas():
     informe = type("Informe", (), {"error": "No existe la columna: X"})()
     grupos = semana.clasificar(salida, ["conocida", "nueva"], [], [informe], ["Memory Lane"], "Programa")
     assert grupos[0]["grupo"] == "base"
-    assert grupos[1] == {"grupo": "revisar", "motivos": ["Regla con error: No existe la columna: X"]}
+    assert grupos[1] == {"grupo": "revisar", "motivos": ["Regla con error: No existe la columna: X"],
+                         "codigos": ["regla_con_error"]}
 
 
 def test_agrupar_junta_por_pauta():
     grupos = [{"grupo": "revisar", "motivos": ["Programa nuevo: A"]}, {"grupo": "base", "motivos": []},
               {"grupo": "revisar", "motivos": ["Programa nuevo: A", "Hueco de 5 min"]}]
     assert semana.agrupar(grupos, ["h1", "h2", "h1"], "revisar") == [
-        {"hash": "h1", "filas": [0, 2], "motivos": ["Programa nuevo: A", "Hueco de 5 min"]}]
+        {"hash": "h1", "filas": [0, 2], "motivos": ["Programa nuevo: A", "Hueco de 5 min"], "codigos": []}]
 
 
 def test_columna_de_programa_por_nombre_o_catalogo():

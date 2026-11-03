@@ -6,6 +6,7 @@ import { CeldaEditable } from "../piezas/CeldaEditable";
 import { Enlace } from "../piezas/Enlace";
 import { TablaGrilla, type Filtro } from "../piezas/TablaGrilla";
 import { Subir } from "./Subir";
+import { MotivosAgrupados } from "../piezas/MotivosAgrupados";
 import { Recorrido, type Parecida } from "../piezas/Recorrido";
 import { cumple, FilaFiltros, type Filtros } from "../piezas/FiltrosColumna";
 import { tomarSemana } from "../semanaReciente";
@@ -65,6 +66,7 @@ export function Semana({ senalId }: { senalId: string }) {
   const [lecturaAgente, setLecturaAgente] = useState<LecturaAgente | null>(null);
   const [parecidas, setParecidas] = useState<Parecida[] | null>(null);
   const [avisoFechas, setAvisoFechas] = useState<AvisoFechas | null>(null);
+  const [porMotivo, setPorMotivo] = useState(true);
   const [lunes, setLunes] = useState("");
 
   const esperarReglas = async () => {
@@ -117,11 +119,13 @@ export function Semana({ senalId }: { senalId: string }) {
     api.get<SemanaAbierta>(`/senales/${senalId}/abierta`).then(recibir).catch((e) => setError(textoDeError(e)));
   }, [senalId]);
 
-  const aceptar = async (hash: string) => {
-    setOcupado(hash);
+  const aceptar = async (hash: string) => aceptarVarias([hash]);
+
+  const aceptarVarias = async (hashes: string[]) => {
+    setOcupado(hashes.length === 1 ? hashes[0] : "varias");
     setError("");
     try {
-      recibir(await api.post<SemanaAbierta>(`/senales/${senalId}/abierta/aceptar`, { hashes: [hash] }));
+      recibir(await api.post<SemanaAbierta>(`/senales/${senalId}/abierta/aceptar`, { hashes }));
     } catch (e) {
       setError(textoDeError(e));
     }
@@ -340,8 +344,17 @@ export function Semana({ senalId }: { senalId: string }) {
                 <h2>Para revisar</h2>
                 <span className="chico tenue">{resumen.pautas_revisar} {resumen.pautas_revisar === 1 ? "pauta" : "pautas"} · {resumen.revisar} {resumen.revisar === 1 ? "emisión" : "emisiones"} · doble clic en una celda para corregirla</span>
               </div>
+              {revisar.length > 0 && (
+                <div className="botones" role="group" aria-label="Cómo verlas" style={{ gap: 6, marginTop: 10 }}>
+                  <button type="button" className="boton chico" aria-pressed={porMotivo} onClick={() => setPorMotivo(true)}>Por motivo</button>
+                  <button type="button" className="boton chico" aria-pressed={!porMotivo} onClick={() => setPorMotivo(false)}>Por pauta</button>
+                </div>
+              )}
               {revisar.length === 0 ? (
                 <p className="tenue" style={{ marginTop: 12 }}>Nada para revisar: todo salió de la base o entra solo.</p>
+              ) : porMotivo ? (
+                <MotivosAgrupados senalId={senalId} revisar={revisar} campos={datos.campos_clave?.length ? datos.campos_clave : columnas}
+                  ocupado={ocupado} alAceptar={aceptarVarias} alProponer={setParecidas} />
               ) : (
                 <div className="desplazable con-alto">
                   <table className="tabla-datos">

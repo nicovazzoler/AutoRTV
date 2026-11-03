@@ -195,35 +195,43 @@ def sinopsis_repetidas(salida: pd.DataFrame, base: list[dict], programa: str | N
     return motivos
 
 
+def codigo_de_aviso(a) -> str:
+    """El código de un aviso de validación, para agrupar los motivos ("catalogo:Año", "vacia:Tit orig", "duracion")."""
+    if a.regla == "catalogo" and a.columna:
+        return f"{'vacia' if 'vacía' in a.mensaje else 'catalogo'}:{a.columna}"
+    return f"{a.regla}:{a.columna}" if a.columna else a.regla
+
+
 def clasificar(salida: pd.DataFrame, estados: list[str], avisos: list, informes: list,
                programas: list[str], columna: str | None, extras: dict[int, str] | None = None) -> list[dict]:
-    """Grupo de cada fila (`base` | `nueva_lista` | `revisar`) y por qué hay que revisarla."""
+    """Grupo de cada fila (`base` | `nueva_lista` | `revisar`), por qué hay que revisarla y el código de cada motivo."""
     conocidos = {normalizar(p) for p in programas}
-    por_fila: dict[int, list[str]] = {}
+    por_fila: dict[int, list[tuple[str, str]]] = {}
     for a in avisos:
         if a.fila and a.nivel in NIVELES_QUE_FRENAN:
-            por_fila.setdefault(a.fila - 1, []).append(a.mensaje)
+            por_fila.setdefault(a.fila - 1, []).append((codigo_de_aviso(a), a.mensaje))
     # Si una regla falló, ninguna fila nueva salió como se esperaba.
-    de_reglas = [f"Regla con error: {i.error}" for i in informes if i.error]
+    de_reglas = [("regla_con_error", f"Regla con error: {i.error}") for i in informes if i.error]
 
     filas = []
     for i, estado in enumerate(estados):
         if estado != "nueva":
-            filas.append({"grupo": "base", "motivos": []})
+            filas.append({"grupo": "base", "motivos": [], "codigos": []})
             continue
         motivos = list(de_reglas)
         if columna is None:
-            motivos.append("No se encontró la columna de programa")
+            motivos.append(("sin_programa", "No se encontró la columna de programa"))
         else:
             programa = salida.iloc[i][columna] if columna in salida.columns else None
             if not isinstance(programa, str) or not programa.strip():
-                motivos.append(f"{columna} vacío")
+                motivos.append((f"vacia:{columna}", f"{columna} vacío"))
             elif normalizar(programa) not in conocidos:
-                motivos.append(f"Programa nuevo: {' '.join(programa.split())}")
+                motivos.append(("programa_nuevo", f"Programa nuevo: {' '.join(programa.split())}"))
         motivos += por_fila.get(i, [])
         if extras and i in extras:
-            motivos.append(extras[i])
-        filas.append({"grupo": "revisar" if motivos else "nueva_lista", "motivos": motivos})
+            motivos.append(("sinopsis_repetida", extras[i]))
+        filas.append({"grupo": "revisar" if motivos else "nueva_lista", "motivos": [t for _, t in motivos],
+                      "codigos": [c for c, _ in motivos]})
     return filas
 
 
@@ -233,9 +241,10 @@ def agrupar(clasificacion: list[dict], hashes: list[str], grupo: str) -> list[di
     for i, (c, h) in enumerate(zip(clasificacion, hashes)):
         if c["grupo"] != grupo:
             continue
-        g = por_hash.setdefault(h, {"hash": h, "filas": [], "motivos": []})
+        g = por_hash.setdefault(h, {"hash": h, "filas": [], "motivos": [], "codigos": []})
         g["filas"].append(i)
         g["motivos"] += [x for x in c["motivos"] if x not in g["motivos"]]
+        g["codigos"] += [x for x in c.get("codigos", []) if x not in g["codigos"]]
     return list(por_hash.values())
 
 

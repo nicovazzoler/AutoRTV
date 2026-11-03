@@ -13,8 +13,8 @@ import pandas as pd
 from fastapi import APIRouter, Cookie, Depends, Header, File, Form, HTTPException, Query, Response, UploadFile
 from pydantic import BaseModel, TypeAdapter, ValidationError
 
-from app import (acciones, almacen, armados, auth, catalogo, conversaciones, corridas, export, fechar, historial, inputs,
-                 parecidas, pautas, semana, semanas, tablas, web)
+from app import (acciones, almacen, armados, arreglos, auth, catalogo, conversaciones, corridas, export, fechar, historial,
+                 inputs, parecidas, pautas, semana, semanas, tablas, web)
 from app.agent import asistente as asistente_ia
 from app.agent import banco, cliente, controles, lectura, uso
 from app.agent import parecidas as parecidas_ia
@@ -1407,6 +1407,44 @@ MUCHAS_PAUTAS = 20
 def _avisar_si_son_muchas(u: auth.Usuario, senal_id: str, cuantas: int, que: str) -> None:
     if not u.admin and cuantas > MUCHAS_PAUTAS:
         conversaciones.avisar(u.usuario, senal_id, "base", f"{que} {cuantas} pautas")
+
+
+class PedidoArreglo(BaseModel):
+    codigo: str  # catalogo:<columna> | vacia:<columna> | sinopsis_repetida
+    hashes: list[str]
+    valor: str | None = None  # para completar una columna vacía
+
+
+@api.post("/senales/{senal_id}/abierta/arreglo")
+def arreglo_rapido(senal_id: str, datos: PedidoArreglo):
+    """Lo que haría el arreglo rápido de un grupo de motivos, pauta por pauta, para confirmarlo en el recorrido."""
+    receta, p = _pedido_abierta(senal_id)
+    c = _correr(p)
+    contenido = pautas.columnas_de_contenido(c.salida, receta.validaciones)
+    elegidas, filas = set(datos.hashes), []
+    for i, h in enumerate(c.hashes):
+        if h in elegidas:
+            elegidas.discard(h)
+            filas.append((str(i), {col: pautas.valor_json(c.salida.iloc[i][col]) for col in contenido}))
+    tipo, _, columna = datos.codigo.partition(":")
+    if tipo == "catalogo":
+        col = next((x for x in c.catalogo if catalogo.clave(x.nombre) == catalogo.clave(columna)), None)
+        if col is None:
+            raise HTTPException(422, f"{columna} no está en el catálogo")
+        lista = arreglos.del_catalogo(filas, columna, col, c.programa)
+    elif tipo == "vacia":
+        if not (datos.valor or "").strip():
+            raise HTTPException(422, f"Escribí con qué completar {columna}")
+        lista = arreglos.completar(filas, columna, _convertir(datos.valor, columna, c.catalogo), c.programa)
+    elif tipo == "sinopsis_repetida":
+        sinopsis = next((x for x in contenido if catalogo.clave(x).startswith("sin")), None)
+        argumento = next((x for x in contenido if catalogo.clave(x).startswith("arg")), None)
+        if not sinopsis or not argumento:
+            raise HTTPException(422, "No hay una columna de argumento de programa (ARG) adonde pasar la sinopsis")
+        lista = arreglos.a_argumento(filas, sinopsis, argumento, c.programa)
+    else:
+        raise HTTPException(422, "Ese motivo no tiene arreglo rápido")
+    return [x.json() for x in lista]
 
 
 # Hasta qué mes se repite la última semana: el de su último día, o también el siguiente.

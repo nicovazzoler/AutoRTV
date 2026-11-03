@@ -46,6 +46,7 @@ export interface Pauta {
   hash: string;
   filas: number[];
   motivos: string[];
+  codigos?: string[];
   veces: number;
   crudo: Celdas;
   salida: Celdas;
