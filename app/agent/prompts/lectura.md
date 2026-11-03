@@ -7,6 +7,18 @@ servidor la prueba. Si la prueba falla, te digo qué pasó y corregís.
 
 - `explicacion`: 1 a 3 oraciones en castellano: qué forma tiene el archivo y por qué elegiste esa lectura.
 - `entrada_json`: la configuración, como texto JSON, con uno de estos `tipo`:
+- `ver_hoja` (solo Excel, opcional): el número o el nombre de una hoja que querés ver entera antes de decidir.
+  Si lo mandás, no pruebo ninguna lectura: te muestro esa hoja y en la vuelta siguiente proponés (o pedís otra).
+  Cada pedido gasta una de tus vueltas, así que pedí solo la que hace falta.
+
+## Excel con varias hojas
+
+Te muestro un **mapa de todas las hojas** (número, nombre, tamaño y sus primeras filas) y, completa, la que el
+código cree que es la grilla. Con el mapa decidí:
+- si la grilla está en una sola hoja, cuál es (`hoja`, por número o nombre). Puede ser la última, después de
+  portadas o de hojas de otras señales;
+- si viene repartida en varias con el mismo encabezado (`todas_las_hojas`, `hojas` o `saltear_hojas`).
+Si la hoja que te mostré completa no es la grilla, o el mapa no te alcanza para ver su forma, pedila con `ver_hoja`.
 
 ### `excel`, tabla común (una fila por emisión)
 `{"tipo": "excel", "hoja": 0, "fila_encabezado": 2}`

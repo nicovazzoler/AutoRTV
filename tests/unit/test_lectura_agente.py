@@ -149,3 +149,41 @@ def test_sin_agente_el_aviso_lo_dice(cliente):
     r = cliente.post("/api/senales/crear", files={"grilla_cruda": ("g.xlsx", excel(tabla)), "ejemplo": ("e.xlsx", excel(tabla))},
                      data={"nombre": "Canal"}).json()
     assert "el agente tampoco" in r["aviso"] and "no está configurado" in r["aviso"]
+
+
+def _libro_con_la_grilla_al_final() -> bytes:
+    """8 hojas: 7 de notas y la grilla en la última, que la detección del código encuentra."""
+    import io
+    from openpyxl import Workbook
+    wb = Workbook()
+    wb.active.title = "Portada"
+    wb.active["A1"] = "Canal Ágape"
+    for i in range(1, 7):
+        wb.create_sheet(f"Notas {i}")["A1"] = f"nota {i}"
+    ws = wb.create_sheet("Grilla")
+    ws.append(["Fecha", "Hora", "Programa"])
+    for hora, titulo in [(6, "Noticias"), (7, "Cocina"), (8, "Cine")]:
+        ws.append([dt.datetime(2026, 11, 2), dt.time(hora), titulo])
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
+def test_el_mapa_lista_todas_las_hojas_y_muestra_completa_la_de_la_grilla():
+    vista = lectura.vista_cruda(_libro_con_la_grilla_al_final())
+    assert "Excel con 8 hojas" in vista
+    assert all(f"[{i}] " in vista for i in range(8)) and "Fila 1: A=nota 6" in vista
+    assert "La hoja [7] Grilla parece la grilla" in vista and "Fila 4: A=2026-11-02 | B=08:00 | C=Cine" in vista
+
+
+def test_el_agente_pide_una_hoja_y_despues_propone_leerla():
+    contenido = _libro_con_la_grilla_al_final()
+    proveedor = cliente.Grabado([{"explicacion": "Quiero ver la hoja 7.", "entrada_json": "", "ver_hoja": "7"},
+                                 _respuesta({"tipo": "excel", "hoja": 7, "fila_encabezado": 1})])
+    p = lectura.proponer(contenido, proveedor, "claude-haiku-5-5")
+    assert p.logrado and p.vueltas == 2 and p.entrada["hoja"] == 7
+    assert "Hoja [7] Grilla (4 filas)" in proveedor.pedidos[1][-1]["content"]
+
+
+def test_una_hoja_que_no_existe_vuelve_con_la_lista():
+    assert "Las hojas son: [0] Portada" in lectura._hoja_pedida(_libro_con_la_grilla_al_final(), "Semana")
