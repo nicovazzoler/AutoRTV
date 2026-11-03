@@ -43,7 +43,7 @@ def test_un_cambio_en_otra_senal_queda_para_confirmar_y_marcado(cliente, monkeyp
         {"nombre": "ir_a", "datos": {"pantalla": "base", "senal": otra}}], senal="xt")
     cambio, pagina = c["acciones"]
     assert (cambio["nivel"], cambio["otra_senal"], cambio["pautas"]) == ("cambio", True, 1)
-    assert "En TBN, en las 1 pautas con Programa = Cine, poner Genero = Película" == cambio["descripcion"]
+    assert "En TBN, en 1 pauta con Programa = Cine, poner Genero = Película" == cambio["descripcion"]
     assert (pagina["nivel"], pagina["descripcion"]) == ("pagina", "Ir a base de TBN")
     assert cliente.get(f"/api/senales/{otra}/pautas").json()["pautas"][0]["salida"]["Genero"] in (None, "")  # no cambió
 
@@ -69,3 +69,28 @@ def test_lo_hecho_con_el_agente_queda_marcado_y_le_avisa_al_admin(cliente):
     assert [d["origen"] for d in detalle if d["tipo"] == "base"] == ["agente"]
     (aviso,) = [a for a in cliente.get("/api/admin/avisos").json() if a["tipo"] == "agente"]
     assert aviso["usuario"] == "ana" and "Película" in aviso["detalle"]
+
+
+def test_un_filtro_con_una_columna_que_no_existe_no_deja_cambio(cliente, monkeypatch):
+    _senal(cliente, "XT")
+    proveedor, c = _charla(cliente, monkeypatch, [{"nombre": "corregir_pautas", "datos": {
+        "senal": "xt", "filtro": {"Columna mal escrita": ""}, "columna": "Genero", "valor": "Película"}}], senal="xt")
+    assert c["acciones"] == []
+    (resultado,) = [b["content"] for b in proveedor.pedidos[-1][-1]["content"]]
+    assert "no existen en XT: Columna mal escrita" in resultado and "Programa" in resultado and "Genero" in resultado
+
+
+def test_hacerlo_cambia_solo_las_pautas_que_se_contaron_al_proponerlo(cliente, monkeypatch):
+    from app import pautas
+    _senal(cliente, "XT")
+    _, c = _charla(cliente, monkeypatch, [{"nombre": "corregir_pautas", "datos": {
+        "senal": "xt", "filtro": {"Programa": "Cine"}, "columna": "Genero", "valor": "Película"}}], senal="xt")
+    (accion,) = c["acciones"]
+    assert len(accion["hashes"]) == 1
+    # Entre la propuesta y el «Hacerlo» llega otra pauta que también cumple el filtro.
+    pautas.guardar("xt", {"nueva0000000000": {"crudo": {"Programa": "Cine 2"},
+                                              "salida": {"Programa": "Cine", "Genero": "Drama"}}}, "revisada", "admin")
+    r = cliente.post("/api/senales/xt/pautas/editar-varias", headers={"X-Origen": "agente"},
+                     json={"hashes": accion["hashes"], "columna": accion["columna"], "valor": accion["valor"]})
+    assert r.json()["editadas"] == 1
+    assert pautas.leer("xt", "nueva0000000000")["salida"]["Genero"] == "Drama"

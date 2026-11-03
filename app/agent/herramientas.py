@@ -170,17 +170,30 @@ class Estado:
         self._accion("cambio", "armar_reglas", senal, f"Armar las reglas de {self.senales[senal]} desde sus ejemplos")
         return "Quedó como propuesta: la persona lo confirma con «Hacerlo»."
 
+    def _columnas(self, senal: str) -> list[str]:
+        """Las columnas del EPG de la señal; si no eligió ninguna, las que guarda su base."""
+        elegidas = almacen.leer(senal).salida.columnas
+        return elegidas or list(dict.fromkeys(c for p in pautas.base(senal).values() for c in p["salida"]))
+
     def _corregir_pautas(self, senal: str, filtro: dict, columna: str, valor: str) -> str:
         if not filtro:
             return "Hace falta un filtro: no se cambian todas las pautas de una."
-        cuantas = len(pautas.hashes_filtrados(senal, filtros={str(k): str(v) for k, v in filtro.items()}))
-        if not cuantas:
+        validas = self._columnas(senal)
+        # Una columna que no existe filtra por "vacío" y coincidiría con todas las pautas.
+        malas = [c for c in [*filtro, columna] if c not in validas]
+        if malas:
+            return (f"Esas columnas no existen en {self.senales[senal]}: {', '.join(map(str, malas))}. "
+                    f"Las columnas son: {', '.join(validas)}.")
+        hashes = pautas.hashes_filtrados(senal, filtros={str(k): str(v) for k, v in filtro.items()})
+        if not hashes:
             return "Ninguna pauta cumple ese filtro: probá buscar_pautas para ver cómo están escritas."
+        cuantas = "1 pauta" if len(hashes) == 1 else f"{len(hashes)} pautas"
         condicion = ", ".join(f"{k} = {v}" for k, v in filtro.items())
         self._accion("cambio", "corregir_pautas", senal,
-                     f"En {self.senales[senal]}, en las {cuantas} pautas con {condicion}, poner {columna} = {valor or '(vacío)'}",
-                     filtro=filtro, columna=columna, valor=valor or None, pautas=cuantas)
-        return f"Quedó como propuesta para {cuantas} pautas: la persona lo confirma con «Hacerlo»."
+                     f"En {self.senales[senal]}, en {'' if len(hashes) == 1 else 'las '}{cuantas} con {condicion}, "
+                     f"poner {columna} = {valor or '(vacío)'}",
+                     filtro=filtro, hashes=hashes, columna=columna, valor=valor or None, pautas=len(hashes))
+        return f"Quedó como propuesta para {cuantas}: la persona lo confirma con «Hacerlo»."
 
     def _confirmar_semana(self, senal: str) -> str:
         if semanas.leer(senal) is None:

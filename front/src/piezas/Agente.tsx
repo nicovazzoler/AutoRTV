@@ -12,6 +12,7 @@ interface Mensaje {
 }
 
 interface PropuestaAbierta extends Propuesta {
+  id: number;
   senal: string;
   nombreSenal: string;
   otraSenal: boolean;
@@ -88,7 +89,9 @@ export function Agente({ senalId }: { senalId: string | null }) {
   const [chatId, setChatId] = useState<number | null>(() => Number(leer(CHAT)) || null);
   const [chats, setChats] = useState<ChatGuardado[] | null>(null);
   const [acciones, setAcciones] = useState<AccionUi[]>([]);
-  const [propuesta, setPropuesta] = useState<PropuestaAbierta | null>(null);
+  // Una charla puede pedir propuestas para varias señales: se muestran todas, cada una con su «Aplicar».
+  const [propuestas, setPropuestas] = useState<PropuestaAbierta[]>([]);
+  const ultimaPropuesta = useRef(0);
   const [escrito, setEscrito] = useState("");
   const [trabajando, setTrabajando] = useState<"" | "rapido" | "propuesta">("");
   const [error, setError] = useState("");
@@ -109,7 +112,7 @@ export function Agente({ senalId }: { senalId: string | null }) {
     fondo.current?.scrollIntoView({ block: "nearest" });
   }, [hilo, acciones]);
   useEffect(() => {
-    setPropuesta(null);  // la propuesta era de la señal anterior
+    setPropuestas([]);  // eran de la señal anterior
     let pendiente: string | null = null;
     try {
       pendiente = sessionStorage.getItem(PREGUNTAR);
@@ -143,7 +146,7 @@ export function Agente({ senalId }: { senalId: string | null }) {
     setChatId(id);
     guardar(CHAT, id === null ? null : String(id));
     cola.current = Promise.resolve(id);
-    setPropuesta(null);
+    setPropuestas([]);
     setAcciones([]);
     setChats(null);
     if (id === null) setHilo([]);
@@ -204,8 +207,9 @@ export function Agente({ senalId }: { senalId: string | null }) {
         decir({ rol: "asistente", texto: "(Armando las reglas desde los ejemplos: el resultado aparece en Configuración › Reglas.)" });
       }
       if (a.tipo === "corregir_pautas") {
+        // Las pautas que contó el agente al proponerlo: una que llegó después no se toca.
         const r = await api.post<{ editadas: number }>(`/senales/${a.senal}/pautas/editar-varias`,
-          { filtro: a.filtro, columna: a.columna, valor: a.valor ?? null }, DEL_AGENTE);
+          { hashes: a.hashes, columna: a.columna, valor: a.valor ?? null }, DEL_AGENTE);
         decir({ rol: "asistente", texto: `(Corregidas ${r.editadas} pautas de ${a.nombre_senal}.)` });
       }
       if (a.tipo === "confirmar_semana") {
@@ -227,8 +231,10 @@ export function Agente({ senalId }: { senalId: string | null }) {
       const { datos: receta, version } = await api.conVersion<Receta>(`/senales/${senal}`);
       const tabla = senales?.find((x) => x.id === senal)?.semana?.tabla_id ?? null;
       const p = await api.post<Propuesta>("/asistente", { senal: receta, pedido, tabla_id: tabla, historial, fuerte, contexto });
-      setPropuesta({ ...p, senal, nombreSenal: receta.nombre, otraSenal: senal !== senalId, pedido, historial, version,
-        aplicadas: new Set() });
+      const nueva = { ...p, id: ++ultimaPropuesta.current, senal, nombreSenal: receta.nombre, otraSenal: senal !== senalId,
+        pedido, historial, version, aplicadas: new Set<number>() };
+      // Pedirla de nuevo con el modelo fuerte reemplaza la anterior del mismo pedido.
+      setPropuestas((ps) => [...ps.filter((x) => !(x.senal === senal && x.pedido === pedido)), nueva]);
       decir({ rol: "asistente", texto: p.explicacion || (p.receta ? "Te dejo una propuesta abajo." : "No llegué a una propuesta que sirva.") });
     } catch (e) {
       setError(textoDeError(e));
@@ -271,15 +277,21 @@ export function Agente({ senalId }: { senalId: string | null }) {
     enviar();
   };
 
-  const marcarAplicada = (i: number) => setPropuesta((p) => p && { ...p, aplicadas: new Set([...p.aplicadas, i]) });
+  const marcarAplicada = (id: number, i: number) =>
+    setPropuestas((ps) => ps.map((x) => (x.id === id ? { ...x, aplicadas: new Set([...x.aplicadas, i]) } : x)));
 
-  const aplicarReglas = async () => {
-    if (!propuesta?.receta) return;
+  const descartar = (p: PropuestaAbierta) => {
+    setPropuestas((ps) => ps.filter((x) => x.id !== p.id));
+    decir({ rol: "asistente", texto: `(Propuesta para ${p.nombreSenal} descartada)` });
+  };
+
+  const aplicarReglas = async (p: PropuestaAbierta) => {
+    if (!p.receta) return;
     setError("");
     try {
-      await api.put(`/senales/${propuesta.senal}`, propuesta.receta, { "If-Match": propuesta.version, ...DEL_AGENTE });
-      decir({ rol: "asistente", texto: "(Reglas aplicadas. Se pueden deshacer desde Base › Configuración › Reglas.)" });
-      marcarAplicada(-1);
+      await api.put(`/senales/${p.senal}`, p.receta, { "If-Match": p.version, ...DEL_AGENTE });
+      decir({ rol: "asistente", texto: `(Reglas de ${p.nombreSenal} aplicadas. Se pueden deshacer desde Base › Configuración › Reglas.)` });
+      marcarAplicada(p.id, -1);
       tocar();
     } catch (e) {
       setError(e instanceof ErrorApi && e.estado === 409
@@ -287,27 +299,27 @@ export function Agente({ senalId }: { senalId: string | null }) {
     }
   };
 
-  const aplicarCorreccion = async (c: CorreccionBase, i: number) => {
+  const aplicarCorreccion = async (p: PropuestaAbierta, c: CorreccionBase, i: number) => {
     setError("");
     try {
-      const r = await api.post<{ editadas: number }>(`/senales/${propuesta?.senal ?? senalId}/pautas/editar-varias`,
+      const r = await api.post<{ editadas: number }>(`/senales/${p.senal}/pautas/editar-varias`,
         { filtro: c.filtro, columna: c.columna, valor: c.valor === null ? null : String(c.valor) }, DEL_AGENTE);
-      decir({ rol: "asistente", texto: `(Corregidas ${r.editadas} pautas en la base.)` });
-      void avisarHecho(propuesta?.senal ?? senalId ?? "", c.descripcion);
-      marcarAplicada(i);
+      decir({ rol: "asistente", texto: `(Corregidas ${r.editadas} pautas de ${p.nombreSenal} en la base.)` });
+      void avisarHecho(p.senal, c.descripcion);
+      marcarAplicada(p.id, i);
       tocar();
     } catch (e) {
       setError(textoDeError(e));
     }
   };
 
-  const aplicarAdmin = async (acciones: AccionAdmin[]) => {
+  const aplicarAdmin = async (p: PropuestaAbierta, acciones: AccionAdmin[]) => {
     setError("");
     try {
       const r = await api.post<{ descripcion: string; ok: boolean; clave?: string; error?: string }[]>("/admin/acciones", { acciones });
       setClaves(r.filter((x) => x.clave).map((x) => `${x.descripcion}: la clave es ${x.clave}`));
       decir({ rol: "asistente", texto: r.map((x) => `(${x.ok ? "Hecho" : "No se pudo"}: ${x.descripcion}${x.error ? ` — ${x.error}` : ""})`).join("\n") });
-      marcarAplicada(-2);
+      marcarAplicada(p.id, -2);
     } catch (e) {
       setError(textoDeError(e));
     }
@@ -316,11 +328,6 @@ export function Agente({ senalId }: { senalId: string | null }) {
   if (plegado) {
     return <button type="button" className="agente-circulo" aria-label="Abrir el agente" title="Agente" onClick={() => plegar(false)}>✦</button>;
   }
-
-  const p = propuesta;
-  const efecto = p?.efecto;
-  const ejemplos = p?.despues ? Object.entries(p.despues.ejemplos) : [];
-  const accionesAdmin = yo.admin ? p?.acciones_admin ?? [] : [];
 
   return (
     <aside className="agente flotante" aria-label="Agente" style={{ width: ancho }}>
@@ -374,8 +381,12 @@ export function Agente({ senalId }: { senalId: string | null }) {
           </section>
         )}
 
-        {p && (
-          <div className={`propuesta-agente${p.otraSenal ? " otra-senal" : ""}`}>
+        {propuestas.map((p) => {
+          const efecto = p.efecto;
+          const ejemplos = p.despues ? Object.entries(p.despues.ejemplos) : [];
+          const accionesAdmin = yo.admin ? p.acciones_admin ?? [] : [];
+          return (
+          <div key={p.id} role="group" className={`propuesta-agente${p.otraSenal ? " otra-senal" : ""}`} aria-label={`Propuesta para ${p.nombreSenal}`}>
             {p.otraSenal && (
               <p className="chico c-revisar" style={{ margin: 0 }}><b>Propuesta para {p.nombreSenal}</b>, no para la señal que estás mirando.</p>
             )}
@@ -410,8 +421,8 @@ export function Agente({ senalId }: { senalId: string | null }) {
                 )}
                 {p.aplicadas.has(-1) ? <span className="chico c-nueva">Aplicada.</span> : (
                   <div className="botones" style={{ gap: 8 }}>
-                    <button type="button" className="boton principal chico" onClick={aplicarReglas}>Aplicar</button>
-                    <button type="button" className="boton chico" onClick={() => { setPropuesta(null); decir({ rol: "asistente", texto: "(Propuesta descartada)" }); }}>Descartar</button>
+                    <button type="button" className="boton principal chico" onClick={() => aplicarReglas(p)}>Aplicar</button>
+                    <button type="button" className="boton chico" onClick={() => descartar(p)}>Descartar</button>
                   </div>
                 )}
               </section>
@@ -425,7 +436,7 @@ export function Agente({ senalId }: { senalId: string | null }) {
                   {c.pautas ? `Afecta ${c.pautas} pautas · la semana abierta se vuelve a armar sola` : "Todavía no hay pautas así en la base: no cambia nada."}
                 </p>
                 {p.aplicadas.has(i) ? <span className="chico c-nueva">Aplicada.</span> : c.pautas > 0 && (
-                  <button type="button" className="boton principal chico" style={{ alignSelf: "flex-start" }} onClick={() => aplicarCorreccion(c, i)}>Aplicar a las {c.pautas}</button>
+                  <button type="button" className="boton principal chico" style={{ alignSelf: "flex-start" }} onClick={() => aplicarCorreccion(p, c, i)}>Aplicar a las {c.pautas}</button>
                 )}
               </section>
             ))}
@@ -435,7 +446,7 @@ export function Agente({ senalId }: { senalId: string | null }) {
                 <span className="etiqueta-propuesta">PROPUESTA · ADMIN</span>
                 <ol style={{ margin: 0, paddingLeft: 20, fontSize: 15 }}>{accionesAdmin.map((a, i) => <li key={i}>{a.descripcion}</li>)}</ol>
                 {p.aplicadas.has(-2) ? <span className="chico c-nueva">Aplicadas.</span> : (
-                  <button type="button" className="boton principal chico" style={{ alignSelf: "flex-start" }} onClick={() => aplicarAdmin(accionesAdmin)}>
+                  <button type="button" className="boton principal chico" style={{ alignSelf: "flex-start" }} onClick={() => aplicarAdmin(p, accionesAdmin)}>
                     {accionesAdmin.length === 1 ? "Aplicar" : `Aplicar las ${accionesAdmin.length}`}
                   </button>
                 )}
@@ -455,7 +466,8 @@ export function Agente({ senalId }: { senalId: string | null }) {
                 Probar con el modelo fuerte (más caro)</button>
             )}
           </div>
-        )}
+          );
+        })}
         <div ref={fondo} />
       </div>
 

@@ -234,6 +234,7 @@ export interface AccionUi {
   nombre: string;
   descripcion: string;
   filtro?: Record<string, string>;
+  hashes?: string[];
   columna?: string;
   valor?: string | null;
 }

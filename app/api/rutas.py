@@ -1813,7 +1813,9 @@ def asistente(p: PedidoAsistente, u: auth.Usuario = Depends(auth.usuario_actual)
         if objetivo is None:
             raise HTTPException(404, "No existe ese ejemplo")
         tabla = objetivo.entrada
-    elif p.tabla_id:
+    elif p.tabla_id or (abierta := semanas.leer(p.senal.id)):
+        # Sin tabla_id (una propuesta para otra señal que la de la pantalla), la de su semana abierta.
+        p.tabla_id = p.tabla_id or abierta["tabla_id"]
         tabla = _correr_tabla(p.tabla_id, p.senal)
         semana_antes = _semana_de(Pedido(tabla_id=p.tabla_id, senal=p.senal))
     else:
