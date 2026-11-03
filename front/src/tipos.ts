@@ -207,9 +207,25 @@ export interface Propuesta {
   };
 }
 
+export interface AccionUi {
+  tipo: "ir_a" | "nueva_senal" | "armar_reglas";
+  pantalla: string;
+  senal: string;
+  nombre: string;
+  descripcion: string;
+}
+
 export interface Charla {
   respuesta: string;
   proponer_cambios: boolean;
+  acciones: AccionUi[];
+  recordar: string;
+}
+
+export interface ChatGuardado {
+  id: number;
+  titulo: string;
+  actualizada: string;
 }
 
 export interface Limites {

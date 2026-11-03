@@ -20,6 +20,9 @@ usuarios = Table(
     Column("usuario", String(100), unique=True, nullable=False),
     Column("hash", String(200), nullable=False),
     Column("admin", Boolean, nullable=False, default=False),
+    # La ficha que completa el admin para que el agente sepa con quién habla.
+    Column("nombre", String(100)),
+    Column("descripcion", Text),
 )
 
 sesiones = Table(
@@ -162,6 +165,44 @@ armados = Table(
     Column("despues", Float),
 )
 
+conversaciones = Table(
+    "conversaciones", metadata,
+    Column("id", Integer, primary_key=True),
+    Column("usuario", String(100), nullable=False, index=True),
+    Column("titulo", String(200), nullable=False),
+    Column("creada", DateTime, nullable=False),
+    Column("actualizada", DateTime, nullable=False),
+)
+
+mensajes = Table(
+    "mensajes", metadata,
+    Column("id", Integer, primary_key=True),
+    Column("conversacion_id", Integer, ForeignKey("conversaciones.id", ondelete="CASCADE"), nullable=False, index=True),
+    Column("rol", String(20), nullable=False),  # persona | asistente
+    Column("texto", Text, nullable=False),
+    Column("senal_id", String(64)),  # la señal que estaba abierta, para retomar
+    Column("fecha", DateTime, nullable=False),
+)
+
+notas_agente = Table(
+    "notas_agente", metadata,  # lo que el agente decidió recordar de cada persona
+    Column("id", Integer, primary_key=True),
+    Column("usuario", String(100), nullable=False, index=True),
+    Column("texto", Text, nullable=False),
+    Column("fecha", DateTime, nullable=False),
+)
+
+avisos = Table(
+    "avisos", metadata,  # cambios de un usuario común que el admin tiene que mirar
+    Column("id", Integer, primary_key=True),
+    Column("usuario", String(100), nullable=False),
+    Column("senal_id", String(64), nullable=False),
+    Column("tipo", String(30), nullable=False),  # reglas
+    Column("detalle", Text, nullable=False),
+    Column("fecha", DateTime, nullable=False, index=True),
+    Column("visto", Boolean, nullable=False, default=False),
+)
+
 _motores: dict[str, Engine] = {}
 
 
@@ -210,6 +251,7 @@ def _agregar_columnas(con: Connection) -> None:
     """create_all no toca tablas que ya existen: las columnas nuevas se agregan acá."""
     nuevas = {
         "uso_agente": {"costo_usd": "FLOAT"},
+        "usuarios": {"nombre": "VARCHAR(100)", "descripcion": "TEXT"},
         "semanas": {"version": "INTEGER NOT NULL DEFAULT 1", "anterior_tabla_id": "VARCHAR(32)",
                     "anterior_contenido": "BYTEA" if con.dialect.name == "postgresql" else "BLOB",
                     "anterior_nombre": "VARCHAR(200)", "foto": "JSON"},

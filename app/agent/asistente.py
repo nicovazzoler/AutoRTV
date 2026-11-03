@@ -91,6 +91,18 @@ class Charla:
     tokens_entrada: int = 0
     tokens_salida: int = 0
     modelo: str = ""
+    acciones: list[dict] = field(default_factory=list)  # lo que la web puede hacer por la persona, con su ok
+    recordar: str = ""  # algo de la persona que el agente quiere guardar para la próxima
+
+
+@dataclass
+class Persona:
+    """Lo que el agente sabe de quien le escribe: su ficha, sus notas y las señales que hay."""
+    usuario: str
+    nombre: str = ""
+    descripcion: str = ""
+    notas: list[str] = field(default_factory=list)
+    senales: list[tuple[str, str]] = field(default_factory=list)  # (id, nombre)
 
 
 def sistema() -> str:
@@ -102,12 +114,29 @@ def sistema_charla() -> str:
     return (Path(__file__).parent / "prompts" / "charla.md").read_text(encoding="utf-8")
 
 
-def charlar(receta: m.Senal, tabla: pd.DataFrame | None, historial: list[dict], mensaje: str,
-            proveedor: Proveedor) -> Charla:
+MAX_SENALES_EN_CHARLA = 600
+
+
+def _persona(p: Persona) -> list[str]:
+    ficha = f"Usuario {p.usuario}" + (f", se llama {p.nombre}" if p.nombre else "") + (f". {p.descripcion}" if p.descripcion else "")
+    partes = ["## Con quién hablás", ficha]
+    if p.notas:
+        partes += ["## Lo que recordás de esta persona", "\n".join(f"- {n}" for n in p.notas)]
+    partes += ["## Señales que hay (id: nombre)",
+               "\n".join(f"{i}: {n}" for i, n in p.senales[:MAX_SENALES_EN_CHARLA]) or "(ninguna todavía)"]
+    return partes
+
+
+def charlar(receta: m.Senal | None, tabla: pd.DataFrame | None, historial: list[dict], mensaje: str,
+            proveedor: Proveedor, persona: Persona | None = None) -> Charla:
     """Respuesta rápida. Si el mensaje pide cambiar reglas o columnas, avisa que hay que armar una propuesta."""
-    partes = ["## Receta actual (tarjetas en orden)",
-              json.dumps([t.model_dump(exclude_none=True) for t in receta.tarjetas], ensure_ascii=False)]
-    if tabla is not None:
+    partes = _persona(persona) if persona else []
+    if receta is None:
+        partes.append("(La persona no tiene ninguna señal abierta.)")
+    else:
+        partes += [f"## Señal abierta: {receta.id} ({receta.nombre}). Receta actual (tarjetas en orden)",
+                   json.dumps([t.model_dump(exclude_none=True) for t in receta.tarjetas], ensure_ascii=False)]
+    if tabla is not None and receta is not None:
         salida, informes = correr(receta, tabla)
         errores = [f"tarjeta {i.id}: {i.error}" for i in informes if i.error]
         partes += [f"## Grilla de entrada: columnas {list(map(str, tabla.columns))}", _filas(tabla),
@@ -121,8 +150,25 @@ def charlar(receta: m.Senal, tabla: pd.DataFrame | None, historial: list[dict], 
     if r.rechazo:
         return Charla(f"No puedo responder eso ({r.rechazo}).", False, r.tokens_entrada, r.tokens_salida, r.modelo)
     datos = r.datos if isinstance(r.datos, dict) else {}
-    return Charla(str(datos.get("respuesta", "")), bool(datos.get("proponer_cambios", not datos)),
-                  r.tokens_entrada, r.tokens_salida, r.modelo)
+    validas = {i for i, _ in (persona.senales if persona else [])}
+    acciones = [a for a in datos.get("acciones") or [] if _accion_valida(a, validas)]
+    return Charla(str(datos.get("respuesta", "")), bool(datos.get("proponer_cambios", not datos)) and receta is not None,
+                  r.tokens_entrada, r.tokens_salida, r.modelo, acciones, str(datos.get("recordar") or "").strip())
+
+
+PANTALLAS = {"inicio", "semana", "base", "configuracion", "administrar"}
+
+
+def _accion_valida(a, senales: set[str]) -> bool:
+    """Las acciones que la web sabe hacer, sobre señales que existen: lo demás se descarta."""
+    if not isinstance(a, dict):
+        return False
+    tipo, senal = a.get("tipo"), a.get("senal") or ""
+    if tipo == "ir_a":
+        return a.get("pantalla") in PANTALLAS and (a.get("pantalla") in ("inicio", "administrar") or senal in senales)
+    if tipo == "nueva_senal":
+        return bool(str(a.get("nombre") or "").strip())
+    return tipo == "armar_reglas" and senal in senales
 
 
 def _conversacion(historial: list[dict]) -> list[str]:

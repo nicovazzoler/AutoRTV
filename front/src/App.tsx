@@ -97,7 +97,7 @@ export function App() {
         {destino.pantalla === "base" && !destino.config && <Base key={`${senalBase}-${revision}`} senalId={senalBase} />}
         {destino.pantalla === "base" && destino.config && senalBase && <Configuracion key={clave} senalId={senalBase} />}
         {destino.pantalla === "admin" && <Administrar key={revision} />}
-        <Agente key={senalAgente ?? "sin-senal"} senalId={senalAgente} />
+        <Agente senalId={senalAgente} />
       </div>
     </ContextoSesion.Provider>
   );

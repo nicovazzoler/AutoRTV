@@ -27,10 +27,19 @@ FORMATO = {
     "additionalProperties": False,
 }
 
+_ACCION = {
+    "type": "object",
+    "properties": {"tipo": {"type": "string", "enum": ["ir_a", "nueva_senal", "armar_reglas"]},
+                   "pantalla": {"type": "string"}, "senal": {"type": "string"}, "nombre": {"type": "string"},
+                   "descripcion": {"type": "string"}},
+    "required": ["tipo", "pantalla", "senal", "nombre", "descripcion"],
+    "additionalProperties": False,
+}
 FORMATO_CHARLA = {
     "type": "object",
-    "properties": {"respuesta": {"type": "string"}, "proponer_cambios": {"type": "boolean"}},
-    "required": ["respuesta", "proponer_cambios"],
+    "properties": {"respuesta": {"type": "string"}, "proponer_cambios": {"type": "boolean"},
+                   "acciones": {"type": "array", "items": _ACCION}, "recordar": {"type": "string"}},
+    "required": ["respuesta", "proponer_cambios", "acciones", "recordar"],
     "additionalProperties": False,
 }
 
