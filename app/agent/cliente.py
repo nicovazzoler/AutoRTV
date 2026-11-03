@@ -237,6 +237,7 @@ class Grabado:
         primero pide las que correspondan y, con sus resultados, contesta el texto."""
         ultimo = mensajes[-1]["content"]
         if isinstance(ultimo, list) and any(b.get("type") == "tool_result" for b in ultimo):
+            self.pedidos.append([dict(m_) for m_ in mensajes])
             return Respuesta(self._texto_pendiente, bloques=[{"type": "text", "text": self._texto_pendiente}], parar="end_turn")
         r = self.charlar(sistema, mensajes)
         datos = r.datos if isinstance(r.datos, dict) else {}

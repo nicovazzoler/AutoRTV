@@ -537,6 +537,7 @@ dialog.dialogo h2 { margin: 0; font-family: "Fraunces Variable", serif; font-siz
 .lista-chats button span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .lista-chats button:hover, .lista-chats button[aria-current="true"] { background: color-mix(in srgb, var(--acento) 15%, transparent); }
 .accion-agente { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.accion-agente.otra-senal, .propuesta-agente.otra-senal { border-left: 3px solid var(--revisar); padding-left: 10px; }
 @media (max-width: 700px) { .agente.flotante { left: 16px; width: auto !important; } .agente-borde { display: none; } }
 .etiqueta-contexto { align-self: flex-start; padding: 4px 10px; border-radius: 999px; border: 1px solid var(--acento); color: var(--acento); font-size: 12px; }
 

@@ -224,17 +224,32 @@ export interface Propuesta {
 }
 
 export interface AccionUi {
-  tipo: "ir_a" | "nueva_senal" | "armar_reglas";
+  /** "pagina" la hace la web sola; "cambio" espera «Hacerlo». */
+  nivel: "pagina" | "cambio";
+  tipo: "ir_a" | "nueva_senal" | "armar_reglas" | "corregir_pautas" | "confirmar_semana";
   pantalla: string;
   senal: string;
+  nombre_senal: string;
+  otra_senal: boolean;
   nombre: string;
   descripcion: string;
+  filtro?: Record<string, string>;
+  columna?: string;
+  valor?: string | null;
+}
+
+export interface PedidoDePropuesta {
+  senal: string;
+  nombre_senal: string;
+  pedido: string;
+  otra_senal: boolean;
 }
 
 export interface Charla {
   respuesta: string;
   proponer_cambios: boolean;
   acciones: AccionUi[];
+  propuestas: PedidoDePropuesta[];
   recordar: string;
 }
 

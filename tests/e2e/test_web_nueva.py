@@ -251,6 +251,37 @@ def test_agente_flotante_con_contexto(servidor, tmp_path):
         navegador.close()
 
 
+def test_el_agente_lleva_a_otra_senal_y_marca_el_cambio_que_no_es_de_la_que_se_mira(servidor, tmp_path):
+    import json
+    (tmp_path / "asistente.json").write_text(json.dumps([
+        {"respuesta": "Te llevo a Otra.", "herramientas": [{"nombre": "ir_a", "datos": {"pantalla": "semana", "senal": "otra"}}]},
+        {"respuesta": "Te dejé para confirmar la semana de Canal Demo.",
+         "herramientas": [{"nombre": "confirmar_semana", "datos": {"senal": "canal"}}]}]))
+    with playwright.sync_playwright() as p:
+        navegador, pagina = _entrar(p, servidor)
+        _con_semana(pagina, servidor, tmp_path)
+        otra = {"id": "otra", "nombre": "Otra", "entrada": {"tipo": "excel"}, "tarjetas": [], "salida": {"columnas": []}}
+        assert pagina.request.put(servidor + "/api/senales/otra", data=otra).ok
+        assert pagina.request.post(servidor + "/api/senales/otra/abierta", multipart={
+            "archivo": {"name": "g.xlsx", "mimeType": "application/octet-stream", "buffer": _grilla(tmp_path).read_bytes()}}).ok
+
+        pagina.goto(servidor + "/s/canal")
+        pagina.get_by_role("button", name="Abrir el agente").click()
+        agente = pagina.locator("aside[aria-label=Agente]")
+        agente.locator("textarea").fill("llevame a Otra")
+        agente.locator("textarea").press("Enter")
+        agente.get_by_text("(Ir a semana de Otra)").wait_for()
+        pagina.wait_for_url(servidor + "/s/otra")  # ir a otra pantalla no pide confirmación
+
+        agente.locator("textarea").fill("confirmá la de Canal Demo")
+        agente.locator("textarea").press("Enter")
+        agente.get_by_text("Ojo: es en Canal Demo, no en la señal que estás mirando.").wait_for()
+        agente.get_by_role("button", name="Hacerlo en Canal Demo").click()
+        agente.get_by_text("(Semana de Canal Demo confirmada.)").wait_for()
+        assert pagina.request.get(servidor + "/api/senales/canal/abierta").json()["semana"]["confirmada_por"] == "admin"
+        navegador.close()
+
+
 def test_links_viejos_redirigen(servidor):
     with playwright.sync_playwright() as p:
         navegador, pagina = _entrar(p, servidor)

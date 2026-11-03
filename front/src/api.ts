@@ -31,8 +31,8 @@ export const api = {
   async get<T>(ruta: string): Promise<T> {
     return (await pedir(ruta)).json();
   },
-  async post<T>(ruta: string, datos: unknown = {}): Promise<T> {
-    const r = await pedir(ruta, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(datos) });
+  async post<T>(ruta: string, datos: unknown = {}, cabeceras: Record<string, string> = {}): Promise<T> {
+    const r = await pedir(ruta, { method: "POST", headers: { "Content-Type": "application/json", ...cabeceras }, body: JSON.stringify(datos) });
     return r.json();
   },
   async put<T>(ruta: string, datos: unknown, cabeceras: Record<string, string> = {}): Promise<T> {

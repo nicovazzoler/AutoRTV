@@ -23,6 +23,7 @@ interface Cambio {
   columna: string | null;
   antes: unknown;
   despues: unknown;
+  origen?: string | null;
 }
 
 const PLURAL: Record<string, [string, string]> = {
@@ -102,7 +103,7 @@ export function Historial() {
                   <ul className="detalle-historial">
                     {detalle.map((d, i) => (
                       <li key={i}>
-                        <span className="chico tenue">{persona(d.usuario)} · {haceCuanto(d.fecha)} · {TIPO[d.tipo]}</span>
+                        <span className="chico tenue">{persona(d.usuario)} · {haceCuanto(d.fecha)} · {TIPO[d.tipo]}{d.origen === "agente" && <b className="c-revisar"> · con el agente</b>}</span>
                         <span>
                           {d.programa && <b>{d.programa}</b>}
                           {d.columna && <> · {d.columna}: <span className="tachado">{texto(d.antes)}</span> → {texto(d.despues)}</>}
