@@ -6,6 +6,7 @@ import { CeldaEditable } from "../piezas/CeldaEditable";
 import { Enlace } from "../piezas/Enlace";
 import { TablaGrilla, type Filtro } from "../piezas/TablaGrilla";
 import { Subir } from "./Subir";
+import { Recorrido, type Parecida } from "../piezas/Recorrido";
 import { cumple, FilaFiltros, type Filtros } from "../piezas/FiltrosColumna";
 import { tomarSemana } from "../semanaReciente";
 import { useSesion } from "../sesion";
@@ -62,6 +63,7 @@ export function Semana({ senalId }: { senalId: string }) {
   const [subiendo, setSubiendo] = useState(false);
   const [armado, setArmado] = useState<Armado | "armando" | null>(null);
   const [lecturaAgente, setLecturaAgente] = useState<LecturaAgente | null>(null);
+  const [parecidas, setParecidas] = useState<Parecida[] | null>(null);
 
   const esperarReglas = async () => {
     setArmado("armando");
@@ -122,14 +124,22 @@ export function Semana({ senalId }: { senalId: string }) {
     setOcupado(null);
   };
 
-  const corregir = async (fila: number, columna: string, valor: string) => {
+  const corregir = async (fila: number, columna: string, valor: string, antes: unknown) => {
     setError("");
     try {
       await api.post(`/senales/${senalId}/abierta/celda`, { fila, columna, valor });
       recibir(await api.get<SemanaAbierta>(`/senales/${senalId}/abierta`));
+      const r = await api.post<Parecida[]>(`/senales/${senalId}/abierta/parecidas`, { fila, columna, antes, despues: valor });
+      if (r.length) setParecidas(r);
     } catch (e) {
       setError(textoDeError(e));
     }
+  };
+
+  const arreglarParecidas = async (elegidas: Parecida[]) => {
+    await api.post(`/senales/${senalId}/abierta/aplicar`,
+      elegidas.map((x) => ({ fila: Number(x.clave), columna: x.columna, valor: x.despues === null ? null : String(x.despues) })));
+    recibir(await api.get<SemanaAbierta>(`/senales/${senalId}/abierta`));
   };
 
   const borrarGrilla = async () => {
@@ -327,7 +337,7 @@ export function Semana({ senalId }: { senalId: string }) {
                           <td className="motivos"><ul>{p.motivos.map((m) => <li key={m}>{m}</li>)}</ul></td>
                           {columnas.map((c) => (
                             <CeldaEditable key={c} columna={c} valor={p.salida[c]} editable clase={c === datos.programa ? "programa" : ""}
-                              aviso={p.motivos.find((m) => m.startsWith(`${c}:`))} alGuardar={(v) => corregir(p.filas[0], c, v)} />
+                              aviso={p.motivos.find((m) => m.startsWith(`${c}:`))} alGuardar={(v) => corregir(p.filas[0], c, v, p.salida[c])} />
                           ))}
                           <td className="tenue">{p.veces}</td>
                           <td className="tenue"><span className="dos-renglones">{valores(p.crudo, null, 4)}</span></td>
@@ -340,6 +350,7 @@ export function Semana({ senalId }: { senalId: string }) {
               )}
             </section>
           ) : <TablaGrilla key={elegida} senalId={senalId} filtro={elegida} />}
+          {parecidas && <Recorrido candidatas={parecidas} alAplicar={arreglarParecidas} alCerrar={() => setParecidas(null)} />}
         </>
       )}
     </main>

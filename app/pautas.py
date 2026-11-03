@@ -402,6 +402,22 @@ def editar_varias(senal_id: str, hashes: list[str], columna: str, valor, usuario
     return len(filas)
 
 
+def editar_celdas(senal_id: str, cambios: list[tuple[str, str, object]], usuario: str) -> int:
+    """(hash, columna, valor) en cada pauta: cada una queda como editada. Devuelve cuántas pautas cambiaron."""
+    por_pauta: dict[str, dict] = {}
+    for h, columna, valor in cambios:
+        por_pauta.setdefault(h, {})[columna] = valor
+    c = db.pautas.c
+    with db.transaccion() as con:
+        filas = con.execute(select(c.hash, c.crudo, c.salida)
+                            .where(c.senal_id == senal_id, c.hash.in_(list(por_pauta)))).all()
+        for h, crudo, salida in filas:
+            nueva = {**salida, **por_pauta[h]}
+            con.execute(update(db.pautas).where(c.senal_id == senal_id, c.hash == h).values(
+                salida=nueva, estado="editada", usuario=usuario, actualizado=dt.datetime.now(), texto=_texto(crudo, nueva)))
+    return len(filas)
+
+
 def olvidar_varias(senal_id: str, hashes: list[str]) -> int:
     with db.transaccion() as con:
         return con.execute(delete(db.pautas).where(db.pautas.c.senal_id == senal_id,

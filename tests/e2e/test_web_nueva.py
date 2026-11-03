@@ -360,3 +360,36 @@ def test_banco_de_agentes_desde_administrar(servidor, tmp_path):
         assert banco.locator("tbody tr", has_text="lectura").count() == 1
         banco.get_by_text("Reglas: Haiku alcanzó").wait_for()
         navegador.close()
+
+
+def test_corregir_una_celda_ofrece_arreglar_las_parecidas(servidor, tmp_path):
+    from openpyxl import Workbook
+    with playwright.sync_playwright() as p:
+        navegador, pagina = _entrar(p, servidor)
+        receta = {"id": "mayus", "nombre": "Mayus", "entrada": {"tipo": "excel"}, "tarjetas": [SEPARAR],
+                  "salida": {"columnas": []}}
+        assert pagina.request.put(servidor + "/api/senales/mayus", data=receta).ok
+        wb = Workbook()
+        wb.active.append(["Fecha", "Hora", "Titulo"])
+        for h, titulo in enumerate(["MEMORY LANE - Outkast", "MEMORY LANE - Prince", "RUTA SONORA - Live"]):
+            wb.active.append([dt.datetime(2026, 11, 2), dt.time(6 + h), titulo])
+        archivo = tmp_path / "mayus.xlsx"
+        wb.save(archivo)
+        assert pagina.request.post(servidor + "/api/senales/mayus/abierta", multipart={
+            "archivo": {"name": "mayus.xlsx", "mimeType": "application/octet-stream", "buffer": archivo.read_bytes()}}).ok
+
+        pagina.goto(servidor + "/s/mayus")
+        filas = pagina.locator("section[aria-label='Para revisar'] tbody tr")
+        filas.first.locator("td.programa").dblclick()
+        pagina.get_by_label("Corregir Programa").fill("Memory Lane")
+        pagina.get_by_label("Corregir Programa").press("Enter")
+
+        recorrido = pagina.get_by_role("dialog", name="Pautas parecidas")
+        recorrido.get_by_text("Encontré 2 parecidas a lo que cambiaste").wait_for()
+        recorrido.get_by_label("Arreglar RUTA SONORA").uncheck()
+        recorrido.get_by_role("button", name="Arreglar las marcadas (1)").click()
+        recorrido.wait_for(state="detached")
+        grilla = pagina.request.get(servidor + "/api/senales/mayus/abierta/grilla").json()
+        i = grilla["columnas"].index("Programa")
+        assert [f[i] for f in grilla["filas"]] == ["Memory Lane", "Memory Lane", "RUTA SONORA"]
+        navegador.close()
