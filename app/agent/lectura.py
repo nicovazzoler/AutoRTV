@@ -27,7 +27,7 @@ ENTRADA = TypeAdapter(m.Entrada)
 FORMATO = {
     "type": "object",
     "properties": {"explicacion": {"type": "string"}, "entrada_json": {"type": "string"},
-                   "ver_hoja": {"type": "string"}},
+                   "ver_hoja": {"type": "string"}, "aceptar": {"type": "boolean"}},
     "required": ["explicacion", "entrada_json"],
     "additionalProperties": False,
 }
@@ -41,6 +41,7 @@ class PropuestaLectura:
     medida: dict | None = None
     problemas: list[str] = field(default_factory=list)
     vueltas: int = 0
+    acepto: bool = False  # dejó la lectura que había armado el código
     tokens_entrada: int = 0
     tokens_salida: int = 0
     modelo: str = ""
@@ -205,10 +206,34 @@ def _probar(contenido: bytes, datos: dict | None, esperado: pd.DataFrame | None)
     return entrada.model_dump(exclude_defaults=True), medida, problemas
 
 
+def lo_del_codigo(contenido: bytes, entrada, motivo: str) -> str:
+    """Cómo leyó el archivo la detección del código, para que el agente decida si se queda con eso."""
+    texto = (f"## Lo que leyó el código\nTe lo muestro porque {motivo}.\n"
+             f"Configuración: {json.dumps(entrada.model_dump(exclude_defaults=True), ensure_ascii=False)}\n")
+    try:
+        tabla = inputs.leer(contenido, entrada)
+    except Exception as e:
+        return texto + f"Con esa configuración el lector falló: {e}"
+    medida = controles.lectura(tabla)
+    texto += (f"Salieron {len(tabla)} filas, columnas {list(map(str, tabla.columns))}, "
+              f"con fecha y hora en el {medida['con_horario']:.0%}.")
+    if hojas := tabla.attrs.get("hojas"):
+        texto += f" Leyó {hojas} hojas."
+    if salteadas := tabla.attrs.get("salteadas"):
+        texto += " Salteó: " + "; ".join(salteadas)[:500] + "."
+    return texto + "\nPrimeras filas:\n" + tabla.head(FILAS_MUESTRA).to_string(max_colwidth=40)[:2500]
+
+
 def proponer(contenido: bytes, proveedor: Proveedor, modelo: str, esperado: pd.DataFrame | None = None,
-             previa: PropuestaLectura | None = None) -> PropuestaLectura:
-    """Pide al agente cómo leer el archivo y lo prueba. `previa` es lo que intentó otro modelo, para partir de ahí."""
+             previa: PropuestaLectura | None = None, codigo=None, motivo: str = "") -> PropuestaLectura:
+    """Pide al agente cómo leer el archivo y lo prueba.
+
+    `codigo` es la lectura que armó la detección: el agente puede aceptarla o cambiarla. `previa` es lo que
+    intentó otro modelo, para partir de ahí.
+    """
     pedido = vista_cruda(contenido)
+    if codigo is not None:
+        pedido += "\n\n" + lo_del_codigo(contenido, codigo, motivo or "es una lectura nueva")
     if previa and previa.entrada:
         pedido += (f"\n\nOtro intento propuso {json.dumps(previa.entrada, ensure_ascii=False)} y falló:\n- "
                    + "\n- ".join(previa.problemas))
@@ -228,11 +253,15 @@ def proponer(contenido: bytes, proveedor: Proveedor, modelo: str, esperado: pd.D
             mensajes += [{"role": "assistant", "content": r.texto or "(respuesta vacía)"},
                          {"role": "user", "content": _hoja_pedida(contenido, pedida)}]
             continue
-        entrada, medida, problemas = _probar(contenido, r.datos, esperado)
+        acepta = bool((r.datos or {}).get("aceptar")) and codigo is not None
+        datos = {"entrada_json": codigo.model_dump_json()} if acepta else r.datos
+        entrada, medida, problemas = _probar(contenido, datos, esperado)
+        if acepta and problemas:
+            problemas.insert(0, "Aceptaste la lectura del código, pero no pasa los controles.")
         resultado.entrada, resultado.medida, resultado.problemas = entrada, medida, problemas
         resultado.explicacion = (r.datos or {}).get("explicacion", "")
         if not problemas:
-            resultado.logrado = True
+            resultado.logrado, resultado.acepto = True, acepta
             return resultado
         mensajes += [
             {"role": "assistant", "content": r.texto or "(respuesta vacía)"},
@@ -242,9 +271,11 @@ def proponer(contenido: bytes, proveedor: Proveedor, modelo: str, esperado: pd.D
     return resultado
 
 
-def buscar(contenido: bytes, proveedor: Proveedor, esperado: pd.DataFrame | None = None) -> list[PropuestaLectura]:
+def buscar(contenido: bytes, proveedor: Proveedor, esperado: pd.DataFrame | None = None, codigo=None,
+           motivo: str = "") -> list[PropuestaLectura]:
     """Haiku y, si no pasa los controles, Sonnet arrancando de lo de Haiku. La última propuesta es la que vale."""
-    haiku = proponer(contenido, proveedor, cliente.MODELO, esperado)
+    haiku = proponer(contenido, proveedor, cliente.MODELO, esperado, codigo=codigo, motivo=motivo)
     if haiku.logrado:
         return [haiku]
-    return [haiku, proponer(contenido, proveedor, cliente.MODELO_FUERTE, esperado, previa=haiku)]
+    return [haiku, proponer(contenido, proveedor, cliente.MODELO_FUERTE, esperado, previa=haiku, codigo=codigo,
+                            motivo=motivo)]

@@ -11,6 +11,16 @@ servidor la prueba. Si la prueba falla, te digo qué pasó y corregís.
   Si lo mandás, no pruebo ninguna lectura: te muestro esa hoja y en la vuelta siguiente proponés (o pedís otra).
   Cada pedido gasta una de tus vueltas, así que pedí solo la que hace falta.
 
+## Cuando te muestro lo que leyó el código
+
+A veces la detección del código ya armó una lectura y te la muestro ("Lo que leyó el código"), con el motivo
+por el que te la paso: una señal nueva, un archivo que cambió de formato, una lectura que se ve rara (leyó
+menos hojas de las que tienen programación, o muchas menos filas que la semana anterior) o que no trae fecha
+y hora. Mirala contra el archivo:
+- si está bien, devolvé `aceptar: true` y `entrada_json` vacío;
+- si no, devolvé la configuración que corresponde (o pedí una hoja con `ver_hoja`).
+No la cambies por gusto: si da una fila por emisión con su fecha y su hora y no deja programación afuera, aceptala.
+
 ## Excel con varias hojas
 
 Te muestro un **mapa de todas las hojas** (número, nombre, tamaño y sus primeras filas) y, completa, la que el

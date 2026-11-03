@@ -187,3 +187,63 @@ def test_el_agente_pide_una_hoja_y_despues_propone_leerla():
 
 def test_una_hoja_que_no_existe_vuelve_con_la_lista():
     assert "Las hojas son: [0] Portada" in lectura._hoja_pedida(_libro_con_la_grilla_al_final(), "Semana")
+
+
+def test_el_agente_ve_lo_que_leyo_el_codigo_y_puede_aceptarlo():
+    from app import inputs
+    contenido = _libro_con_la_grilla_al_final()
+    codigo = inputs.detectar(contenido)
+    proveedor = cliente.Grabado([{"explicacion": "Está bien.", "entrada_json": "", "aceptar": True}])
+    p = lectura.proponer(contenido, proveedor, "claude-haiku-5-5", codigo=codigo, motivo="es una señal nueva")
+    assert p.logrado and p.acepto and p.entrada["hoja"] == 7 and p.vueltas == 1
+    pedido = proveedor.pedidos[0][0]["content"]
+    assert "Lo que leyó el código" in pedido and "es una señal nueva" in pedido and "Salieron 3 filas" in pedido
+
+
+def test_aceptar_una_lectura_que_no_pasa_los_controles_vuelve_con_el_problema():
+    from app.engine import model as m
+    contenido = _libro_con_la_grilla_al_final()
+    proveedor = cliente.Grabado([{"explicacion": "", "entrada_json": "", "aceptar": True},
+                                 _respuesta({"tipo": "excel", "hoja": 7})])
+    p = lectura.proponer(contenido, proveedor, "claude-haiku-5-5", codigo=m.EntradaExcel(tipo="excel"))
+    assert p.logrado and not p.acepto and p.vueltas == 2
+    assert "Aceptaste la lectura del código, pero no pasa los controles" in proveedor.pedidos[1][-1]["content"]
+
+
+def test_cuando_la_lectura_se_ve_rara_se_la_pasa_al_agente():
+    from app.api import rutas
+    from app.engine import model as m
+    from tests.unit.test_excel_hojas import _libro
+    contenido = _libro()
+    una_hoja = m.Senal(id="x", nombre="X", entrada=m.EntradaExcel(tipo="excel", fila_encabezado=3, hojas=["Día 1"]),
+                       tarjetas=[], salida=m.Salida(columnas=[]))
+    assert rutas._motivo_para_revisar(una_hoja, contenido, None) == "leyó 1 de las 3 hojas que parecen programación"
+    todas = una_hoja.model_copy(update={"entrada": m.EntradaExcel(tipo="excel", fila_encabezado=3, todas_las_hojas=True)})
+    assert rutas._motivo_para_revisar(todas, contenido, None) is None
+    comun = una_hoja.model_copy(update={"entrada": m.EntradaExcel(tipo="excel")})
+    assert rutas._motivo_para_revisar(comun, _libro_de(24), anterior=_libro_de(30)) is None
+    assert rutas._motivo_para_revisar(comun, _libro_de(3), anterior=_libro_de(24)) == \
+        "salieron 3 filas y la semana anterior tenía 24"
+
+
+def _libro_de(filas: int) -> bytes:
+    import io
+    from openpyxl import Workbook
+    wb = Workbook()
+    ws = wb.active
+    ws.append(["Fecha", "Hora", "Programa"])
+    for hora in range(filas):
+        ws.append([dt.datetime(2026, 11, 2 + hora // 24), dt.time(hora % 24), f"Programa {hora}"])
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
+def test_al_crear_una_senal_el_agente_revisa_la_lectura_y_la_deja(cliente, monkeypatch):
+    from tests.unit.test_api import _con_asistente
+    _con_asistente(monkeypatch, [])
+    r = cliente.post("/api/senales/crear", files={"grilla_cruda": ("g.xlsx", _libro_con_la_grilla_al_final())},
+                     data={"nombre": "Agape"}).json()
+    assert r["lectura_agente"]["acepto"] and r["lectura_agente"]["motivo"] == "es una señal nueva"
+    assert cliente.get("/api/senales/agape").json()["entrada"]["hoja"] == 7
+    assert cliente.get("/api/asistente/uso").json()["usuarios"][0]["pedidos"] == 1

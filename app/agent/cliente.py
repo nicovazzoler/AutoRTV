@@ -177,9 +177,10 @@ class Grabado:
     """Devuelve respuestas fijas en orden. Para tests y para probar la web sin key."""
 
     def __init__(self, respuestas: list[dict]):
-        # Las que tienen "respuesta" son de la charla; el resto, propuestas de tarjetas.
-        self.charlas = [r for r in respuestas if isinstance(r, dict) and "respuesta" in r]
-        self.respuestas = [r for r in respuestas if not (isinstance(r, dict) and "respuesta" in r)]
+        # Las que tienen "respuesta" son de la charla; las de "entrada_json", de la lectura; el resto, propuestas.
+        self.charlas = [r for r in respuestas if _clave_de(r) == "charla"]
+        self.lecturas = [r for r in respuestas if _clave_de(r) == "lectura"]
+        self.respuestas = [r for r in respuestas if _clave_de(r) == "otra"]
         self.pedidos: list[list[dict]] = []
         self.fuertes: list[bool] = []
         self.modelos: list[str] = []
@@ -190,6 +191,10 @@ class Grabado:
 
     def pedir_json(self, sistema: str, mensajes: list[dict], formato: dict, modelo: str, effort: str) -> Respuesta:
         self.modelos.append(modelo)
+        if "entrada_json" in formato.get("properties", {}):
+            if not self.lecturas:  # sin lectura grabada, el agente deja la del código
+                return self._siguiente([{"explicacion": "", "entrada_json": "", "aceptar": True}], mensajes)
+            return self._siguiente(self.lecturas, mensajes)
         return self._siguiente(self.respuestas, mensajes)
 
     def charlar(self, sistema: str, mensajes: list[dict]) -> Respuesta:
@@ -203,6 +208,14 @@ class Grabado:
         if isinstance(datos, str):  # simula una respuesta que no es JSON
             return Respuesta(datos)
         return Respuesta(json.dumps(datos, ensure_ascii=False), datos)
+
+
+def _clave_de(r) -> str:
+    if isinstance(r, dict) and "respuesta" in r:
+        return "charla"
+    if isinstance(r, dict) and ({"entrada_json", "ver_hoja", "aceptar"} & r.keys()):
+        return "lectura"
+    return "otra"
 
 
 _grabados: dict[str, Grabado] = {}

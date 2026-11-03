@@ -91,6 +91,8 @@ export interface AvisoFechas {
 /** Qué hizo el agente cuando el código no encontró fecha y hora en la grilla. */
 export interface LecturaAgente {
   logrado: boolean;
+  acepto?: boolean;
+  motivo?: string;
   modelo?: string;
   explicacion?: string;
   problemas: string[];
