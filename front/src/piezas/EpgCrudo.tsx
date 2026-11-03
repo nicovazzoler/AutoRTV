@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { api, textoDeError } from "../api";
+import { confirmar } from "./Dialogos";
 
 interface Datos {
   fijas: string[];
@@ -36,7 +37,9 @@ export function EpgCrudo({ senalId, alGuardar }: { senalId: string; alGuardar: (
   const faltan = OBLIGATORIAS.filter((f) => !mapa[f]);
 
   const guardar = async () => {
-    if (!datos.activo && !confirm("La base de esta señal se recalcula con el EPG crudo y las reglas pasan a ver estas columnas fijas. Las reglas que nombraban columnas de la página van a dar error hasta que el agente las ajuste. ¿Seguir?")) return;
+    if (!datos.activo && !await confirmar({ titulo: "Pasar a EPG crudo",
+      texto: "La base de esta señal se recalcula con el EPG crudo y las reglas pasan a ver estas columnas fijas. Las reglas que nombraban columnas de la página van a dar error hasta que el agente las ajuste.",
+      boton: "Pasar a EPG crudo" })) return;
     setGuardando(true);
     setError("");
     try {

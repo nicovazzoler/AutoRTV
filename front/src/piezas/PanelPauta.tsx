@@ -2,6 +2,7 @@ import { useState } from "react";
 import { api, textoDeError } from "../api";
 import type { Celdas, PautaBase } from "../tipos";
 import { Recorrido, type Parecida } from "./Recorrido";
+import { confirmar } from "./Dialogos";
 
 interface Props {
   senalId: string;
@@ -82,7 +83,8 @@ export function PanelPauta({ senalId, pauta, columnas: delCatalogo, programa, al
   };
 
   const olvidar = async () => {
-    if (!confirm("¿Olvidar esta pauta? La próxima vez que venga la arman las reglas y pide revisión.")) return;
+    if (!await confirmar({ texto: "La próxima vez que venga la arman las reglas y pide revisión.", boton: "Olvidar la pauta",
+      peligro: true })) return;
     try {
       await api.borrar(`/senales/${senalId}/pautas/${pauta.hash}`);
       await alCambiar();

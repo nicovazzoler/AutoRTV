@@ -57,18 +57,64 @@ def test_proponer_reglas_va_a_la_senal_que_se_nombra_o_a_la_activa(cliente, monk
     assert c["proponer_cambios"]
 
 
-def test_lo_hecho_con_el_agente_queda_marcado_y_le_avisa_al_admin(cliente):
+def test_lo_hecho_con_el_agente_queda_marcado_y_le_avisa_al_admin_una_vez(cliente):
     otra = _senal(cliente, "TBN")
     ana = _ana(cliente)
     r = ana.post(f"/api/senales/{otra}/pautas/editar-varias", headers={"X-Origen": "agente"},
                  json={"filtro": {"Programa": "Cine"}, "columna": "Genero", "valor": "Película"})
     assert r.status_code == 200, r.text
-    ana.post("/api/agente/hecho", json={"senal": otra, "descripcion": "Poner Genero = Película en Cine"})
     carga = next(x for x in cliente.get("/api/historial").json() if x["senal_id"] == otra and x["cuenta"].get("base"))
     detalle = cliente.get(f"/api/historial/{otra}?carga={carga['carga']}").json()
     assert [d["origen"] for d in detalle if d["tipo"] == "base"] == ["agente"]
-    (aviso,) = [a for a in cliente.get("/api/admin/avisos").json() if a["tipo"] == "agente"]
-    assert aviso["usuario"] == "ana" and "Película" in aviso["detalle"]
+    (aviso,) = cliente.get("/api/admin/avisos").json()
+    assert (aviso["usuario"], aviso["tipo"]) == ("ana", "agente")
+    assert aviso["detalle"] == "Con el agente: cambió Genero a «Película» en 1 pauta"
+    ana.post(f"/api/senales/{otra}/pautas/editar-varias", json={"filtro": {"Programa": "Cine"}, "columna": "Genero", "valor": "Drama"})
+    assert len(cliente.get("/api/admin/avisos").json()) == 1  # sin el agente, un cambio chico no avisa
+
+
+def test_muchas_pautas_con_el_agente_avisan_una_sola_vez(cliente):
+    from app import pautas
+    otra = _senal(cliente, "TBN")
+    pautas.guardar(otra, {f"p{i:014d}": {"crudo": {"Programa": f"Serie {i}"}, "salida": {"Programa": "Serie", "Genero": ""}}
+                          for i in range(25)}, "revisada", "admin")
+    ana = _ana(cliente)
+    r = ana.post(f"/api/senales/{otra}/pautas/editar-varias", headers={"X-Origen": "agente"},
+                 json={"filtro": {"Programa": "Serie"}, "columna": "Genero", "valor": "Drama"})
+    assert r.json()["editadas"] == 25
+    (aviso,) = cliente.get("/api/admin/avisos").json()
+    assert aviso["detalle"] == "Con el agente: cambió Genero en 25 pautas"
+
+
+def test_un_resultado_largo_acorta_las_listas_y_queda_json():
+    import json
+    from app.agent import herramientas
+    dato = {"resumen": {"filas": 200}, "pautas": [{"hash": f"h{i}", "salida": {"Titulo": "x" * 70}} for i in range(200)]}
+    texto = herramientas.a_texto(dato)
+    leido = json.loads(texto)
+    assert len(texto) <= herramientas.MAX_RESULTADO and leido["resumen"] == {"filas": 200}
+    assert leido["cortado"] == {"pautas": f"se muestran {len(leido['pautas'])} de 200"} and len(dato["pautas"]) == 200
+    assert json.loads(herramientas.a_texto([1, 2]))  == [1, 2]  # lo corto va igual
+
+
+def test_una_herramienta_que_falla_queda_en_el_log(caplog):
+    from app.agent import herramientas
+    estado = herramientas.Estado("ana", False, "xt", {"xt": "XT"})
+    estado._ver_reglas = lambda senal: 1 / 0
+    with caplog.at_level("ERROR", logger="autortv"):
+        assert estado.usar("ver_reglas", {"senal": "xt"}).startswith("No se pudo: division by zero")
+    assert "herramienta ver_reglas falló" in caplog.text
+
+
+def test_cada_paso_de_la_charla_marca_el_ultimo_bloque_para_el_cache():
+    from app.agent.cliente import _con_cache
+    mensajes = [{"role": "user", "content": "contexto"}, {"role": "assistant", "content": [{"type": "text", "text": "a"}]},
+                {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "t1", "content": "x"},
+                                             {"type": "tool_result", "tool_use_id": "t2", "content": "y"}]}]
+    marcados = _con_cache(mensajes)
+    assert [b.get("cache_control") for b in marcados[-1]["content"]] == [None, {"type": "ephemeral"}]
+    assert "cache_control" not in mensajes[-1]["content"][1]  # no toca el historial que se sigue usando
+    assert _con_cache(mensajes[:1])[0]["content"] == [{"type": "text", "text": "contexto", "cache_control": {"type": "ephemeral"}}]
 
 
 def test_un_filtro_con_una_columna_que_no_existe_no_deja_cambio(cliente, monkeypatch):

@@ -1,6 +1,7 @@
 import { useRef, useState, type FormEvent } from "react";
 import { api, ErrorApi, textoDeError } from "../api";
 import type { Receta } from "../tipos";
+import { confirmar } from "./Dialogos";
 
 interface Props {
   receta: Receta;
@@ -152,7 +153,9 @@ export function RecetaArchivo({ receta, version, alGuardar }: { receta: Receta; 
         setError(`La receta no es válida: ${(r.errores ?? []).join("; ")}`);
         return;
       }
-      if (!confirm(`¿Reemplazar las reglas de ${receta.nombre} por las del archivo? Se puede deshacer desde el historial.`)) return;
+      if (!await confirmar({ titulo: "Importar la receta",
+        texto: `Las reglas de ${receta.nombre} se reemplazan por las del archivo. Se puede deshacer desde el historial.`,
+        boton: "Reemplazar las reglas" })) return;
       await api.put(`/senales/${receta.id}`, { ...r.receta, id: receta.id }, { "If-Match": version });
       alGuardar();
     } catch (e) {

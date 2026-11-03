@@ -13,6 +13,7 @@ import { Base } from "./pantallas/Base";
 import { Configuracion } from "./pantallas/Configuracion";
 import { Administrar } from "./pantallas/Administrar";
 import { olvidarSemana } from "./semanaReciente";
+import { Dialogos } from "./piezas/Dialogos";
 
 const ULTIMA_SENAL = "autortv.senal";
 
@@ -100,6 +101,7 @@ export function App() {
         {destino.pantalla === "admin" && <Administrar key={revision} />}
         {destino.pantalla === "historial" && <Historial />}
         <Agente senalId={senalAgente} />
+        <Dialogos />
       </div>
     </ContextoSesion.Provider>
   );

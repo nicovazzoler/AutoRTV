@@ -9,6 +9,8 @@
   --sobre-acento: #22061B;
   --nueva: #7CC7B5;
   --revisar: #F2A65A;
+  --peligro: #F07A6E;
+  --sobre-peligro: #2A0806;
   /* El degradé de la marca, aclarado para que se lea sobre fondo oscuro. */
   --marca: linear-gradient(90deg, #B060F0, #E8559F);
   --sobre-marca: #1A0716;
@@ -29,6 +31,8 @@
   --sobre-acento: #FFFFFF;
   --nueva: #2E6E60;
   --revisar: #A84E14;
+  --peligro: #B3261E;
+  --sobre-peligro: #FFFFFF;
   --marca: linear-gradient(90deg, #7910BA, #C5067A);
   --sobre-marca: #FFFFFF;
   --sombra: rgba(70, 20, 90, 0.14);
@@ -330,6 +334,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 }
 .boton:disabled { opacity: 0.5; cursor: default; }
 .boton.principal { border-color: var(--acento); background: var(--acento); color: var(--sobre-acento); font-weight: 600; }
+.boton.peligro { border-color: var(--peligro); background: var(--peligro); color: var(--sobre-peligro); font-weight: 600; }
 .boton.fuerte { border-color: var(--texto); background: var(--texto); color: var(--fondo); font-weight: 600; }
 .boton.marca { border: 0; background: var(--marca); color: var(--sobre-marca); font-weight: 600; }
 .boton.chico { min-height: 36px; padding: 0 14px; font-size: 13px; }
