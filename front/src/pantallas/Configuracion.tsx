@@ -7,6 +7,7 @@ import { ConfigSenal, RecetaArchivo } from "../piezas/ConfigSenal";
 import { EpgCrudo } from "../piezas/EpgCrudo";
 import { ParesEjemplos } from "../piezas/ParesEjemplos";
 import { CabeceraBase } from "./Base";
+import { pedirAgente } from "../piezas/Agente";
 import { useSesion } from "../sesion";
 import type { Evaluacion, Receta, Version } from "../tipos";
 import { persona } from "../nombre";
@@ -35,6 +36,18 @@ const SECCIONES: { id: Seccion; nombre: string }[] = [
 ];
 
 /** Base › Configuración: cómo se arma la señal (ejemplos, reglas, cómo se lee la grilla y qué columnas salen). */
+interface PropuestaRegla {
+  tipo: "crear" | "revisar";
+  clave: string;
+  columna?: string;
+  antes?: unknown;
+  despues?: unknown;
+  tarjeta?: string;
+  veces: number;
+  semanas?: number;
+  pedido: string;
+}
+
 export function Configuracion({ senalId }: { senalId: string }) {
   const { yo, senales, tocar, setContexto } = useSesion();
   const [seccion, setSeccion] = useState<Seccion>("reglas");
@@ -48,12 +61,16 @@ export function Configuracion({ senalId }: { senalId: string }) {
   const [aviso, setAviso] = useState("");
   const [editando, setEditando] = useState(false);
   const [armando, setArmando] = useState(false);
+  const [confianza, setConfianza] = useState<{ semanas: Record<string, number>; hacen_falta: number } | null>(null);
+  const [propuestas, setPropuestas] = useState<PropuestaRegla[]>([]);
 
   const cargar = async () => {
     const { datos, version: v } = await api.conVersion<Receta>(`/senales/${senalId}`);
     setReceta(datos);
     setVersion(v);
     setHistorial(await api.get<Version[]>(`/senales/${senalId}/historial`));
+    setConfianza(await api.get(`/senales/${senalId}/reglas/confianza`));
+    setPropuestas(await api.get<PropuestaRegla[]>(`/senales/${senalId}/reglas/propuestas`));
     setEvaluaciones(await api.post<Evaluacion[]>(`/senales/${senalId}/ejemplos/evaluar`, datos));
     if (tablaId) {
       const vista = await api.post<{ tarjetas: Informe[] }>("/preview", { tabla_id: tablaId, senal: datos, filas: 1 }).catch(() => null);
@@ -64,6 +81,24 @@ export function Configuracion({ senalId }: { senalId: string }) {
   useEffect(() => {
     cargar().catch((e) => setError(textoDeError(e)));
   }, [senalId]);
+
+  const dejar = async (p: PropuestaRegla) => {
+    await api.post(`/senales/${senalId}/reglas/propuestas/descartar`, { clave: p.clave }).catch((e) => setError(textoDeError(e)));
+    setPropuestas((lista) => lista.filter((x) => x.clave !== p.clave));
+  };
+
+  const sacarRegla = async (p: PropuestaRegla) => {
+    if (!receta || !confirm("¿Sacar esta regla? Se puede deshacer desde el historial de abajo.")) return;
+    setError("");
+    try {
+      await api.put(`/senales/${senalId}`, { ...receta, tarjetas: receta.tarjetas.filter((t) => t.id !== p.tarjeta) }, { "If-Match": version });
+      await dejar(p);
+      tocar();
+      await cargar();
+    } catch (e) {
+      setError(textoDeError(e));
+    }
+  };
 
   const restaurar = async (v: Version, cual: string) => {
     if (!confirm(`¿Volver las reglas a como estaban ${cual}? Queda como un cambio más, así también se puede deshacer.`)) return;
@@ -201,6 +236,25 @@ export function Configuracion({ senalId }: { senalId: string }) {
           {seccion === "reglas" && (
             <section aria-label="Reglas" className="seccion">
               <span className="chico tenue">Las arma el agente desde los ejemplos y tus pedidos; se cambian hablándole o con «Deshacer».</span>
+              {propuestas.length > 0 && (
+                <div className="propuestas-reglas" aria-label="El agente propone">
+                  <span className="etiqueta-propuesta">EL AGENTE PROPONE, POR LO QUE SE CORRIGIÓ</span>
+                  {propuestas.map((p) => (
+                    <div key={p.clave} className="propuesta-regla">
+                      <span>
+                        {p.tipo === "crear"
+                          ? <>Corrigieron {p.veces} veces <b>«{String(p.antes)}» → «{String(p.despues)}»</b> en {p.columna}: ¿creo una regla?</>
+                          : <>La regla {(receta.tarjetas.findIndex((t) => t.id === p.tarjeta) + 1) || p.tarjeta} se corrigió {p.veces} veces en {p.semanas} semanas: ¿la saco o la cambio?</>}
+                      </span>
+                      <div className="botones" style={{ gap: 6 }}>
+                        <button type="button" className="boton principal chico" onClick={() => pedirAgente(p.pedido)}>{p.tipo === "crear" ? "Crear la regla" : "Cambiarla"}</button>
+                        {p.tipo === "revisar" && <button type="button" className="boton chico" onClick={() => sacarRegla(p)}>Sacarla</button>}
+                        <button type="button" className="boton chico" onClick={() => dejar(p)}>Dejarla así</button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
               <ol className="lista-simple">
                 {receta.tarjetas.length === 0 && (
                   <li className="tenue chico" style={{ flexWrap: "wrap" }}>Sin reglas: todo sale de la base o como vino.
@@ -218,7 +272,15 @@ export function Configuracion({ senalId }: { senalId: string }) {
                   return (
                     <li key={t.id} className={`regla${t.activa === false ? " apagada" : ""}`}>
                       <span className="numero">{i + 1}</span>
-                      <span style={{ lineHeight: 1.5 }}>{frase(t)}{t.activa === false ? " (apagada)" : ""}</span>
+                      <span style={{ lineHeight: 1.5 }}>{frase(t)}{t.activa === false ? " (apagada)" : ""}
+                        {t.tipo === "criterios" && confianza && (
+                          <span className={`chico ${(confianza.semanas[t.id] ?? 0) >= confianza.hacen_falta ? "c-nueva" : "c-revisar"}`}>
+                            {" · "}{(confianza.semanas[t.id] ?? 0) >= confianza.hacen_falta
+                              ? `confiable: ${confianza.semanas[t.id]} semanas sin correcciones`
+                              : `en prueba: ${confianza.semanas[t.id] ?? 0} de ${confianza.hacen_falta} semanas sin correcciones`}
+                          </span>
+                        )}
+                      </span>
                       <span className={`chico ${inf?.error ? "c-revisar" : "tenue"}`} style={{ whiteSpace: "nowrap" }} title={inf?.error ?? undefined}>
                         {inf?.error ? "con error" : inf ? `${inf.celdas_cambiadas} celdas` : ""}
                       </span>

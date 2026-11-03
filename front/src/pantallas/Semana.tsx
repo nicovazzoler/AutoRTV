@@ -67,6 +67,7 @@ export function Semana({ senalId }: { senalId: string }) {
   const [parecidas, setParecidas] = useState<Parecida[] | null>(null);
   const [avisoFechas, setAvisoFechas] = useState<AvisoFechas | null>(null);
   const [porMotivo, setPorMotivo] = useState(true);
+  const [propuestasReglas, setPropuestasReglas] = useState(0);
   const [lunes, setLunes] = useState("");
 
   const esperarReglas = async () => {
@@ -180,7 +181,9 @@ export function Semana({ senalId }: { senalId: string }) {
     setOcupado("confirmar");
     setError("");
     try {
-      recibir(await api.post<SemanaAbierta>(`/senales/${senalId}/abierta/confirmar`));
+      const confirmada = await api.post<SemanaAbierta>(`/senales/${senalId}/abierta/confirmar`);
+      recibir(confirmada);
+      setPropuestasReglas(confirmada.propuestas_reglas ?? 0);
       const recorte = new URLSearchParams({ formato });
       if (desde) recorte.set("desde", desde);
       if (hasta) recorte.set("hasta", hasta);
@@ -295,6 +298,15 @@ export function Semana({ senalId }: { senalId: string }) {
       )}
       {semana.version > 1 && !confirmada && (
         <p className="nota">Es la versión {semana.version} de esta semana: reemplazó a «{semana.anterior_nombre}». Lo que cambió está abajo; hay que volver a confirmar y exportar.</p>
+      )}
+      {propuestasReglas > 0 && (
+        <p className="nota">
+          Por lo que se corrigió, el agente tiene {propuestasReglas} {propuestasReglas === 1 ? "propuesta" : "propuestas"} de reglas.{" "}
+          <Enlace a={`/base/${senalId}/config`} style={{ color: "var(--acento)" }}>Verlas en Configuración › Reglas</Enlace>
+        </p>
+      )}
+      {datos.criterios_en_prueba && elegida === "nueva_lista" && (
+        <p className="nota chico">Estas pautas nuevas se leyeron con los criterios generales, que todavía están en prueba en esta señal: mirá que programa y capítulo estén bien antes de confirmar.</p>
       )}
       {confirmada && semana.confirmada && (
         <p className="nota">Confirmada por {persona(semana.confirmada_por)} {haceCuanto(semana.confirmada)}. Lo nuevo ya está en la base: la semana que viene sale solo.</p>

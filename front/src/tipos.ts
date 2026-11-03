@@ -74,6 +74,8 @@ export interface SemanaAbierta {
   armando_reglas?: boolean;
   lectura_agente?: LecturaAgente | null;
   aviso_fechas?: AvisoFechas | null;
+  propuestas_reglas?: number;
+  criterios_en_prueba?: boolean;
 }
 
 /** Una grilla semanal sin fechas, o con fechas viejas: la persona elige desde qué lunes va. */

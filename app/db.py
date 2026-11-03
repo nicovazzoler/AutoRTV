@@ -222,6 +222,20 @@ cambios = Table(
     Column("despues", JSON),
 )
 
+criterios_confianza = Table(
+    "criterios_confianza", metadata,  # semanas seguidas confirmadas sin que nadie corrija lo que leyó cada criterio
+    Column("senal_id", String(64), primary_key=True),
+    Column("tarjeta_id", String(64), primary_key=True),
+    Column("semanas", Integer, nullable=False, default=0),
+    Column("ultima_correccion", DateTime),
+)
+
+propuestas_descartadas = Table(
+    "propuestas_descartadas", metadata,  # "Dejarla": la propuesta de regla no vuelve a aparecer
+    Column("senal_id", String(64), primary_key=True),
+    Column("clave", String(200), primary_key=True),
+)
+
 _motores: dict[str, Engine] = {}
 
 

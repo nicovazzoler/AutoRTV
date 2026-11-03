@@ -13,8 +13,8 @@ import pandas as pd
 from fastapi import APIRouter, Cookie, Depends, Header, File, Form, HTTPException, Query, Response, UploadFile
 from pydantic import BaseModel, TypeAdapter, ValidationError
 
-from app import (acciones, almacen, armados, arreglos, auth, catalogo, conversaciones, corridas, export, fechar, historial,
-                 inputs, parecidas, pautas, semana, semanas, tablas, web)
+from app import (acciones, almacen, armados, arreglos, auth, catalogo, confianza, conversaciones, corridas, export, fechar,
+                 historial, inputs, parecidas, pautas, semana, semanas, tablas, web)
 from app.agent import asistente as asistente_ia
 from app.agent import banco, cliente, controles, lectura, uso
 from app.agent import parecidas as parecidas_ia
@@ -495,6 +495,7 @@ def _armar_semana(c: Corrida, receta: m.Senal) -> dict:
         "resumen": {"filas": len(c.salida), **cuenta, "pautas_revisar": len(revisar)},
         "contenido": contenido,
         "programa": c.programa,
+        "criterios_en_prueba": confianza.sin_confianza(receta),
         "campos_clave": semana.campos_clave(contenido, c.programa),
         "revisar": revisar,
         "nuevas": nuevas,
@@ -552,6 +553,30 @@ def _armar_si_no_tiene(senal_id: str, usuario: str) -> bool:
     except almacen.NoExiste:
         return False
     return sin_reglas and armados.lanzar(senal_id, usuario)
+
+
+@api.get("/senales/{senal_id}/reglas/confianza")
+def confianza_de_reglas(senal_id: str):
+    """Semanas confirmadas sin correcciones de cada criterio, y cuántas hacen falta para confiar."""
+    _receta(senal_id)
+    return {"semanas": confianza.leer(senal_id), "hacen_falta": confianza.SEMANAS_CONFIABLE}
+
+
+@api.get("/senales/{senal_id}/reglas/propuestas")
+def propuestas_de_reglas(senal_id: str):
+    """Reglas para crear o revisar según lo que se corrigió; cada una trae el pedido para el agente."""
+    return confianza.propuestas(_receta(senal_id))
+
+
+class Clave(BaseModel):
+    clave: str
+
+
+@api.post("/senales/{senal_id}/reglas/propuestas/descartar")
+def descartar_propuesta(senal_id: str, datos: Clave):
+    _receta(senal_id)
+    confianza.descartar(senal_id, datos.clave)
+    return {"ok": True}
 
 
 @api.get("/senales/{senal_id}/reglas/armado")
@@ -1249,7 +1274,8 @@ def confirmar_abierta(senal_id: str, u: auth.Usuario = Depends(auth.usuario_actu
     if not _guardar_nuevas(senal_id, p, u.usuario, tipo="confirmada"):
         historial.anotar(senal_id, u.usuario, "confirmada", [{"programa": "Semana confirmada sin pautas nuevas"}])
     semanas.confirmar(senal_id, u.usuario)
-    return _semana_abierta(senal_id, receta)
+    confianza.al_confirmar(receta, p.tabla_id)
+    return {**_semana_abierta(senal_id, receta), "propuestas_reglas": len(confianza.propuestas(receta))}
 
 
 MAX_FILAS_GRILLA = 5000
