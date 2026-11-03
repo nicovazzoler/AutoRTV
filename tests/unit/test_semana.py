@@ -241,3 +241,18 @@ def test_columnas_de_la_base_en_orden_y_con_programa(cliente):
     cliente.post("/api/senales/canal/semana/confirmar", json=_semana(cliente, ["Memory Lane - Outkast"]))
     r = cliente.get("/api/senales/canal/pautas/columnas").json()
     assert set(r["columnas"]) == {"Titulo", "Programa", "Capitulo"} and r["programa"] == "Programa"
+
+
+def test_borrar_la_grilla_vuelve_a_la_version_anterior_o_deja_la_senal_sin_grilla(cliente):
+    receta = {"id": "canal", "nombre": "Canal", "entrada": {"tipo": "excel"}, "tarjetas": [SEPARAR],
+              "salida": {"columnas": []}}
+    cliente.put("/api/senales/canal", json=receta)
+    def semana(titulos):  # una semana entera, para que la segunda cuente como otra versión de la misma
+        return excel(pd.DataFrame({"Fecha": [dt.datetime(2026, 11, 2 + d) for d in range(7)],
+                                   "Hora": [dt.time(6)] * 7, "Titulo": titulos * 7}, dtype=object))
+    v1, v2 = semana(["Memory Lane - Outkast"]), semana(["Otro - Programa"])
+    cliente.post("/api/senales/canal/abierta", files={"archivo": ("v1.xlsx", v1)})
+    assert cliente.post("/api/senales/canal/abierta", files={"archivo": ("v2.xlsx", v2)}).json()["semana"]["version"] == 2
+    r = cliente.delete("/api/senales/canal/abierta").json()
+    assert (r["semana"]["nombre"], r["semana"]["version"]) == ("v1.xlsx", 1) and r["resumen"]["filas"] == 7
+    assert cliente.delete("/api/senales/canal/abierta").json() == {"semana": None}

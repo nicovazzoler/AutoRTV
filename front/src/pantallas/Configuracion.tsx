@@ -9,6 +9,7 @@ import { ParesEjemplos } from "../piezas/ParesEjemplos";
 import { CabeceraBase } from "./Base";
 import { useSesion } from "../sesion";
 import type { Evaluacion, Receta, Version } from "../tipos";
+import { persona } from "../nombre";
 
 interface Informe {
   id: string;
@@ -228,7 +229,7 @@ export function Configuracion({ senalId }: { senalId: string }) {
               {historial.length > 0 && (
                 <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 14 }}>
                   <div className="botones" style={{ alignItems: "center" }}>
-                    <span className="chico tenue">Último cambio: <b style={{ color: "var(--texto)" }}>{historial[0].usuario} · {haceCuanto(historial[0].fecha)}</b></span>
+                    <span className="chico tenue">Último cambio: <b style={{ color: "var(--texto)" }}>{persona(historial[0].usuario)} · {haceCuanto(historial[0].fecha)}</b></span>
                     <span style={{ flexGrow: 1 }} />
                     {anterior && <button type="button" className="boton chico" onClick={() => restaurar(anterior, "antes del último cambio")}>Deshacer el último cambio</button>}
                   </div>
@@ -237,7 +238,7 @@ export function Configuracion({ senalId }: { senalId: string }) {
                     <ul className="lista-simple" style={{ marginTop: 8 }}>
                       {historial.slice(0, 15).map((v, i) => (
                         <li key={v.id} style={{ flexWrap: "wrap" }}>
-                          <span style={{ color: "var(--texto)" }}>{v.usuario} · {haceCuanto(v.fecha)}</span>
+                          <span style={{ color: "var(--texto)" }}>{persona(v.usuario)} · {haceCuanto(v.fecha)}</span>
                           <span style={{ flex: "1 1 200px" }}>{v.cambios.length ? v.cambios.map(fraseCambio).join(" · ") : "primera versión"}</span>
                           {i > 0 && <button type="button" className="boton chico" style={{ minHeight: 32 }} onClick={() => restaurar(v, "en esta versión")}>Volver a esta</button>}
                         </li>

@@ -17,9 +17,10 @@ def servidor(tmp_path):
     with socket.socket() as s:
         s.bind(("127.0.0.1", 0))
         puerto = s.getsockname()[1]
-    # El asistente charla siempre lo mismo y propone siempre lo mismo: pasar Titulo a mayúsculas.
+    # El asistente saluda la primera vez, después pasa a proponer, y propone siempre lo mismo: Titulo a mayúsculas.
     falso = tmp_path / "asistente.json"
     falso.write_text(json.dumps([{"respuesta": "¡Hola! Decime qué querés cambiar.", "proponer_cambios": False},
+                                 {"respuesta": "Dale, lo armo.", "proponer_cambios": True},
                                  {"explicacion": "Pasé los títulos a mayúsculas", "columnas_salida": None,
                                   "tarjetas_json": json.dumps([{"id": "a1", "tipo": "mayus_minus",
                                                                 "columnas": ["Titulo"], "modo": "MAYUS"}])}]))

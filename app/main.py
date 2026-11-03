@@ -3,7 +3,8 @@ import secrets
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import Cookie, FastAPI, HTTPException, Request
+import numpy as np
+from fastapi import Cookie, FastAPI, HTTPException, Request, encoders
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 
 from app import armados, auth, corridas, db
@@ -22,6 +23,10 @@ async def arranque(_app):
     yield
 
 
+# Los números de pandas (numpy.int64) llegan a las respuestas desde muchas tablas: se pasan a int/float de Python.
+encoders.ENCODERS_BY_TYPE[np.generic] = lambda v: v.item()
+encoders.encoders_by_class_tuples[encoders.ENCODERS_BY_TYPE[np.generic]] = (np.generic,)
+
 app = FastAPI(title="AutoRTV", lifespan=arranque)
 app.include_router(publico)
 app.include_router(api)
@@ -32,7 +37,8 @@ async def error_inesperado(pedido: Request, e: Exception):
     """Un bug: la web muestra qué falló, y con el código se encuentra el detalle completo en los logs."""
     codigo = "E-" + secrets.token_hex(2)
     logging.getLogger("autortv").exception("%s en %s %s", codigo, pedido.method, pedido.url.path)
-    return JSONResponse({"detail": f"Error interno {codigo}: {type(e).__name__}: {e}"[:500]}, status_code=500)
+    return JSONResponse({"detail": f"Error interno {codigo} en {pedido.method} {pedido.url.path}: "
+                                   f"{type(e).__name__}: {e}"[:500]}, status_code=500)
 
 
 @app.get("/health")

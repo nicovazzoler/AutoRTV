@@ -220,11 +220,11 @@ def test_agente_flotante_con_contexto(servidor, tmp_path):
         agente = pagina.locator("aside[aria-label=Agente]")
         agente.get_by_text("Viendo: Canal Demo · Semana · Para revisar").wait_for()
         agente.locator("textarea").fill("hola")
-        agente.get_by_role("button", name="Enviar").click()
+        agente.get_by_role("button", name="Enviar", exact=True).click()
         agente.get_by_text("¡Hola! Decime qué querés cambiar.").wait_for()
         assert pedidos[-1]["contexto"] == "Canal Demo · Semana · Para revisar"
         agente.locator("textarea").fill("pasá los títulos a mayúscula")
-        agente.get_by_role("button", name="Proponer cambios").click()
+        agente.locator("textarea").press("Enter")
         agente.get_by_text("Pasé los títulos a mayúsculas").wait_for()
         agente.get_by_role("button", name="Aplicar", exact=True).click()
         agente.get_by_text("(Reglas aplicadas").wait_for()

@@ -196,9 +196,15 @@ class Grabado:
         return Respuesta(json.dumps(datos, ensure_ascii=False), datos)
 
 
+_grabados: dict[str, Grabado] = {}
+
+
 def proveedor_configurado() -> Proveedor | None:
     if falso := os.environ.get("AGENTE_FALSO"):  # archivo JSON con respuestas, solo para tests e2e
-        return Grabado(json.loads(Path(falso).read_text(encoding="utf-8")))
+        # Uno solo por archivo: las respuestas avanzan entre pedidos, como una charla de verdad.
+        if falso not in _grabados:
+            _grabados[falso] = Grabado(json.loads(Path(falso).read_text(encoding="utf-8")))
+        return _grabados[falso]
     if os.environ.get("ANTHROPIC_API_KEY"):
         return Claude()
     return None

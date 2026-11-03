@@ -1044,6 +1044,14 @@ def aceptar_abierta(senal_id: str, datos: Hashes, u: auth.Usuario = Depends(auth
     return _semana_abierta(senal_id, receta)
 
 
+@api.delete("/senales/{senal_id}/abierta")
+def borrar_abierta(senal_id: str):
+    """La grilla subida por error: vuelve la versión anterior de la semana, o la señal queda sin grilla."""
+    receta = _receta(senal_id)
+    semanas.borrar(senal_id)
+    return _semana_abierta(senal_id, receta)
+
+
 @api.post("/senales/{senal_id}/abierta/confirmar")
 def confirmar_abierta(senal_id: str, u: auth.Usuario = Depends(auth.usuario_actual)):
     receta, p = _pedido_abierta(senal_id)

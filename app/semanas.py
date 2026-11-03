@@ -28,6 +28,22 @@ def abrir(senal_id: str, tabla_id: str, contenido: bytes, nombre: str, usuario: 
                                               **extra))
 
 
+def borrar(senal_id: str) -> None:
+    """Saca la grilla abierta: si era una versión corregida vuelve la anterior; si no, la señal queda sin grilla."""
+    with db.transaccion() as con:
+        fila = con.execute(select(db.semanas).where(db.semanas.c.senal_id == senal_id)).first()
+        if fila is None:
+            return
+        if not fila.anterior_tabla_id:
+            con.execute(delete(db.semanas).where(db.semanas.c.senal_id == senal_id))
+            return
+        con.execute(update(db.semanas).where(db.semanas.c.senal_id == senal_id).values(
+            tabla_id=fila.anterior_tabla_id, contenido=fila.anterior_contenido, nombre=fila.anterior_nombre,
+            version=max(1, (fila.version or 1) - 1), anterior_tabla_id=None, anterior_contenido=None,
+            anterior_nombre=None, confirmada=None, confirmada_por=None, resumen=None, foto=None))
+    tablas.asegurar(fila.anterior_tabla_id, bytes(fila.anterior_contenido))
+
+
 def es_version(desde: str | None, hasta: str | None, abierta: dict | None) -> bool:
     """Si las fechas nuevas se pisan con las de la semana abierta en más de DIAS_PARA_VERSION días."""
     resumen = (abierta or {}).get("resumen") or {}

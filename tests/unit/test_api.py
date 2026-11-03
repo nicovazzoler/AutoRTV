@@ -353,3 +353,11 @@ def test_el_agente_sabe_que_pantalla_se_esta_mirando(cliente, monkeypatch):
     assert r.status_code == 200, r.text
     enviado = json.dumps(proveedor.pedidos[-1], ensure_ascii=False)
     assert "(La persona está mirando: Canal Demo · Semana · Para revisar)\\n¿por qué frena?" in enviado
+
+
+def test_los_numeros_de_pandas_salen_como_json():
+    import numpy as np
+    from fastapi.encoders import jsonable_encoder
+    import app.main  # noqa: F401  registra el encoder
+    assert jsonable_encoder({"fila": np.int64(3), "pct": np.float64(1.5), "ok": np.bool_(True)}) == {
+        "fila": 3, "pct": 1.5, "ok": True}
