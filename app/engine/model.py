@@ -239,10 +239,24 @@ class EntradaHtml(EntradaComun):
     campos: dict[str, CampoHtml] = {}  # vacío = una columna por cada clase y atributo del bloque
     # EPG crudo: columna fija (inputs.epg.COLUMNAS) → columna de la página. Vacío = la tabla tal como sale de la página.
     epg: dict[str, str] = {}
+    url: str | None = None  # el link de donde se baja la página, para volver a bajarla cada semana
 
 
-Entrada = Annotated[Union[EntradaExcel, EntradaTexto, EntradaXml, EntradaPdf, EntradaHtml],
+class EntradaWord(EntradaComun):
+    """Un .docx: sus tablas, o el texto línea por línea si no tiene."""
+    tipo: Literal["word"]
+    fecha_inicio: str | None = None  # AAAA-MM-DD, si el texto no trae la fecha
+
+
+class EntradaVarios(EntradaComun):
+    """Varios archivos de la misma semana (subidos juntos o en un .zip), uno abajo del otro."""
+    tipo: Literal["varios"]
+    cada_uno: "Entrada | None" = None  # cómo leer cada archivo; None = cada uno con su formato
+
+
+Entrada = Annotated[Union[EntradaExcel, EntradaTexto, EntradaXml, EntradaPdf, EntradaHtml, EntradaWord, EntradaVarios],
                     Field(discriminator="tipo")]
+EntradaVarios.model_rebuild()
 
 
 class Salida(Base):

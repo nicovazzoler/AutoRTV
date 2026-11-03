@@ -1,11 +1,11 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { api, textoDeError } from "../api";
 import { haceCuanto, rangoSemana } from "../fechas";
 import { CopiarPagina } from "../piezas/CopiarPagina";
 import { ZonaArchivo } from "../piezas/ZonaArchivo";
 import { recordarSemana } from "../semanaReciente";
 import { useSesion } from "../sesion";
-import type { SemanaAbierta } from "../tipos";
+import type { Receta, SemanaAbierta } from "../tipos";
 import { persona } from "../nombre";
 
 type Forma = "archivo" | "texto" | "web";
@@ -22,24 +22,39 @@ export function Subir({ senalId, alLeer, alCancelar }: { senalId: string; alLeer
   const senal = senales?.find((s) => s.id === senalId);
   const abierta = senal?.semana ?? null;
   const [forma, setForma] = useState<Forma>("archivo");
-  const [archivo, setArchivo] = useState<File | null>(null);
+  const [archivos, setArchivos] = useState<File[]>([]);
   const [texto, setTexto] = useState("");
   const [html, setHtml] = useState("");
+  const [url, setUrl] = useState("");
+  // Si la señal se baja de un link, la pestaña Web arranca con ese link.
+  useEffect(() => {
+    api.get<Receta>(`/senales/${senalId}`).then((r) => {
+      const link = (r.entrada as { url?: string | null }).url;
+      if (link) {
+        setUrl(link);
+        setForma("web");
+      }
+    }).catch(() => {});
+  }, [senalId]);
   const [fecha, setFecha] = useState("");
   const [leyendo, setLeyendo] = useState(false);
   const [error, setError] = useState("");
 
-  const listo = forma === "archivo" ? !!archivo : forma === "texto" ? !!texto.trim() : !!html.trim();
+  const listo = forma === "archivo" ? archivos.length > 0 : forma === "texto" ? !!texto.trim() : !!(html.trim() || url.trim());
 
   const leer = async () => {
     setLeyendo(true);
     setError("");
     try {
       let datos: SemanaAbierta;
-      if (forma === "archivo" && archivo) {
+      if (forma === "archivo" && archivos.length) {
         const f = new FormData();
-        f.append("archivo", archivo);
+        // Varios archivos van juntos y el servidor los lee como una sola semana.
+        if (archivos.length === 1) f.append("archivo", archivos[0]);
+        else archivos.forEach((a) => f.append("archivos", a));
         datos = await api.subir<SemanaAbierta>(`/senales/${senalId}/abierta`, f);
+      } else if (forma === "web" && !html.trim()) {
+        datos = await api.post<SemanaAbierta>(`/senales/${senalId}/abierta/url`, { url });
       } else {
         datos = await api.post<SemanaAbierta>(`/senales/${senalId}/abierta/texto`,
           { texto: forma === "texto" ? texto : html, fecha_inicio: forma === "texto" ? fecha || null : null });
@@ -80,7 +95,8 @@ export function Subir({ senalId, alLeer, alCancelar }: { senalId: string; alLeer
 
       {forma === "archivo" && (
         <div role="tabpanel" style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-          <ZonaArchivo archivo={archivo} alElegir={setArchivo} ayuda="Excel, PDF, XML, HTML guardado o .txt · tocá acá para elegirlo" />
+          <ZonaArchivo archivo={null} alElegir={() => {}} varios={archivos} alElegirVarios={setArchivos}
+            ayuda="Excel, PDF, Word, XML, HTML guardado, .txt o un .zip · si la semana viene en varios archivos, soltalos todos juntos" />
         </div>
       )}
 
@@ -98,7 +114,11 @@ export function Subir({ senalId, alLeer, alCancelar }: { senalId: string; alLeer
 
       {forma === "web" && (
         <div role="tabpanel" style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-          <label className="campo">Pegá acá el HTML de la página, directo, sin pasar por el bloc de notas
+          <label className="campo">El link de la página de la señal
+            <input className="entrada" type="url" value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://…/programacion" />
+          </label>
+          <span className="chico tenue">Si la página arma la grilla después de cargar (o pide iniciar sesión), el link puede no alcanzar: en ese caso pegá el HTML acá abajo.</span>
+          <label className="campo">O pegá el HTML de la página, directo, sin pasar por el bloc de notas
             <textarea className="entrada" rows={6} value={html} onChange={(e) => setHtml(e.target.value)} placeholder={'<div class="grilla">…'} />
           </label>
           <CopiarPagina titulo="¿Cómo copio el HTML de la página?" />

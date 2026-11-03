@@ -7,7 +7,7 @@ import secrets
 from collections import OrderedDict
 
 import pandas as pd
-from sqlalchemy import delete, insert, select
+from sqlalchemy import delete, insert, select, update
 
 from app import db
 from app import inputs
@@ -26,11 +26,20 @@ def subir(contenido: bytes) -> str:
     return tabla_id
 
 
-def asegurar(tabla_id: str, contenido: bytes) -> None:
+def asegurar(tabla_id: str, contenido: bytes, lunes: dt.date | None = None) -> None:
     """Vuelve a guardar una grilla que venció, con el mismo id: la semana abierta de una señal dura más de 24 h."""
     with db.transaccion() as con:
         if con.execute(select(db.tablas_subidas.c.id).where(db.tablas_subidas.c.id == tabla_id)).first() is None:
-            con.execute(insert(db.tablas_subidas).values(id=tabla_id, contenido=contenido, creada=dt.datetime.now()))
+            con.execute(insert(db.tablas_subidas).values(id=tabla_id, contenido=contenido, creada=dt.datetime.now(),
+                                                         lunes=lunes))
+
+
+def fijar_lunes(tabla_id: str, lunes: dt.date | None) -> None:
+    """La grilla pasa a leerse con las fechas de la semana de `lunes` (None = como vino)."""
+    with db.transaccion() as con:
+        con.execute(update(db.tablas_subidas).where(db.tablas_subidas.c.id == tabla_id).values(lunes=lunes))
+    for clave in [k for k in _leidas if k[0] == tabla_id]:
+        del _leidas[clave]
 
 
 def tabla(tabla_id: str, entrada) -> pd.DataFrame:
@@ -38,11 +47,15 @@ def tabla(tabla_id: str, entrada) -> pd.DataFrame:
     clave = (tabla_id, entrada.model_dump_json())
     if clave not in _leidas:
         with db.transaccion() as con:
-            contenido = con.execute(select(db.tablas_subidas.c.contenido)
-                                    .where(db.tablas_subidas.c.id == tabla_id)).scalar()
-        if contenido is None:
+            fila = con.execute(select(db.tablas_subidas.c.contenido, db.tablas_subidas.c.lunes)
+                               .where(db.tablas_subidas.c.id == tabla_id)).first()
+        if fila is None:
             raise KeyError(tabla_id)
-        _leidas[clave] = inputs.leer(bytes(contenido), entrada)
+        leida = inputs.leer(bytes(fila.contenido), entrada)
+        if fila.lunes:
+            from app.fechar import fechar
+            leida = fechar(leida, fila.lunes)
+        _leidas[clave] = leida
         while len(_leidas) > MAXIMO_EN_MEMORIA:
             _leidas.popitem(last=False)
     _leidas.move_to_end(clave)

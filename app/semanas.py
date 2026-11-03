@@ -44,6 +44,16 @@ def borrar(senal_id: str) -> None:
     tablas.asegurar(fila.anterior_tabla_id, bytes(fila.anterior_contenido))
 
 
+def fijar_lunes(senal_id: str, lunes: dt.date | None) -> None:
+    """La semana abierta pasa a las fechas de la semana de `lunes` (una grilla semanal sin fechas o con fechas viejas)."""
+    with db.transaccion() as con:
+        fila = con.execute(select(db.semanas.c.tabla_id).where(db.semanas.c.senal_id == senal_id)).first()
+        if fila is None:
+            return
+        con.execute(update(db.semanas).where(db.semanas.c.senal_id == senal_id).values(lunes=lunes))
+    tablas.fijar_lunes(fila.tabla_id, lunes)
+
+
 def es_version(desde: str | None, hasta: str | None, abierta: dict | None) -> bool:
     """Si las fechas nuevas se pisan con las de la semana abierta en más de DIAS_PARA_VERSION días."""
     resumen = (abierta or {}).get("resumen") or {}
@@ -169,7 +179,7 @@ def leer(senal_id: str) -> dict | None:
         fila = con.execute(select(db.semanas).where(db.semanas.c.senal_id == senal_id)).first()
     if fila is None:
         return None
-    tablas.asegurar(fila.tabla_id, bytes(fila.contenido))
+    tablas.asegurar(fila.tabla_id, bytes(fila.contenido), fila.lunes)
     return _meta(fila)
 
 

@@ -5,14 +5,16 @@ import { Enlace } from "../piezas/Enlace";
 import { CopiarPagina } from "../piezas/CopiarPagina";
 import { ZonaArchivo } from "../piezas/ZonaArchivo";
 import { aSenal } from "../ruta";
+import { pedirAlAgente } from "../piezas/Agente";
 import { useSesion } from "../sesion";
 
 interface Creada {
   id: string;
   nombre: string;
-  ejemplo: string;
+  ejemplo: string | null;
   pautas: { agregadas?: number; conflictos?: number; error?: string } | null;
   semana_abierta?: boolean;
+  sin_ejemplo?: boolean;
   aviso?: string | null;
   armando_reglas?: boolean;
 }
@@ -63,7 +65,7 @@ export function Nueva({ enPanel = false, alCerrar }: { enPanel?: boolean; alCerr
   }, [nombre, creada]);
 
   const grillaCruda = () => cruda ?? new File([pegada], pegada.trimStart().startsWith("<") ? "grilla.html" : "grilla.txt");
-  const listo = nombre.trim() && (forma === "archivo" ? !!cruda : !!pegada.trim()) && !!ejemplo;
+  const listo = nombre.trim() && (forma === "archivo" ? !!cruda : !!pegada.trim());
 
   // Las reglas las arma el servidor solo al crear la señal; acá se espera el resultado (o se pide de nuevo).
   const armarReglas = async (c: Creada, otraVez = false) => {
@@ -83,13 +85,13 @@ export function Nueva({ enPanel = false, alCerrar }: { enPanel?: boolean; alCerr
   };
 
   const crear = async (extra: Record<string, string> = {}) => {
-    if (!ejemplo) return;
+    if (extra.agregar_a && !ejemplo) return setError("Para sumarlo como ejemplo de otra señal hace falta cómo quedó (la macro hecha)");
     setCreando(true);
     setError("");
     const datos = new FormData();
     datos.append("nombre", nombre.trim());
     datos.append("grilla_cruda", grillaCruda());
-    datos.append("ejemplo", ejemplo);
+    if (ejemplo) datos.append("ejemplo", ejemplo);
     for (const [k, v] of Object.entries(extra)) datos.append(k, v);
     try {
       const c = await api.subir<Creada>("/senales/crear", datos);
@@ -97,7 +99,9 @@ export function Nueva({ enPanel = false, alCerrar }: { enPanel?: boolean; alCerr
       setCreada(c);
       await refrescarSenales();
       if (extra.agregar_a) setAgregadaA(c.nombre);
-      if (c.armando_reglas) await armarReglas(c);
+      // Sin ejemplo, el agente se abre en la semana y pregunta lo que necesita para armar las reglas.
+      if (c.sin_ejemplo) pedirAlAgente(c.id);
+      else if (c.armando_reglas) await armarReglas(c);
       else if (!extra.agregar_a) setReglas({ estado: "sin-agente", mensaje: "El agente no está configurado: la señal arranca solo con la base." });
     } catch (e) {
       if (e instanceof ErrorApi && e.estado === 409 && e.detalle && typeof e.detalle === "object") setParecidas(e.detalle as Parecidas);
@@ -178,7 +182,7 @@ export function Nueva({ enPanel = false, alCerrar }: { enPanel?: boolean; alCerr
               </div>
               <div className="caja-archivo">
                 <span className="serif" style={{ fontSize: 20 }}>Cómo quedó (macro hecha)</span>
-                <span className="chico tenue">El EPG terminado de esa misma semana, en Excel</span>
+                <span className="chico tenue">El EPG terminado de esa misma semana, en Excel. Si no lo tenés, creala igual: el agente te pregunta.</span>
                 <ZonaArchivo chica archivo={ejemplo} alElegir={setEjemplo} accept=".xlsx,.xls" deshabilitada={!!creada} etiqueta="Cómo quedó" />
               </div>
             </div>
@@ -202,9 +206,10 @@ export function Nueva({ enPanel = false, alCerrar }: { enPanel?: boolean; alCerr
             ) : (
               <>
                 <p style={{ margin: 0 }}>
-                  {pautas?.error ? <span className="c-revisar">{pautas.error}</span>
+                  {creada.sin_ejemplo ? <><b>Señal creada sin ejemplo.</b> La semana quedó abierta: el agente mira la grilla y te pregunta lo que necesita para armar las reglas.</>
+                    : pautas?.error ? <span className="c-revisar">{pautas.error}</span>
                     : <><b>Base cargada:</b> {pautas?.agregadas ?? 0} pautas a partir del ejemplo.</>}
-                  {creada.semana_abierta && " Como la grilla es de esta semana, también quedó abierta para revisar."}
+                  {creada.semana_abierta && !creada.sin_ejemplo && " Como la grilla es de esta semana, también quedó abierta para revisar."}
                 </p>
                 {creada.aviso && <p className="error" role="alert" style={{ margin: 0 }}>{creada.aviso}</p>}
                 {reglas?.estado === "trabajando" && (

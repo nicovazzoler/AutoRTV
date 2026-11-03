@@ -3,7 +3,7 @@ import os
 from collections.abc import Iterator
 from contextlib import contextmanager
 
-from sqlalchemy import (Boolean, Column, DateTime, Float, ForeignKey, Index, Integer, LargeBinary, MetaData,
+from sqlalchemy import (Boolean, Column, Date, DateTime, Float, ForeignKey, Index, Integer, LargeBinary, MetaData,
                         String, Table, Text, create_engine, event, inspect, text)
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.engine import Connection, Engine
@@ -81,6 +81,7 @@ tablas_subidas = Table(
     Column("id", String(32), primary_key=True),
     Column("contenido", LargeBinary, nullable=False),
     Column("creada", DateTime, nullable=False, index=True),
+    Column("lunes", Date),  # una grilla semanal sin fechas o con fechas viejas, pasada a la semana de este lunes
 )
 
 semanas = Table(
@@ -100,6 +101,7 @@ semanas = Table(
     Column("anterior_contenido", LargeBinary),
     Column("anterior_nombre", String(200)),
     Column("foto", JSON),  # las filas en corto (semana.COLUMNAS_FOTO), para ver todas las señales juntas
+    Column("lunes", Date),  # ver tablas_subidas.lunes
 )
 
 catalogo = Table(
@@ -254,7 +256,8 @@ def _agregar_columnas(con: Connection) -> None:
         "usuarios": {"nombre": "VARCHAR(100)", "descripcion": "TEXT"},
         "semanas": {"version": "INTEGER NOT NULL DEFAULT 1", "anterior_tabla_id": "VARCHAR(32)",
                     "anterior_contenido": "BYTEA" if con.dialect.name == "postgresql" else "BLOB",
-                    "anterior_nombre": "VARCHAR(200)", "foto": "JSON"},
+                    "anterior_nombre": "VARCHAR(200)", "foto": "JSON", "lunes": "DATE"},
+        "tablas_subidas": {"lunes": "DATE"},
     }
     for tabla, columnas in nuevas.items():
         existentes = {c["name"] for c in inspect(con).get_columns(tabla)}

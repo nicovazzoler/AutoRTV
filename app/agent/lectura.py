@@ -101,6 +101,16 @@ def _vista_texto(contenido: bytes) -> str:
 
 def vista_cruda(contenido: bytes) -> str:
     """El comienzo del archivo tal como vino, en texto, para que el agente vea su forma."""
+    from app.inputs import varios, word
+
+    if varios.es_zip_suelto(contenido):
+        lista = varios.archivos(contenido)
+        nombres = ", ".join(n for n, _ in lista[:40])
+        return (f"Varios archivos ({len(lista)}): {nombres}. Se leen uno abajo del otro con "
+                f'{{"tipo": "varios", "cada_uno": <entrada para cada archivo>}}.\nEl primero:\n'
+                + (vista_cruda(lista[0][1]) if lista else "(vacío)"))
+    if word.es_word(contenido):
+        return "Word (.docx), sus tablas o su texto:\n" + word.leer(contenido, m.EntradaWord(tipo="word")).head(FILAS_VISTA).to_string()[:MAX_TEXTO]
     if contenido.startswith(b"PK") or contenido.startswith(b"\xd0\xcf\x11\xe0"):
         return _vista_excel(contenido)
     if contenido.startswith(b"%PDF"):

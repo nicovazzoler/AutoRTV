@@ -10,7 +10,7 @@ import { Recorrido, type Parecida } from "../piezas/Recorrido";
 import { cumple, FilaFiltros, type Filtros } from "../piezas/FiltrosColumna";
 import { tomarSemana } from "../semanaReciente";
 import { useSesion } from "../sesion";
-import type { CambioVersion, Celdas, LecturaAgente, SemanaAbierta } from "../tipos";
+import type { AvisoFechas, CambioVersion, Celdas, LecturaAgente, SemanaAbierta } from "../tipos";
 import { persona } from "../nombre";
 
 function valores(celdas: Celdas, sin: string | null | undefined, cuantos: number, yaVistos: Celdas = {}): string {
@@ -64,6 +64,8 @@ export function Semana({ senalId }: { senalId: string }) {
   const [armado, setArmado] = useState<Armado | "armando" | null>(null);
   const [lecturaAgente, setLecturaAgente] = useState<LecturaAgente | null>(null);
   const [parecidas, setParecidas] = useState<Parecida[] | null>(null);
+  const [avisoFechas, setAvisoFechas] = useState<AvisoFechas | null>(null);
+  const [lunes, setLunes] = useState("");
 
   const esperarReglas = async () => {
     setArmado("armando");
@@ -82,6 +84,8 @@ export function Semana({ senalId }: { senalId: string }) {
     setVista(null);
     recibir(d);
     setLecturaAgente(d.lectura_agente ?? null);
+    setAvisoFechas(d.aviso_fechas ?? null);
+    setLunes(d.aviso_fechas?.sugerido ?? "");
     if (d.armando_reglas) void esperarReglas();
   };
 
@@ -131,6 +135,16 @@ export function Semana({ senalId }: { senalId: string }) {
       recibir(await api.get<SemanaAbierta>(`/senales/${senalId}/abierta`));
       const r = await api.post<Parecida[]>(`/senales/${senalId}/abierta/parecidas`, { fila, columna, antes, despues: valor });
       if (r.length) setParecidas(r);
+    } catch (e) {
+      setError(textoDeError(e));
+    }
+  };
+
+  const fecharDesde = async () => {
+    setError("");
+    try {
+      recibir(await api.post<SemanaAbierta>(`/senales/${senalId}/abierta/fechar`, { lunes }));
+      setAvisoFechas(null);
     } catch (e) {
       setError(textoDeError(e));
     }
@@ -242,13 +256,28 @@ export function Semana({ senalId }: { senalId: string }) {
         </div>
       </header>
 
-      {!resumen.desde && (
+      {!resumen.desde && !avisoFechas && (
         <p className="error" role="alert">
           No encontré la fecha y la hora en la grilla{lecturaAgente ? `, y el agente tampoco: ${lecturaAgente.problemas.join(" ")}` : ""}. Así no sale la base ni se puede exportar bien. Pasame el archivo para sumar cómo se lee.
         </p>
       )}
       {resumen.desde && lecturaAgente?.logrado && (
         <p className="nota">El código no encontraba la fecha y la hora; el agente encontró cómo leer la grilla y quedó guardado para las próximas semanas. {lecturaAgente.explicacion}</p>
+      )}
+      {avisoFechas && (
+        <div className="nota" role="alert" style={{ display: "flex", flexWrap: "wrap", gap: 12, alignItems: "flex-end" }}>
+          <span style={{ flex: "1 1 320px" }}>
+            {avisoFechas.tipo === "sin_fechas"
+              ? "Esta grilla es semanal y no trae fechas, solo los días."
+              : `Esta grilla trae fechas viejas (del ${avisoFechas.desde} al ${avisoFechas.hasta}): puede ser la programación semanal con una fecha que quedó en la página.`}
+            {" "}¿Desde qué lunes la armo? Se respeta el día de cada programa, de lunes a domingo. Para estirarla al mes, usá Confirmar y exportar › Repetir la última semana.
+          </span>
+          <label className="campo" style={{ maxWidth: 200 }}>Lunes
+            <input className="entrada" type="date" value={lunes} onChange={(e) => setLunes(e.target.value)} />
+          </label>
+          <button type="button" className="boton principal" disabled={!lunes} onClick={fecharDesde}>Armarla desde ese lunes</button>
+          <button type="button" className="boton" onClick={() => setAvisoFechas(null)}>Dejarla como vino</button>
+        </div>
       )}
       {armado === "armando" && <p className="nota" role="status">El agente está armando las reglas desde los ejemplos: cuando termine, la semana se vuelve a armar sola.</p>}
       {armado && armado !== "armando" && armado.mensaje && (
