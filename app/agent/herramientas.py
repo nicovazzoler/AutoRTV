@@ -4,12 +4,15 @@
 - página: la web las hace sola (ir a una pantalla, abrir Agregar señal); no cambian datos;
 - cambio: quedan como tarjeta con «Hacerlo» para la persona; el agente nunca cambia nada solo.
 """
+import copy
 import json
+import logging
 from dataclasses import dataclass, field
 
 from app import almacen, historial, pautas, semanas
 
 MAX_RESULTADO = 6000
+_log = logging.getLogger("autortv")
 MAX_FILAS = 20
 PANTALLAS = ["inicio", "semana", "base", "configuracion", "administrar"]
 
@@ -64,6 +67,35 @@ NIVEL = {t["name"]: n for n, lista in (("ver", VER), ("pagina", PAGINA), ("cambi
          for t in lista}
 
 
+def _listas(dato, ruta: str = "") -> list[tuple[str, list]]:
+    """Las listas que hay adentro del resultado, con su ruta ("pautas", "semana.filas")."""
+    if isinstance(dato, list):
+        return [(ruta or "lista", dato)] + [x for i, v in enumerate(dato) for x in _listas(v, f"{ruta}[{i}]")]
+    if isinstance(dato, dict):
+        return [x for k, v in dato.items() if k != "cortado" for x in _listas(v, f"{ruta}.{k}" if ruta else k)]
+    return []
+
+
+def a_texto(dato) -> str:
+    """El resultado en JSON. Si es largo, se acortan sus listas más grandes y queda dicho cuánto se muestra:
+    cortar el texto a mitad dejaría un JSON roto que el agente lee mal."""
+    texto = json.dumps(dato, ensure_ascii=False, default=str)
+    if len(texto) <= MAX_RESULTADO:
+        return texto
+    envuelto = copy.deepcopy(dato) if isinstance(dato, dict) else {"lista": copy.deepcopy(dato)}
+    totales: dict[str, int] = {}
+    while len(texto) > MAX_RESULTADO:
+        listas = [(r, l) for r, l in _listas(envuelto) if len(l) > 1]
+        if not listas:
+            break  # ya no hay listas para acortar: va entero, pero bien formado
+        ruta, lista = max(listas, key=lambda x: len(json.dumps(x[1], ensure_ascii=False, default=str)))
+        totales.setdefault(ruta, len(lista))
+        del lista[max(1, len(lista) * 3 // 4):]
+        envuelto["cortado"] = {r: f"se muestran {len(l)} de {totales[r]}" for r, l in _listas(envuelto) if r in totales}
+        texto = json.dumps(envuelto, ensure_ascii=False, default=str)
+    return texto
+
+
 def _corto(v, largo: int = 80):
     return v if not isinstance(v, str) or len(v) <= largo else v[:largo] + "…"
 
@@ -89,12 +121,14 @@ class Estado:
             return f"No existe la señal «{senal}». Usá listar_senales para ver los ids."
         try:
             if nivel == "ver":
-                texto = json.dumps(getattr(self, "_" + nombre)(**datos), ensure_ascii=False, default=str)
-                return texto[:MAX_RESULTADO]
+                return a_texto(getattr(self, "_" + nombre)(**datos))
             return getattr(self, "_" + nombre)(**datos)
         except TypeError as e:
+            _log.warning("herramienta %s con parámetros %s: %s", nombre, datos, e)
             return f"Parámetros mal puestos: {e}"
         except Exception as e:  # un dato que no está (sin semana abierta, etc.) vuelve como texto
+            if getattr(e, "status_code", 500) >= 500:
+                _log.exception("herramienta %s falló con %s", nombre, datos)
             return f"No se pudo: {getattr(e, 'detail', None) or e}"
 
     def _accion(self, nivel: str, tipo: str, senal: str, descripcion: str, **extra) -> None:

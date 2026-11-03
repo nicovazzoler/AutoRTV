@@ -213,17 +213,10 @@ def guardar_mensaje(datos: MensajeNuevo, u: auth.Usuario = Depends(auth.usuario_
     return {"conversacion_id": cid}
 
 
-class Hecho(BaseModel):
-    senal: str = ""
-    descripcion: str
-
-
-@api.post("/agente/hecho")
-def hecho_por_el_agente(datos: Hecho, u: auth.Usuario = Depends(auth.usuario_actual)):
-    """La web avisa que se hizo algo que propuso el agente: le llega al admin para que lo revise."""
-    if not u.admin:
-        conversaciones.avisar(u.usuario, datos.senal, "agente", datos.descripcion)
-    return {"ok": True}
+def _avisar_del_agente(u: auth.Usuario, senal_id: str, detalle: str) -> None:
+    """Lo que un usuario común hizo con «Hacerlo» en el agente le llega al admin, una vez por pedido."""
+    if not u.admin and historial.ORIGEN.get() == "agente":
+        conversaciones.avisar(u.usuario, senal_id, "agente", detalle)
 
 
 @api.get("/agente/notas")
@@ -610,6 +603,7 @@ def armar_reglas(senal_id: str, u: auth.Usuario = Depends(auth.usuario_actual)):
     if not almacen.listar_ejemplos(senal_id):
         raise HTTPException(422, "La señal no tiene ejemplos para armar las reglas")
     armados.lanzar(senal_id, u.usuario)
+    _avisar_del_agente(u, senal_id, "pidió armar las reglas desde los ejemplos")
     return armados.leer(senal_id)
 
 
@@ -917,7 +911,9 @@ def editar_varias(senal_id: str, datos: EdicionVarias, u: auth.Usuario = Depends
     historial.anotar(senal_id, u.usuario, "base", [
         {"pauta": h, "programa": _programa_de_pauta(base.get(h)), "columna": datos.columna,
          "antes": base[h]["salida"].get(datos.columna), "despues": valor} for h in hashes if h in base])
-    _avisar_si_son_muchas(u, senal_id, editadas, f"cambió {datos.columna} en")
+    if not _avisar_si_son_muchas(u, senal_id, editadas, f"cambió {datos.columna} en"):
+        _avisar_del_agente(u, senal_id, f"cambió {datos.columna} a «{valor}» en "
+                                        + ("1 pauta" if editadas == 1 else f"{editadas} pautas"))
     return {"editadas": editadas}
 
 
@@ -1367,6 +1363,7 @@ def confirmar_abierta(senal_id: str, u: auth.Usuario = Depends(auth.usuario_actu
     if not _guardar_nuevas(senal_id, p, u.usuario, tipo="confirmada"):
         historial.anotar(senal_id, u.usuario, "confirmada", [{"programa": "Semana confirmada sin pautas nuevas"}])
     semanas.confirmar(senal_id, u.usuario)
+    _avisar_del_agente(u, senal_id, "confirmó la semana")
     confianza.al_confirmar(receta, p.tabla_id)
     return {**_semana_abierta(senal_id, receta), "propuestas_reglas": len(confianza.propuestas(receta))}
 
@@ -1523,9 +1520,11 @@ def aplicar_en_semana(senal_id: str, cambios: list[CambioFila], u: auth.Usuario 
 MUCHAS_PAUTAS = 20
 
 
-def _avisar_si_son_muchas(u: auth.Usuario, senal_id: str, cuantas: int, que: str) -> None:
-    if not u.admin and cuantas > MUCHAS_PAUTAS:
-        conversaciones.avisar(u.usuario, senal_id, "base", f"{que} {cuantas} pautas")
+def _avisar_si_son_muchas(u: auth.Usuario, senal_id: str, cuantas: int, que: str) -> bool:
+    if u.admin or cuantas <= MUCHAS_PAUTAS:
+        return False
+    conversaciones.avisar(u.usuario, senal_id, "base", f"{que} {cuantas} pautas")
+    return True
 
 
 class PedidoArreglo(BaseModel):

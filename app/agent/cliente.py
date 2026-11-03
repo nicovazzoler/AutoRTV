@@ -129,7 +129,7 @@ class Claude:
             r = self._cliente.messages.create(
                 model=MODELO_RAPIDO, max_tokens=4000,
                 system=[{"type": "text", "text": sistema, "cache_control": {"type": "ephemeral"}}],
-                tools=herramientas, messages=mensajes, output_config={"effort": "low"},
+                tools=herramientas, messages=_con_cache(mensajes), output_config={"effort": "low"},
             )
         except anthropic.APIError as e:
             raise ErrorAgente(explicar(e, MODELO_RAPIDO)) from e
@@ -156,6 +156,18 @@ class Claude:
         except anthropic.APIError as e:
             raise ErrorAgente(explicar(e, MODELO_RAPIDO)) from e
         return _leer(r)
+
+
+def _con_cache(mensajes: list[dict]) -> list[dict]:
+    """Marca el último bloque para el caché: el paso siguiente de la charla reusa todo lo anterior."""
+    if not mensajes:
+        return mensajes
+    ultimo = dict(mensajes[-1])
+    contenido = ultimo["content"]
+    bloques = [{"type": "text", "text": contenido}] if isinstance(contenido, str) else [dict(b) for b in contenido]
+    bloques[-1]["cache_control"] = {"type": "ephemeral"}
+    ultimo["content"] = bloques
+    return [*mensajes[:-1], ultimo]
 
 
 def _bloque(b) -> dict:

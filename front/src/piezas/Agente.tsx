@@ -195,9 +195,6 @@ export function Agente({ senalId }: { senalId: string | null }) {
     decir({ rol: "asistente", texto: `(${a.descripcion})` });
   };
 
-  const avisarHecho = (senal: string, descripcion: string) =>
-    api.post("/agente/hecho", { senal, descripcion }).catch(() => {});
-
   const hacer = async (a: AccionUi) => {
     setAcciones((lista) => lista.filter((x) => x !== a));
     setError("");
@@ -216,7 +213,6 @@ export function Agente({ senalId }: { senalId: string | null }) {
         await api.post(`/senales/${a.senal}/abierta/confirmar`, {}, DEL_AGENTE);
         decir({ rol: "asistente", texto: `(Semana de ${a.nombre_senal} confirmada.)` });
       }
-      void avisarHecho(a.senal, a.descripcion);
       tocar();
     } catch (e) {
       setError(textoDeError(e));
@@ -305,7 +301,6 @@ export function Agente({ senalId }: { senalId: string | null }) {
       const r = await api.post<{ editadas: number }>(`/senales/${p.senal}/pautas/editar-varias`,
         { filtro: c.filtro, columna: c.columna, valor: c.valor === null ? null : String(c.valor) }, DEL_AGENTE);
       decir({ rol: "asistente", texto: `(Corregidas ${r.editadas} pautas de ${p.nombreSenal} en la base.)` });
-      void avisarHecho(p.senal, c.descripcion);
       marcarAplicada(p.id, i);
       tocar();
     } catch (e) {
