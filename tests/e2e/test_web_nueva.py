@@ -307,6 +307,8 @@ def test_admin_usuarios_y_tope(servidor):
         pagina.get_by_role("menuitem", name="Administrar").click()
         pagina.wait_for_url("**/admin")
         pestanas = pagina.get_by_role("navigation", name="Administrar")
+        pagina.get_by_text("No hay avisos.").wait_for()  # arranca en Avisos
+        pestanas.get_by_role("button", name="Usuarios").click()
         pagina.get_by_label("Usuario nuevo").fill("lucia")
         pagina.get_by_role("button", name="Crear", exact=True).click()
         pagina.get_by_text("La clave es").wait_for()
@@ -316,6 +318,7 @@ def test_admin_usuarios_y_tope(servidor):
         # El login de lucia cambió la cookie de esta pestaña: se vuelve a entrar como admin.
         pagina.request.post(servidor + "/api/login", data={"usuario": "admin", "clave": "clave-segura"})
         pagina.reload()
+        pestanas.get_by_role("button", name="Usuarios").click()
         pagina.locator("tr", has_text="lucia").wait_for()
         fila = pagina.locator("tr", has_text="lucia")
         fila.get_by_role("button", name="Borrar").click()

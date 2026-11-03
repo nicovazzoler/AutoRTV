@@ -7,12 +7,14 @@ import re
 import unicodedata
 from dataclasses import asdict, dataclass
 from pathlib import Path
+from typing import Literal
 
 import pandas as pd
 from fastapi import APIRouter, Cookie, Depends, Header, File, Form, HTTPException, Query, Response, UploadFile
 from pydantic import BaseModel, TypeAdapter, ValidationError
 
-from app import acciones, almacen, armados, auth, catalogo, corridas, export, inputs, pautas, semana, semanas, tablas
+from app import (acciones, almacen, armados, auth, catalogo, conversaciones, corridas, export, inputs, pautas, semana,
+                 semanas, tablas)
 from app.agent import asistente as asistente_ia
 from app.agent import banco, cliente, controles, lectura, uso
 from app.engine import model as m
@@ -91,7 +93,23 @@ class NuevoUsuario(BaseModel):
 
 @api.get("/usuarios", dependencies=[Depends(auth.solo_admin)])
 def usuarios():
-    return [asdict(u) for u in auth.listar_usuarios()]
+    perfiles = auth.perfiles()
+    return [asdict(u) | perfiles.get(u.usuario, {}) for u in auth.listar_usuarios()]
+
+
+class Perfil(BaseModel):
+    nombre: str = ""
+    descripcion: str = ""
+
+
+@api.put("/usuarios/{usuario_id}/perfil", dependencies=[Depends(auth.solo_admin)])
+def guardar_perfil(usuario_id: int, datos: Perfil):
+    """Quién es cada uno y qué hace: el agente lo lee para saber con quién habla."""
+    try:
+        auth.guardar_perfil(usuario_id, datos.nombre, datos.descripcion)
+    except LookupError:
+        raise HTTPException(404, "No existe ese usuario")
+    return {"ok": True}
 
 
 @api.post("/usuarios", dependencies=[Depends(auth.solo_admin)])
@@ -126,6 +144,69 @@ def borrar_usuario(usuario_id: int, yo: auth.Usuario = Depends(auth.solo_admin))
     return {"ok": True}
 
 
+# --- Avisos al admin ---
+
+@api.get("/admin/avisos", dependencies=[Depends(auth.solo_admin)])
+def listar_avisos(sin_ver: bool = False):
+    return conversaciones.avisos(sin_ver)
+
+
+@api.post("/admin/avisos/{aviso_id}/visto", dependencies=[Depends(auth.solo_admin)])
+def aviso_visto(aviso_id: int):
+    conversaciones.marcar_visto(aviso_id)
+    return {"ok": True}
+
+
+# --- Chats con el agente: cada persona los suyos ---
+
+class MensajeNuevo(BaseModel):
+    conversacion_id: int | None = None
+    rol: Literal["persona", "asistente"]
+    texto: str
+    senal_id: str | None = None
+
+
+@api.get("/agente/conversaciones")
+def mis_conversaciones(u: auth.Usuario = Depends(auth.usuario_actual)):
+    return conversaciones.listar(u.usuario)
+
+
+@api.get("/agente/conversaciones/{conversacion_id}")
+def una_conversacion(conversacion_id: int, u: auth.Usuario = Depends(auth.usuario_actual)):
+    lista = conversaciones.mensajes(u.usuario, conversacion_id)
+    if lista is None:
+        raise HTTPException(404, "No existe ese chat")
+    return lista
+
+
+@api.delete("/agente/conversaciones/{conversacion_id}")
+def borrar_conversacion(conversacion_id: int, u: auth.Usuario = Depends(auth.usuario_actual)):
+    conversaciones.borrar(u.usuario, conversacion_id)
+    return {"ok": True}
+
+
+@api.post("/agente/mensajes")
+def guardar_mensaje(datos: MensajeNuevo, u: auth.Usuario = Depends(auth.usuario_actual)):
+    """Suma un mensaje al chat (o abre uno nuevo) y devuelve el id del chat."""
+    if not datos.texto.strip():
+        raise HTTPException(422, "Mensaje vacío")
+    cid = conversaciones.agregar(u.usuario, datos.conversacion_id, datos.rol, datos.texto[:8000], datos.senal_id)
+    if cid is None:
+        raise HTTPException(404, "No existe ese chat")
+    return {"conversacion_id": cid}
+
+
+@api.get("/agente/notas")
+def mis_notas(u: auth.Usuario = Depends(auth.usuario_actual)):
+    return conversaciones.notas(u.usuario)
+
+
+@api.delete("/agente/notas/{nota_id}")
+def olvidar_nota(nota_id: int, u: auth.Usuario = Depends(auth.usuario_actual)):
+    conversaciones.olvidar_nota(u.usuario, nota_id)
+    return {"ok": True}
+
+
 # --- Tarjetas y señales ---
 
 @api.get("/tipos-tarjeta")
@@ -156,12 +237,26 @@ def guardar_senal(senal_id: str, receta: m.Senal, response: Response,
     if receta.id != senal_id:
         raise HTTPException(422, "El id de la receta no coincide con la ruta")
     try:
+        antes = almacen.leer(senal_id)
+    except almacen.NoExiste:
+        antes = None
+    try:
         response.headers["ETag"] = almacen.guardar(receta, u.usuario, esperada=if_match)
     except almacen.Conflicto as c:
         raise HTTPException(409, f"{c.usuario} guardó cambios el {c.fecha:%d/%m a las %H:%M}")
     except ValueError as e:
         raise HTTPException(422, str(e))
+    if antes is not None and not u.admin and (cambios := asistente_ia.cambios(antes, receta)):
+        conversaciones.avisar(u.usuario, senal_id, "reglas",
+                              "; ".join(_frase_cambio(c) for c in cambios[:10]))
     return {"ok": True}
+
+
+def _frase_cambio(c: dict) -> str:
+    tarjeta = c.get("tarjeta", {})
+    que = f"{tarjeta.get('tipo', '')} {tarjeta.get('columna') or tarjeta.get('columnas') or ''}".strip()
+    return {"agregada": f"agregó {que}", "modificada": f"cambió {que} ({', '.join(c.get('campos', []))})",
+            "borrada": f"sacó {que}", "salida": "cambió las columnas de salida", "orden": "reordenó las reglas"}[c["tipo"]]
 
 
 @api.get("/senales/{senal_id}/historial")
@@ -1287,7 +1382,7 @@ class MensajeHilo(BaseModel):
 
 
 class PedidoAsistente(BaseModel):
-    senal: m.Senal
+    senal: m.Senal | None = None  # sin señal abierta, el agente solo charla y propone acciones en la página
     pedido: str
     tabla_id: str | None = None
     ejemplo: str | None = None  # "armar desde este ejemplo": la grilla es la entrada del ejemplo
@@ -1314,17 +1409,30 @@ def _proveedor_disponible(u: auth.Usuario, pedido: str):
 def charla_asistente(p: PedidoAsistente, u: auth.Usuario = Depends(auth.usuario_actual)):
     """Primer paso de cada mensaje: responde rápido o avisa que hay que armar una propuesta."""
     proveedor = _proveedor_disponible(u, p.pedido)
-    tabla = _correr_tabla(p.tabla_id, p.senal) if p.tabla_id else None
+    tabla = _correr_tabla(p.tabla_id, p.senal) if p.tabla_id and p.senal else None
     try:
-        c = asistente_ia.charlar(p.senal, tabla, [h.model_dump() for h in p.historial], p.pedido_con_contexto(), proveedor)
+        c = asistente_ia.charlar(p.senal, tabla, [h.model_dump() for h in p.historial], p.pedido_con_contexto(),
+                                 proveedor, _persona(u))
     except cliente.ErrorAgente as e:
         raise HTTPException(502, str(e))
-    uso.registrar(u.usuario, p.senal.id, "[charla] " + p.pedido, 1, c.tokens_entrada, c.tokens_salida, True, c.modelo)
+    if c.recordar:
+        conversaciones.anotar(u.usuario, c.recordar)
+    uso.registrar(u.usuario, p.senal.id if p.senal else "", "[charla] " + p.pedido, 1, c.tokens_entrada,
+                  c.tokens_salida, True, c.modelo)
     return asdict(c)
+
+
+def _persona(u: auth.Usuario) -> asistente_ia.Persona:
+    ficha = auth.perfiles().get(u.usuario, {})
+    return asistente_ia.Persona(u.usuario, ficha.get("nombre", ""), ficha.get("descripcion", ""),
+                                [n["texto"] for n in conversaciones.notas(u.usuario)],
+                                [(s["id"], s["nombre"]) for s in almacen.listar()])
 
 
 @api.post("/asistente")
 def asistente(p: PedidoAsistente, u: auth.Usuario = Depends(auth.usuario_actual)):
+    if p.senal is None:
+        raise HTTPException(422, "Abrí una señal para que el agente arme cambios sobre ella")
     proveedor = _proveedor_disponible(u, p.pedido)
 
     try:

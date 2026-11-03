@@ -525,8 +525,19 @@ dialog.dialogo h2 { margin: 0; font-family: "Fraunces Variable", serif; font-siz
 /* --- Panel del agente --- */
 
 .agente { box-sizing: border-box; padding: 18px; display: flex; flex-direction: column; gap: 12px; background: var(--panel); border: 1px solid var(--borde); }
-.agente.flotante { position: fixed; right: 24px; bottom: 24px; z-index: 30; width: min(400px, calc(100vw - 32px)); height: min(620px, calc(100vh - 100px)); border-radius: 18px; box-shadow: 0 16px 40px rgba(0, 0, 0, 0.35); }
-.agente-boton { position: fixed; right: 24px; bottom: 24px; z-index: 30; min-height: 48px; padding: 0 20px; border: 0; border-radius: 999px; background: var(--marca); color: #1a0716; font: inherit; font-weight: 700; font-size: 14px; cursor: pointer; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3); }
+.agente.flotante { position: fixed; right: 16px; top: 76px; bottom: 16px; z-index: 30; max-width: calc(100vw - 32px); border-radius: 18px; box-shadow: 0 16px 40px rgba(0, 0, 0, 0.35); }
+.agente-borde { position: absolute; left: -4px; top: 18px; bottom: 18px; width: 8px; cursor: col-resize; border-radius: 4px; }
+.agente-borde:hover { background: color-mix(in srgb, var(--acento) 40%, transparent); }
+.agente-circulo { position: fixed; right: 24px; bottom: 24px; z-index: 30; width: 56px; height: 56px; border: 0; border-radius: 50%;
+  background: var(--marca); color: #1a0716; font-size: 24px; cursor: pointer; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3); transition: transform 0.15s; }
+.agente-circulo:hover { transform: scale(1.08); }
+.lista-chats { margin: 0; padding: 4px; list-style: none; max-height: 220px; overflow-y: auto; border: 1px solid var(--borde); border-radius: 12px; }
+.lista-chats button { display: flex; width: 100%; justify-content: space-between; gap: 12px; padding: 8px 10px; border: 0; border-radius: 8px;
+  background: transparent; color: var(--texto); font: inherit; font-size: 14px; text-align: left; cursor: pointer; }
+.lista-chats button span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lista-chats button:hover, .lista-chats button[aria-current="true"] { background: color-mix(in srgb, var(--acento) 15%, transparent); }
+.accion-agente { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+@media (max-width: 700px) { .agente.flotante { left: 16px; width: auto !important; } .agente-borde { display: none; } }
 .etiqueta-contexto { align-self: flex-start; padding: 4px 10px; border-radius: 999px; border: 1px solid var(--acento); color: var(--acento); font-size: 12px; }
 
 .agente-cabeza { display: flex; align-items: center; gap: 8px; }
@@ -603,3 +614,8 @@ body.ajustando-columna, body.ajustando-columna * { cursor: col-resize !important
 .enviar-chat { position: absolute; right: 8px; bottom: 8px; width: 34px; height: 34px; border-radius: 50%; border: 0;
   background: var(--acento); color: var(--fondo); font-size: 18px; font-weight: 700; cursor: pointer; }
 .enviar-chat:disabled { opacity: 0.4; cursor: default; }
+.lista-avisos { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; }
+.lista-avisos li { display: flex; flex-direction: column; gap: 4px; padding: 12px 0; border-bottom: 1px solid var(--borde); }
+.lista-avisos li button { align-self: flex-start; }
+.insignia-avisos { display: inline-grid; place-items: center; min-width: 18px; height: 18px; padding: 0 5px; margin-left: 6px; border-radius: 999px;
+  background: var(--revisar); color: var(--fondo); font-size: 11px; font-weight: 700; }

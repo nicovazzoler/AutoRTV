@@ -4,11 +4,25 @@ import { BancoAgentes } from "../piezas/BancoAgentes";
 import { ZonaArchivo } from "../piezas/ZonaArchivo";
 import { useSesion } from "../sesion";
 import { persona } from "../nombre";
+import { haceCuanto } from "../fechas";
+import { Enlace } from "../piezas/Enlace";
 
 interface Usuario {
   id: number;
   usuario: string;
   admin: boolean;
+  nombre?: string;
+  descripcion?: string;
+}
+
+interface Aviso {
+  id: number;
+  usuario: string;
+  senal_id: string;
+  tipo: string;
+  detalle: string;
+  fecha: string;
+  visto: boolean;
 }
 
 interface UsoUsuario {
@@ -46,9 +60,10 @@ function usd(n: number): string {
   return n < 0.01 && n > 0 ? "menos de 0,01 USD" : `${n.toLocaleString("es-AR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD`;
 }
 
-type Pestana = "usuarios" | "senales" | "catalogo" | "uso" | "banco";
+type Pestana = "avisos" | "usuarios" | "senales" | "catalogo" | "uso" | "banco";
 
 const PESTANAS: { id: Pestana; nombre: string }[] = [
+  { id: "avisos", nombre: "Avisos" },
   { id: "usuarios", nombre: "Usuarios" },
   { id: "senales", nombre: "Señales" },
   { id: "catalogo", nombre: "Catálogo de columnas" },
@@ -59,7 +74,8 @@ const PESTANAS: { id: Pestana; nombre: string }[] = [
 /** Solo admin, desde el menú de la cuenta: usuarios, señales, catálogo, gasto del agente y banco de agentes. */
 export function Administrar() {
   const { yo, senales, refrescarSenales, setContexto } = useSesion();
-  const [pestana, setPestana] = useState<Pestana>("usuarios");
+  const [pestana, setPestana] = useState<Pestana>("avisos");
+  const [avisos, setAvisos] = useState<Aviso[]>([]);
   const [buscarSenal, setBuscarSenal] = useState("");
   const [usuarios, setUsuarios] = useState<Usuario[]>([]);
   const [uso, setUso] = useState<Uso | null>(null);
@@ -69,8 +85,10 @@ export function Administrar() {
   const [tope, setTope] = useState("");
 
   const cargar = async () => {
-    const [u, s, c] = await Promise.all([api.get<Usuario[]>("/usuarios"), api.get<Uso>("/asistente/uso"), api.get<Columna[]>("/catalogo")]);
+    const [u, s, c, a] = await Promise.all([api.get<Usuario[]>("/usuarios"), api.get<Uso>("/asistente/uso"),
+      api.get<Columna[]>("/catalogo"), api.get<Aviso[]>("/admin/avisos")]);
     setUsuarios(u);
+    setAvisos(a);
     setUso(s);
     setTope(String(s.limite_diario));
     setCatalogo(c);
@@ -79,6 +97,22 @@ export function Administrar() {
   useEffect(() => {
     if (yo.admin) cargar().catch((e) => setError(textoDeError(e)));
   }, [yo.admin]);
+
+  const marcarVisto = async (a: Aviso) => {
+    await api.post(`/admin/avisos/${a.id}/visto`).catch((e) => setError(textoDeError(e)));
+    setAvisos((lista) => lista.map((x) => (x.id === a.id ? { ...x, visto: true } : x)));
+  };
+
+  const guardarFicha = async (u: Usuario, nombre: string, descripcion: string) => {
+    setError("");
+    try {
+      await api.put(`/usuarios/${u.id}/perfil`, { nombre, descripcion });
+      setUsuarios((lista) => lista.map((x) => (x.id === u.id ? { ...x, nombre, descripcion } : x)));
+      setAviso(`Ficha de ${persona(u.usuario)} guardada: el agente ya la usa.`);
+    } catch (e) {
+      setError(textoDeError(e));
+    }
+  };
 
   useEffect(() => {
     setContexto(`Administrar · ${PESTANAS.find((x) => x.id === pestana)?.nombre}`);
@@ -173,17 +207,38 @@ export function Administrar() {
       {error && <p className="error" role="alert">{error}</p>}
       {aviso && <p className="nota" role="status">{aviso}</p>}
 
+      {pestana === "avisos" && (
+        <section aria-label="Avisos" className="seccion">
+          <div className="seccion-cabeza">
+            <h2>Avisos</h2>
+            <span className="chico tenue">Cambios de reglas que hizo alguien que no es admin, para dejarlos definitivos o deshacerlos</span>
+          </div>
+          {avisos.length === 0 ? <p className="tenue">No hay avisos.</p> : (
+            <ul className="lista-avisos">
+              {avisos.map((a) => (
+                <li key={a.id} className={a.visto ? "tenue" : undefined}>
+                  <span><b>{persona(a.usuario)}</b> cambió las reglas de <Enlace a={`/base/${a.senal_id}/config`}>{senales?.find((x) => x.id === a.senal_id)?.nombre ?? a.senal_id}</Enlace> · {haceCuanto(a.fecha)}</span>
+                  <span className="chico">{a.detalle}</span>
+                  {!a.visto && <button type="button" className="boton chico" onClick={() => marcarVisto(a)}>Visto</button>}
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+      )}
+
       {pestana === "usuarios" && (
       <section aria-label="Usuarios" className="seccion">
         <div className="seccion-cabeza"><h2>Usuarios</h2><span className="chico tenue">{usuarios.length} {usuarios.length === 1 ? "persona" : "personas"}</span></div>
         <div className="desplazable">
           <table className="tabla">
-            <thead><tr><th>Usuario</th><th>Rol</th><th className="derecha">Pedidos hoy</th><th className="derecha">Gasto del mes</th><th><span className="solo-lector">Acciones</span></th></tr></thead>
+            <thead><tr><th>Usuario</th><th>Rol</th><th>Para el agente: nombre y qué hace</th><th className="derecha">Pedidos hoy</th><th className="derecha">Gasto del mes</th><th><span className="solo-lector">Acciones</span></th></tr></thead>
             <tbody>
               {usuarios.map((u) => (
                 <tr key={u.id}>
                   <td className="serif" style={{ fontSize: 18 }}>{persona(u.usuario)}</td>
                   <td className="tenue">{u.admin ? "Admin" : "Usuario"}</td>
+                  <td><FichaUsuario usuario={u} alGuardar={(nombre, descripcion) => guardarFicha(u, nombre, descripcion)} /></td>
                   <td className="derecha" style={{ fontVariantNumeric: "tabular-nums" }}>{usoDe(u.usuario)?.pedidos_hoy ?? 0}</td>
                   <td className="derecha tenue" style={{ fontVariantNumeric: "tabular-nums" }}>{usd(usoDe(u.usuario)?.usd_mes ?? 0)}</td>
                   <td className="derecha" style={{ whiteSpace: "nowrap", paddingRight: 0 }}>
@@ -272,5 +327,22 @@ export function Administrar() {
 
       {pestana === "banco" && <BancoAgentes />}
     </main>
+  );
+}
+
+
+/** Nombre real y qué hace la persona, para que el agente sepa con quién habla. Se guarda al salir del campo. */
+function FichaUsuario({ usuario, alGuardar }: { usuario: Usuario; alGuardar: (nombre: string, descripcion: string) => void }) {
+  const [nombre, setNombre] = useState(usuario.nombre ?? "");
+  const [descripcion, setDescripcion] = useState(usuario.descripcion ?? "");
+  const cambio = nombre !== (usuario.nombre ?? "") || descripcion !== (usuario.descripcion ?? "");
+  return (
+    <div style={{ display: "flex", gap: 6, alignItems: "center", minWidth: 320 }}>
+      <input className="entrada" style={{ minHeight: 34, width: 120 }} placeholder="Nombre" aria-label={`Nombre de ${usuario.usuario}`}
+        value={nombre} onChange={(e) => setNombre(e.target.value)} />
+      <input className="entrada" style={{ minHeight: 34, flex: 1 }} placeholder="Qué hace (ej.: lleva las señales de cine)"
+        aria-label={`Qué hace ${usuario.usuario}`} value={descripcion} onChange={(e) => setDescripcion(e.target.value)} />
+      {cambio && <button type="button" className="boton chico" onClick={() => alGuardar(nombre, descripcion)}>Guardar</button>}
+    </div>
   );
 }

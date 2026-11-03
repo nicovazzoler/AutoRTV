@@ -127,3 +127,18 @@ def solo_admin(u: Usuario = Depends(usuario_actual)) -> Usuario:
     if not u.admin:
         raise HTTPException(403, "Solo para admin")
     return u
+
+
+def perfiles() -> dict[str, dict]:
+    """Nombre y descripción de cada usuario, como los cargó el admin."""
+    with db.transaccion() as con:
+        filas = con.execute(select(db.usuarios.c.usuario, db.usuarios.c.nombre, db.usuarios.c.descripcion)).all()
+    return {u: {"nombre": n or "", "descripcion": d or ""} for u, n, d in filas}
+
+
+def guardar_perfil(usuario_id: int, nombre: str, descripcion: str) -> None:
+    with db.transaccion() as con:
+        r = con.execute(update(db.usuarios).where(db.usuarios.c.id == usuario_id)
+                        .values(nombre=nombre.strip()[:100] or None, descripcion=descripcion.strip()[:1000] or None))
+    if r.rowcount == 0:
+        raise LookupError(usuario_id)

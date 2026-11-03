@@ -1,8 +1,10 @@
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent, type PointerEvent as EventoPuntero } from "react";
 import { api, ErrorApi, textoDeError } from "../api";
+import { haceCuanto } from "../fechas";
 import { fraseCambio } from "../frases";
 import { useSesion } from "../sesion";
-import type { AccionAdmin, Charla, CorreccionBase, Limites, Propuesta, Receta } from "../tipos";
+import { navegar } from "../ruta";
+import type { AccionAdmin, AccionUi, Charla, ChatGuardado, CorreccionBase, Limites, Propuesta, Receta } from "../tipos";
 
 interface Mensaje {
   rol: "persona" | "asistente";
@@ -16,57 +18,141 @@ interface PropuestaAbierta extends Propuesta {
   aplicadas: Set<number>;
 }
 
-// La conversación es por señal y sigue al cambiar de pantalla; se pierde al recargar.
-const hilos = new Map<string, Mensaje[]>();
-
 const PLEGADO = "autortv.agente-plegado";
+const ANCHO = "autortv.agente-ancho";
+const CHAT = "autortv.agente-chat";
 
-function leerPlegado(): boolean {
+function leer(clave: string): string | null {
   try {
-    // Plegado de entrada: Revisar y Grilla necesitan el ancho. Queda abierto solo si la persona lo abrió.
-    return localStorage.getItem(PLEGADO) !== "0";
+    return localStorage.getItem(clave);
   } catch {
-    return false;
+    return null;
   }
 }
+
+function guardar(clave: string, valor: string | null) {
+  try {
+    if (valor === null) localStorage.removeItem(clave);
+    else localStorage.setItem(clave, valor);
+  } catch {
+    // Sin almacenamiento: dura hasta recargar.
+  }
+}
+
+const anchoInicial = () => Number(leer(ANCHO)) || Math.round(window.innerWidth / 3);
+const limitarAncho = (a: number) => Math.min(Math.max(a, 320), Math.round(window.innerWidth * 0.7));
+
+const RUTAS: Record<string, (senal: string) => string> = {
+  inicio: () => "/", semana: (s) => `/s/${s}`, base: (s) => `/base/${s}`, configuracion: (s) => `/base/${s}/config`,
+  administrar: () => "/admin",
+};
 
 function texto(v: unknown): string {
   return v === null || v === undefined || v === "" ? "(vacío)" : String(v);
 }
 
-/** El agente, flotando abajo a la derecha en todas las pantallas. Sin señal elegida solo explica cómo usarlo. */
+/**
+ * El agente: un círculo flotante en todas las pantallas que se abre en un panel a la derecha (el ancho se arrastra).
+ * Los chats quedan guardados por persona y siguen al cambiar de pantalla o de señal.
+ */
 export function Agente({ senalId }: { senalId: string | null }) {
   const { yo, senales, tocar, contexto } = useSesion();
   const tablaId = senales?.find((s) => s.id === senalId)?.semana?.tabla_id ?? null;
-  const [hilo, setHilo] = useState<Mensaje[]>(() => hilos.get(senalId ?? "") ?? []);
+  const [hilo, setHilo] = useState<Mensaje[]>([]);
+  const [chatId, setChatId] = useState<number | null>(() => Number(leer(CHAT)) || null);
+  const [chats, setChats] = useState<ChatGuardado[] | null>(null);
+  const [acciones, setAcciones] = useState<AccionUi[]>([]);
   const [propuesta, setPropuesta] = useState<PropuestaAbierta | null>(null);
   const [escrito, setEscrito] = useState("");
   const [trabajando, setTrabajando] = useState<"" | "rapido" | "propuesta">("");
   const [error, setError] = useState("");
   const [limites, setLimites] = useState<Limites | null>(null);
-  const [plegado, setPlegado] = useState(leerPlegado);
+  const [plegado, setPlegado] = useState(() => leer(PLEGADO) !== "0");
+  const [ancho, setAncho] = useState(() => limitarAncho(anchoInicial()));
   const [claves, setClaves] = useState<string[]>([]);
   const fondo = useRef<HTMLDivElement>(null);
+  // Los mensajes se guardan en orden: el primero abre el chat y los demás necesitan su id.
+  const cola = useRef<Promise<number | null>>(Promise.resolve(chatId));
 
   const refrescarLimites = () => api.get<Limites>("/asistente/limites").then(setLimites).catch(() => {});
   useEffect(() => {
     refrescarLimites();
+    if (chatId) api.get<Mensaje[]>(`/agente/conversaciones/${chatId}`).then(setHilo).catch(() => elegirChat(null));
   }, []);
   useEffect(() => {
-    hilos.set(senalId ?? "", hilo);
     fondo.current?.scrollIntoView({ block: "nearest" });
-  }, [hilo, senalId]);
+  }, [hilo, acciones]);
+  useEffect(() => {
+    setPropuesta(null);  // la propuesta era de la señal anterior
+  }, [senalId]);
 
   const plegar = (si: boolean) => {
     setPlegado(si);
-    try {
-      localStorage.setItem(PLEGADO, si ? "1" : "0");
-    } catch {
-      // Sin almacenamiento, vuelve a abrirse al recargar.
-    }
+    guardar(PLEGADO, si ? "1" : "0");
   };
 
-  const decir = (m: Mensaje) => setHilo((h) => [...h, m]);
+  const elegirChat = (id: number | null) => {
+    setChatId(id);
+    guardar(CHAT, id === null ? null : String(id));
+    cola.current = Promise.resolve(id);
+    setPropuesta(null);
+    setAcciones([]);
+    setChats(null);
+    if (id === null) setHilo([]);
+    else api.get<Mensaje[]>(`/agente/conversaciones/${id}`).then(setHilo).catch((e) => setError(textoDeError(e)));
+  };
+
+  const verChats = () => {
+    if (chats) return setChats(null);
+    api.get<ChatGuardado[]>("/agente/conversaciones").then(setChats).catch((e) => setError(textoDeError(e)));
+  };
+
+  const decir = (m: Mensaje) => {
+    setHilo((h) => [...h, m]);
+    cola.current = cola.current.then(async (id) => {
+      try {
+        const r = await api.post<{ conversacion_id: number }>("/agente/mensajes", { conversacion_id: id, ...m, senal_id: senalId });
+        if (r.conversacion_id !== id) {
+          setChatId(r.conversacion_id);
+          guardar(CHAT, String(r.conversacion_id));
+        }
+        return r.conversacion_id;
+      } catch {
+        return id;  // si no se guardó, el chat sigue en pantalla igual
+      }
+    });
+  };
+
+  const arrastrarBorde = (e: EventoPuntero<HTMLDivElement>) => {
+    e.preventDefault();
+    const mover = (ev: PointerEvent) => setAncho(limitarAncho(window.innerWidth - ev.clientX - 16));
+    const soltar = () => {
+      window.removeEventListener("pointermove", mover);
+      window.removeEventListener("pointerup", soltar);
+      setAncho((a) => {
+        guardar(ANCHO, String(a));
+        return a;
+      });
+    };
+    window.addEventListener("pointermove", mover);
+    window.addEventListener("pointerup", soltar);
+  };
+
+  const hacer = async (a: AccionUi) => {
+    setAcciones((lista) => lista.filter((x) => x !== a));
+    if (a.tipo === "ir_a") navegar(RUTAS[a.pantalla]?.(a.senal) ?? "/");
+    if (a.tipo === "nueva_senal") navegar(`/nueva?nombre=${encodeURIComponent(a.nombre)}`);
+    if (a.tipo === "armar_reglas") {
+      try {
+        await api.post(`/senales/${a.senal}/reglas/armar`);
+        decir({ rol: "asistente", texto: "(Armando las reglas desde los ejemplos: el resultado aparece en Configuración › Reglas.)" });
+      } catch (e) {
+        setError(textoDeError(e));
+      }
+      return;
+    }
+    decir({ rol: "asistente", texto: `(${a.descripcion})` });
+  };
 
   const proponer = async (pedido: string, historial: Mensaje[], fuerte = false) => {
     setTrabajando("propuesta");
@@ -94,9 +180,10 @@ export function Agente({ senalId }: { senalId: string | null }) {
     decir({ rol: "persona", texto: pedido });
     setTrabajando("rapido");
     try {
-      const { datos: receta } = await api.conVersion<Receta>(`/senales/${senalId}`);
+      const receta = senalId ? (await api.conVersion<Receta>(`/senales/${senalId}`)).datos : null;
       const c = await api.post<Charla>("/asistente/charla", { senal: receta, pedido, tabla_id: tablaId, historial: previo, contexto });
       if (c.respuesta) decir({ rol: "asistente", texto: c.respuesta });
+      setAcciones(c.acciones ?? []);
       setTrabajando("");
       refrescarLimites();
       if (!c.proponer_cambios) return;
@@ -155,44 +242,60 @@ export function Agente({ senalId }: { senalId: string | null }) {
   };
 
   if (plegado) {
-    return <button type="button" className="agente-boton" aria-label="Abrir el agente" onClick={() => plegar(false)}>✦ Agente</button>;
-  }
-  if (!senalId) {
-    return (
-      <aside className="agente flotante" aria-label="Agente">
-        <div className="agente-cabeza">
-          <h2>Agente</h2>
-          <span style={{ flexGrow: 1 }} />
-          <button type="button" className="boton-redondo" style={{ flexBasis: 32, height: 32 }} aria-label="Cerrar el agente" onClick={() => plegar(true)}>✕</button>
-        </div>
-        <p className="tenue chico">Abrí una señal desde el Inicio o elegila en Base: el agente trabaja sobre la grilla, la base y las reglas de esa señal.</p>
-      </aside>
-    );
+    return <button type="button" className="agente-circulo" aria-label="Abrir el agente" title="Agente" onClick={() => plegar(false)}>✦</button>;
   }
 
   const p = propuesta;
   const efecto = p?.efecto;
   const ejemplos = p?.despues ? Object.entries(p.despues.ejemplos) : [];
-  const acciones = yo.admin ? p?.acciones_admin ?? [] : [];
+  const accionesAdmin = yo.admin ? p?.acciones_admin ?? [] : [];
 
   return (
-    <aside className="agente flotante" aria-label="Agente">
+    <aside className="agente flotante" aria-label="Agente" style={{ width: ancho }}>
+      <div className="agente-borde" role="separator" aria-orientation="vertical" aria-label="Cambiar el ancho del agente" onPointerDown={arrastrarBorde} />
       <div className="agente-cabeza">
         <h2>Agente</h2>
         <span style={{ flexGrow: 1 }} />
-        {hilo.length > 0 && <button type="button" className="boton chico" onClick={() => { setHilo([]); setPropuesta(null); }}>Nueva charla</button>}
+        <button type="button" className="boton chico" aria-expanded={!!chats} onClick={verChats}>Chats</button>
+        {hilo.length > 0 && <button type="button" className="boton chico" onClick={() => elegirChat(null)}>Nuevo chat</button>}
         <button type="button" className="boton-redondo" style={{ flexBasis: 36, height: 36 }} aria-label="Cerrar el agente" title="Cerrar" onClick={() => plegar(true)}>✕</button>
       </div>
+      {chats && (
+        <ul className="lista-chats" aria-label="Chats anteriores">
+          {chats.length === 0 && <li className="tenue chico">Todavía no hay chats guardados.</li>}
+          {chats.map((c) => (
+            <li key={c.id}>
+              <button type="button" aria-current={c.id === chatId} onClick={() => elegirChat(c.id)}>
+                <span>{c.titulo}</span><span className="tenue chico">{haceCuanto(c.actualizada)}</span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
       {contexto && <span className="etiqueta-contexto">Viendo: {contexto}</span>}
-      {limites && <span className="chico tenue">Te quedan {limites.quedan} de {limites.limite_diario} pedidos hoy · ve solo esta señal</span>}
+      {limites && <span className="chico tenue">Te quedan {limites.quedan} de {limites.limite_diario} pedidos hoy</span>}
 
       <div className="hilo" aria-live="polite">
         {hilo.length === 0 && (
-          <p className="tenue chico">Preguntale por qué una fila quedó así, o pedile un cambio: «el año viene pegado al título», «todos los Noches de Jazz van con género Música».</p>
+          <p className="tenue chico">
+            {senalId ? "Preguntale por qué una fila quedó así, o pedile un cambio: «el año viene pegado al título», «todos los Noches de Jazz van con género Música»."
+              : "Pedile lo que necesites: «llevame a la semana de XT», «creá la señal Canal XX». Para cambiar reglas, abrí la señal."}
+          </p>
         )}
         {hilo.map((m, i) => (
           <p key={i} className={`mensaje ${m.rol}${m.texto.startsWith("(") ? " nota-hilo" : ""}`}>{m.rol === "persona" ? "—" : ""}{m.texto}</p>
         ))}
+
+        {acciones.length > 0 && (
+          <section className="bloque-propuesta" aria-label="Lo que puedo hacer">
+            {acciones.map((a, i) => (
+              <div key={i} className="accion-agente">
+                <span>{a.descripcion}</span>
+                <button type="button" className="boton principal chico" onClick={() => hacer(a)}>Hacerlo</button>
+              </div>
+            ))}
+          </section>
+        )}
 
         {p && (
           <div className="propuesta-agente">
@@ -247,13 +350,13 @@ export function Agente({ senalId }: { senalId: string | null }) {
               </section>
             ))}
 
-            {acciones.length > 0 && (
+            {accionesAdmin.length > 0 && (
               <section className="bloque-propuesta">
                 <span className="etiqueta-propuesta">PROPUESTA · ADMIN</span>
-                <ol style={{ margin: 0, paddingLeft: 20, fontSize: 15 }}>{acciones.map((a, i) => <li key={i}>{a.descripcion}</li>)}</ol>
+                <ol style={{ margin: 0, paddingLeft: 20, fontSize: 15 }}>{accionesAdmin.map((a, i) => <li key={i}>{a.descripcion}</li>)}</ol>
                 {p.aplicadas.has(-2) ? <span className="chico c-nueva">Aplicadas.</span> : (
-                  <button type="button" className="boton principal chico" style={{ alignSelf: "flex-start" }} onClick={() => aplicarAdmin(acciones)}>
-                    {acciones.length === 1 ? "Aplicar" : `Aplicar las ${acciones.length}`}
+                  <button type="button" className="boton principal chico" style={{ alignSelf: "flex-start" }} onClick={() => aplicarAdmin(accionesAdmin)}>
+                    {accionesAdmin.length === 1 ? "Aplicar" : `Aplicar las ${accionesAdmin.length}`}
                   </button>
                 )}
                 {claves.map((c) => <p key={c} className="nota chico" style={{ margin: 0 }}>{c}. Anotala: no se vuelve a mostrar.</p>)}

@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { api } from "../api";
 import { type Destino } from "../ruta";
 import { useSesion } from "../sesion";
 import { useTema } from "../tema";
@@ -17,6 +18,11 @@ export function Barra({ destino, ultimaSenal, alSalir }: Props) {
   const [tema, alternarTema] = useTema();
   const [abierto, setAbierto] = useState(false);
   const [clave, setClave] = useState(false);
+  const [avisos, setAvisos] = useState(0);
+  // Cambios de reglas de otros que el admin no vio: se cuentan al cambiar de pantalla.
+  useEffect(() => {
+    if (yo.admin) api.get<unknown[]>("/admin/avisos?sin_ver=true").then((a) => setAvisos(a.length)).catch(() => {});
+  }, [yo.admin, destino]);
   const pendientes = (senales ?? []).reduce((n, s) => n + (s.semana?.resumen?.revisar ? 1 : 0), 0);
   const pestanas = [
     { id: "inicio", nombre: "Inicio", a: "/", cuenta: pendientes || "" },
@@ -39,12 +45,13 @@ export function Barra({ destino, ultimaSenal, alSalir }: Props) {
         <button type="button" className="cuenta-boton" aria-haspopup="menu" aria-expanded={abierto} onClick={() => setAbierto(!abierto)}>
           <span className="inicial" aria-hidden="true">{yo.usuario[0]?.toUpperCase()}</span>
           <span className="cuenta-nombre"><b>{persona(yo.usuario)}</b></span>
+          {avisos > 0 && <span className="insignia-avisos" aria-label={`${avisos} avisos sin ver`}>{avisos}</span>}
         </button>
         {abierto && (
           <div className="menu-cuenta flotante" role="menu" aria-label="Tu cuenta">
             <button type="button" role="menuitem" onClick={() => { setClave(true); setAbierto(false); }}>Cambiar mi clave</button>
             <button type="button" role="menuitem" onClick={alternarTema}>{tema === "oscuro" ? "Pasar a tema claro" : "Pasar a tema oscuro"}</button>
-            {yo.admin && <Enlace a="/admin" role="menuitem" onClick={() => setAbierto(false)}>Administrar</Enlace>}
+            {yo.admin && <Enlace a="/admin" role="menuitem" onClick={() => setAbierto(false)}>Administrar{avisos > 0 ? ` · ${avisos} avisos` : ""}</Enlace>}
             <button type="button" role="menuitem" onClick={alSalir}>Salir</button>
           </div>
         )}
