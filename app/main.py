@@ -32,6 +32,17 @@ app.include_router(publico)
 app.include_router(api)
 
 
+@app.middleware("http")
+async def origen_del_pedido(pedido: Request, siguiente):
+    from app import historial
+
+    marca = historial.ORIGEN.set("agente" if pedido.headers.get("X-Origen") == "agente" else None)
+    try:
+        return await siguiente(pedido)
+    finally:
+        historial.ORIGEN.reset(marca)
+
+
 @app.exception_handler(Exception)
 async def error_inesperado(pedido: Request, e: Exception):
     """Un bug: la web muestra qué falló, y con el código se encuentra el detalle completo en los logs."""

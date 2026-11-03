@@ -24,6 +24,7 @@ from app.engine.comparar import diferencias, porcentaje_igual, sugerir_correccio
 from app.engine.pipeline import DE_ESTRUCTURA, aplicar, armar_salida, correr
 from app.engine.tarjetas.estructura import a_fecha, a_hora
 from app.inputs import epg as epg_crudo
+from app.inputs import excel as inputs_excel
 from app.inputs import varios as inputs_varios
 from app.validate import grilla
 
@@ -210,6 +211,19 @@ def guardar_mensaje(datos: MensajeNuevo, u: auth.Usuario = Depends(auth.usuario_
     if cid is None:
         raise HTTPException(404, "No existe ese chat")
     return {"conversacion_id": cid}
+
+
+class Hecho(BaseModel):
+    senal: str = ""
+    descripcion: str
+
+
+@api.post("/agente/hecho")
+def hecho_por_el_agente(datos: Hecho, u: auth.Usuario = Depends(auth.usuario_actual)):
+    """La web avisa que se hizo algo que propuso el agente: le llega al admin para que lo revise."""
+    if not u.admin:
+        conversaciones.avisar(u.usuario, datos.senal, "agente", datos.descripcion)
+    return {"ok": True}
 
 
 @api.get("/agente/notas")
@@ -666,7 +680,8 @@ async def crear_senal(nombre: str = Form(""), grilla_cruda: UploadFile | None = 
         esperado = pd.read_excel(io.BytesIO(terminado), dtype=object) if terminado else None
     except Exception:
         esperado = None
-    leida, agente = _leer_con_agente(receta, crudo, esperado, u.usuario)
+    leida, agente = _leer_con_agente(receta, crudo, esperado, u.usuario,
+                                     motivo=None if agregar_a else "es una señal nueva")
     if leida is not receta:
         almacen.guardar(leida, "agente")
         receta = leida
@@ -706,35 +721,77 @@ def _aviso_sin_horario(agente: dict | None) -> str:
             "con el ejemplo ni armar la semana. Pasame el archivo para sumar cómo se lee.")
 
 
-def _leer_con_agente(receta: m.Senal, contenido: bytes, esperado: pd.DataFrame | None,
-                     usuario: str) -> tuple[m.Senal, dict | None]:
-    """Si el código no encuentra fecha y hora en la grilla, el agente busca cómo leerla.
+def _leer_con_agente(receta: m.Senal, contenido: bytes, esperado: pd.DataFrame | None, usuario: str,
+                     motivo: str | None = None, anterior: bytes | None = None) -> tuple[m.Senal, dict | None]:
+    """El agente revisa cómo leyó el código la grilla y la deja o la cambia; None si no hizo falta mirarla.
 
-    Devuelve la receta con esa lectura (o la misma) y qué hizo el agente; None si no hizo falta.
+    Se le pide con `motivo` (una señal nueva, otro formato) o si la lectura se ve mal (`_motivo_para_revisar`).
     """
-    if not _sin_horario(contenido, receta):
+    motivo = motivo or _motivo_para_revisar(receta, contenido, anterior)
+    if motivo is None:
         return receta, None
-    try:
-        if fechar.columna_de_dia(inputs.leer(contenido, receta.entrada)) is not None:
-            return receta, None  # semanal con días y sin fechas: se arregla eligiendo el lunes, no con otra lectura
-    except Exception:
-        pass
     proveedor = cliente.proveedor_configurado()
     if proveedor is None:
-        return receta, {"logrado": False, "problemas": ["El agente no está configurado (falta ANTHROPIC_API_KEY)."]}
+        if not _sin_horario(contenido, receta):
+            return receta, None  # se lee bien y no hay quién la revise: nada que contar
+        return receta, {"logrado": False, "motivo": motivo,
+                        "problemas": ["El agente no está configurado (falta ANTHROPIC_API_KEY)."]}
     try:
-        intentos = lectura.buscar(contenido, proveedor, esperado)
+        intentos = lectura.buscar(contenido, proveedor, esperado, codigo=receta.entrada, motivo=motivo)
     except cliente.ErrorAgente as e:
-        return receta, {"logrado": False, "problemas": [str(e)]}
+        return receta, {"logrado": False, "motivo": motivo, "problemas": [str(e)]}
     for p in intentos:
         uso.registrar(usuario, receta.id, "[lectura]", p.vueltas, p.tokens_entrada, p.tokens_salida, p.logrado,
                       p.modelo)
     final = intentos[-1]
-    info = {"logrado": final.logrado, "modelo": final.modelo, "explicacion": final.explicacion,
-            "problemas": final.problemas[:3]}
-    if final.logrado:
+    info = {"logrado": final.logrado, "acepto": final.acepto, "motivo": motivo, "modelo": final.modelo,
+            "explicacion": final.explicacion, "problemas": final.problemas[:3]}
+    if final.logrado and not final.acepto:
         receta = receta.model_copy(update={"entrada": lectura.ENTRADA.validate_python(final.entrada)})
     return receta, info
+
+
+def _otro_formato(anterior: bytes | None, detectada) -> bool:
+    """Si la detección ve este archivo distinto que el de la semana anterior (la lectura guardada puede ser del agente)."""
+    if anterior is None:
+        return False
+    try:
+        return not inputs.mismo_formato(inputs.detectar(anterior), detectada)
+    except Exception:
+        return False
+
+
+# Menos de esta parte de las filas de la semana anterior hace sospechar que la lectura dejó algo afuera.
+FILAS_SOSPECHOSAS = 0.5
+
+
+def _motivo_para_revisar(receta: m.Senal, contenido: bytes, anterior: bytes | None) -> str | None:
+    """Por qué la lectura del código merece que la mire el agente, o None si se ve bien."""
+    try:
+        tabla = inputs.leer(contenido, receta.entrada)
+    except Exception:
+        return "el código no pudo leer el archivo"
+    if not pautas.tiene_horario(tabla, receta.validaciones):
+        if fechar.columna_de_dia(tabla) is not None:
+            return None  # semanal con días y sin fechas: se arregla eligiendo el lunes, no con otra lectura
+        return "el código no encontró la fecha y la hora"
+    e = receta.entrada
+    if e.tipo == "excel" and not e.cuadricula:
+        try:
+            varias = inputs_excel.hojas_de_programacion(contenido)
+        except Exception:
+            varias = None
+        leidas = (tabla.attrs.get("hojas") or 1) + len(tabla.attrs.get("salteadas") or [])
+        if varias and leidas < varias[1]:
+            return f"leyó {leidas} de las {varias[1]} hojas que parecen programación"
+    if anterior is not None:
+        try:
+            antes = len(inputs.leer(anterior, receta.entrada))
+        except Exception:
+            antes = 0
+        if antes and len(tabla) < antes * FILAS_SOSPECHOSAS:
+            return f"salieron {len(tabla)} filas y la semana anterior tenía {antes}"
+    return None
 
 
 def _sin_horario(crudo: bytes, receta: m.Senal) -> bool:
@@ -1021,7 +1078,10 @@ def _abrir(receta: m.Senal, contenido: bytes, detectada, nombre: str, usuario: s
     nueva = _con_entrada(receta, detectada, contenido)
     if nueva.entrada.tipo == "html" and receta.entrada.tipo != "html":
         nueva = nueva.model_copy(update={"entrada": _con_epg(nueva.entrada, contenido)})
-    nueva, agente = _leer_con_agente(nueva, contenido, None, usuario)
+    anterior = semanas.contenido(receta.id)
+    nueva, agente = _leer_con_agente(nueva, contenido, None, usuario, anterior=anterior,
+                                     motivo="llegó en otro formato que la semana anterior"
+                                     if _otro_formato(anterior, detectada) else None)
     try:
         inputs.leer(contenido, nueva.entrada)
     except Exception as e:
@@ -1722,14 +1782,14 @@ def charla_asistente(p: PedidoAsistente, u: auth.Usuario = Depends(auth.usuario_
         raise HTTPException(502, str(e))
     if c.recordar:
         conversaciones.anotar(u.usuario, c.recordar)
-    uso.registrar(u.usuario, p.senal.id if p.senal else "", "[charla] " + p.pedido, 1, c.tokens_entrada,
+    uso.registrar(u.usuario, p.senal.id if p.senal else "", "[charla] " + p.pedido, c.pasos, c.tokens_entrada,
                   c.tokens_salida, True, c.modelo)
     return asdict(c)
 
 
 def _persona(u: auth.Usuario) -> asistente_ia.Persona:
     ficha = auth.perfiles().get(u.usuario, {})
-    return asistente_ia.Persona(u.usuario, ficha.get("nombre", ""), ficha.get("descripcion", ""),
+    return asistente_ia.Persona(u.usuario, u.admin, ficha.get("nombre", ""), ficha.get("descripcion", ""),
                                 [n["texto"] for n in conversaciones.notas(u.usuario)],
                                 [(s["id"], s["nombre"]) for s in almacen.listar()])
 
@@ -1753,7 +1813,9 @@ def asistente(p: PedidoAsistente, u: auth.Usuario = Depends(auth.usuario_actual)
         if objetivo is None:
             raise HTTPException(404, "No existe ese ejemplo")
         tabla = objetivo.entrada
-    elif p.tabla_id:
+    elif p.tabla_id or (abierta := semanas.leer(p.senal.id)):
+        # Sin tabla_id (una propuesta para otra señal que la de la pantalla), la de su semana abierta.
+        p.tabla_id = p.tabla_id or abierta["tabla_id"]
         tabla = _correr_tabla(p.tabla_id, p.senal)
         semana_antes = _semana_de(Pedido(tabla_id=p.tabla_id, senal=p.senal))
     else:

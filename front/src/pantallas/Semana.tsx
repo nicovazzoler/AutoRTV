@@ -282,8 +282,11 @@ export function Semana({ senalId }: { senalId: string }) {
           No encontré la fecha y la hora en la grilla{lecturaAgente ? `, y el agente tampoco: ${lecturaAgente.problemas.join(" ")}` : ""}. Así no sale la base ni se puede exportar bien. Pasame el archivo para sumar cómo se lee.
         </p>
       )}
-      {resumen.desde && lecturaAgente?.logrado && (
-        <p className="nota">El código no encontraba la fecha y la hora; el agente encontró cómo leer la grilla y quedó guardado para las próximas semanas. {lecturaAgente.explicacion}</p>
+      {resumen.desde && lecturaAgente?.logrado && !lecturaAgente.acepto && (
+        <p className="nota">El agente revisó cómo se lee la grilla ({lecturaAgente.motivo}) y la cambió; quedó guardado para las próximas semanas. {lecturaAgente.explicacion}</p>
+      )}
+      {resumen.desde && lecturaAgente?.acepto && (
+        <p className="chico tenue">El agente revisó la lectura ({lecturaAgente.motivo}) y la dejó como la leía el código.</p>
       )}
       {avisoFechas && (
         <div className="nota" role="alert" style={{ display: "flex", flexWrap: "wrap", gap: 12, alignItems: "flex-end" }}>

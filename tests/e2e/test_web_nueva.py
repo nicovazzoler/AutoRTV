@@ -237,7 +237,7 @@ def test_agente_flotante_con_contexto(servidor, tmp_path):
         agente.locator("textarea").press("Enter")
         agente.get_by_text("Pasé los títulos a mayúsculas").wait_for()
         agente.get_by_role("button", name="Aplicar", exact=True).click()
-        agente.get_by_text("(Reglas aplicadas").wait_for()
+        agente.get_by_text("(Reglas de Canal Demo aplicadas").wait_for()
 
         # En Configuración se ve la regla nueva como frase y se deshace; el agente sigue con la charla.
         pagina.get_by_role("navigation", name="Pantallas").get_by_role("link", name="Base").click()
@@ -248,6 +248,71 @@ def test_agente_flotante_con_contexto(servidor, tmp_path):
         pagina.locator("main .regla", has_text="Pasa Titulo a MAYÚSCULAS").wait_for()
         pagina.get_by_role("button", name="Deshacer el último cambio").click()
         pagina.locator("main .regla", has_text="Parte Titulo en Programa y Capitulo").wait_for()
+        navegador.close()
+
+
+def _otra_senal(pagina, servidor, tmp_path):
+    otra = {"id": "otra", "nombre": "Otra", "entrada": {"tipo": "excel"}, "tarjetas": [], "salida": {"columnas": []}}
+    assert pagina.request.put(servidor + "/api/senales/otra", data=otra).ok
+    assert pagina.request.post(servidor + "/api/senales/otra/abierta", multipart={
+        "archivo": {"name": "g.xlsx", "mimeType": "application/octet-stream", "buffer": _grilla(tmp_path).read_bytes()}}).ok
+
+
+def test_propuestas_para_dos_senales_en_una_charla_se_ven_las_dos(servidor, tmp_path):
+    import json
+    (tmp_path / "asistente.json").write_text(json.dumps([
+        {"respuesta": "Armo las dos.", "herramientas": [
+            {"nombre": "proponer_reglas", "datos": {"pedido": "títulos en mayúscula"}},
+            {"nombre": "proponer_reglas", "datos": {"senal": "otra", "pedido": "títulos en mayúscula"}}]},
+        {"explicacion": "Pasé los títulos a mayúsculas", "columnas_salida": None,
+         "tarjetas_json": json.dumps([{"id": "a1", "tipo": "mayus_minus", "columnas": ["Titulo"], "modo": "MAYUS"}])}]))
+    with playwright.sync_playwright() as p:
+        navegador, pagina = _entrar(p, servidor)
+        _con_semana(pagina, servidor, tmp_path)
+        _otra_senal(pagina, servidor, tmp_path)
+        pagina.goto(servidor + "/s/canal")
+        pagina.get_by_role("button", name="Abrir el agente").click()
+        agente = pagina.locator("aside[aria-label=Agente]")
+        agente.locator("textarea").fill("pasá los títulos a mayúscula en Canal Demo y en Otra")
+        agente.locator("textarea").press("Enter")
+        de_canal = agente.get_by_role("group", name="Propuesta para Canal Demo")
+        de_otra = agente.get_by_role("group", name="Propuesta para Otra")
+        de_otra.get_by_text("no para la señal que estás mirando").wait_for()
+        de_canal.get_by_role("button", name="Aplicar", exact=True).wait_for()
+
+        de_otra.get_by_role("button", name="Aplicar", exact=True).click()
+        agente.get_by_text("(Reglas de Otra aplicadas").wait_for()
+        assert de_canal.get_by_role("button", name="Aplicar", exact=True).is_visible()  # la otra sigue esperando
+        assert [t["tipo"] for t in pagina.request.get(servidor + "/api/senales/otra").json()["tarjetas"]] == ["mayus_minus"]
+        assert pagina.request.get(servidor + "/api/senales/canal").json()["tarjetas"][0]["tipo"] == "separar"
+        navegador.close()
+
+
+def test_el_agente_lleva_a_otra_senal_y_marca_el_cambio_que_no_es_de_la_que_se_mira(servidor, tmp_path):
+    import json
+    (tmp_path / "asistente.json").write_text(json.dumps([
+        {"respuesta": "Te llevo a Otra.", "herramientas": [{"nombre": "ir_a", "datos": {"pantalla": "semana", "senal": "otra"}}]},
+        {"respuesta": "Te dejé para confirmar la semana de Canal Demo.",
+         "herramientas": [{"nombre": "confirmar_semana", "datos": {"senal": "canal"}}]}]))
+    with playwright.sync_playwright() as p:
+        navegador, pagina = _entrar(p, servidor)
+        _con_semana(pagina, servidor, tmp_path)
+        _otra_senal(pagina, servidor, tmp_path)
+
+        pagina.goto(servidor + "/s/canal")
+        pagina.get_by_role("button", name="Abrir el agente").click()
+        agente = pagina.locator("aside[aria-label=Agente]")
+        agente.locator("textarea").fill("llevame a Otra")
+        agente.locator("textarea").press("Enter")
+        agente.get_by_text("(Ir a semana de Otra)").wait_for()
+        pagina.wait_for_url(servidor + "/s/otra")  # ir a otra pantalla no pide confirmación
+
+        agente.locator("textarea").fill("confirmá la de Canal Demo")
+        agente.locator("textarea").press("Enter")
+        agente.get_by_text("Ojo: es en Canal Demo, no en la señal que estás mirando.").wait_for()
+        agente.get_by_role("button", name="Hacerlo en Canal Demo").click()
+        agente.get_by_text("(Semana de Canal Demo confirmada.)").wait_for()
+        assert pagina.request.get(servidor + "/api/senales/canal/abierta").json()["semana"]["confirmada_por"] == "admin"
         navegador.close()
 
 

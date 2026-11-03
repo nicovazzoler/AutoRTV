@@ -220,6 +220,7 @@ cambios = Table(
     Column("columna", String(100)),
     Column("antes", JSON),
     Column("despues", JSON),
+    Column("origen", String(20)),  # "agente" si se hizo con «Hacerlo» o «Aplicar» en el agente
 )
 
 criterios_confianza = Table(
@@ -289,6 +290,7 @@ def _agregar_columnas(con: Connection) -> None:
                     "anterior_contenido": "BYTEA" if con.dialect.name == "postgresql" else "BLOB",
                     "anterior_nombre": "VARCHAR(200)", "foto": "JSON", "lunes": "DATE"},
         "tablas_subidas": {"lunes": "DATE"},
+        "cambios": {"origen": "VARCHAR(20)"},
     }
     for tabla, columnas in nuevas.items():
         existentes = {c["name"] for c in inspect(con).get_columns(tabla)}

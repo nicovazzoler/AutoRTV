@@ -1,6 +1,7 @@
 """El historial: cada corrección, aceptación, confirmación y cambio de reglas, con quién y en qué carga de la semana."""
 import datetime as dt
 from collections import Counter
+from contextvars import ContextVar
 
 from sqlalchemy import and_, desc, insert, select
 
@@ -8,6 +9,8 @@ from app import db
 
 MAX_CARGAS = 100
 TIPOS = ("corregida", "aceptada", "confirmada", "base", "reglas")
+# "agente" mientras dura un pedido que la web hizo por el agente (cabecera X-Origen): queda marcado en cada cambio.
+ORIGEN: ContextVar[str | None] = ContextVar("origen", default=None)
 
 
 def anotar(senal_id: str, usuario: str, tipo: str, filas: list[dict]) -> None:
@@ -23,7 +26,7 @@ def anotar(senal_id: str, usuario: str, tipo: str, filas: list[dict]) -> None:
             "usuario": usuario, "fecha": ahora, "senal_id": senal_id, "carga": meta.get("tabla_id"),
             "desde": resumen.get("desde"), "hasta": resumen.get("hasta"), "tipo": tipo,
             "pauta": f.get("pauta"), "programa": _texto(f.get("programa")), "columna": f.get("columna"),
-            "antes": f.get("antes"), "despues": f.get("despues")} for f in filas])
+            "antes": f.get("antes"), "despues": f.get("despues"), "origen": ORIGEN.get()} for f in filas])
 
 
 def _texto(v) -> str | None:
@@ -63,7 +66,7 @@ def detalle(senal_id: str, carga: str, usuario: str | None = None) -> list[dict]
     with db.transaccion() as con:
         filas = con.execute(select(db.cambios).where(condicion).order_by(c.fecha, c.id)).all()
     return [{"usuario": f.usuario, "fecha": f.fecha.isoformat(), "tipo": f.tipo, "pauta": f.pauta, "programa": f.programa,
-             "columna": f.columna, "antes": f.antes, "despues": f.despues} for f in filas]
+             "columna": f.columna, "antes": f.antes, "despues": f.despues, "origen": f.origen} for f in filas]
 
 
 def correcciones(senal_id: str) -> list[dict]:
