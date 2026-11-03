@@ -15,6 +15,14 @@ def leer(contenido: bytes, entrada) -> pd.DataFrame:
         tabla = cuadricula.leer(contenido, entrada.hoja, entrada.fila_dias, entrada.columnas_hora, entrada.doce_horas)
     elif entrada.tipo == "excel":
         tabla = excel.leer(io.BytesIO(contenido), entrada)
+    elif entrada.tipo == "word":
+        from app.inputs import word
+
+        tabla = word.leer(contenido, entrada)
+    elif entrada.tipo == "varios":
+        from app.inputs import varios
+
+        tabla = varios.leer(contenido, entrada)
     elif entrada.tipo == "pdf":
         tabla = pdf.leer(io.BytesIO(contenido), entrada)
     elif entrada.tipo == "xml":
@@ -64,10 +72,16 @@ def mismo_formato(a, b) -> bool:
 
 def detectar(contenido: bytes):
     """La entrada que corresponde al archivo, mirando su contenido y no la extensión."""
-    from app.inputs import cuadricula, excel, texto
+    from app.inputs import cuadricula, excel, texto, varios, word
 
+    if contenido.startswith(b"Rar!"):
+        raise ValueError("los .rar no se pueden abrir acá: comprimilo como .zip (clic derecho › Enviar a › Carpeta comprimida)")
     if contenido.startswith(b"%PDF"):
         return m.EntradaPdf(tipo="pdf")
+    if varios.es_zip_suelto(contenido):
+        return m.EntradaVarios(tipo="varios")
+    if word.es_word(contenido):
+        return m.EntradaWord(tipo="word")
     if contenido.startswith(b"PK") or contenido.startswith(b"\xd0\xcf\x11\xe0"):  # xlsx / xls
         if cuadricula.es_cuadricula(contenido):
             return m.EntradaExcel(tipo="excel", cuadricula=True)

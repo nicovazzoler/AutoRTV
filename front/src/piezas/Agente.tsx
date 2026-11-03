@@ -39,6 +39,19 @@ function guardar(clave: string, valor: string | null) {
   }
 }
 
+const PREGUNTAR = "autortv.agente-preguntar";
+const PEDIDO_SIN_EJEMPLO = "Es una señal nueva y no tiene ejemplo de cómo tiene que quedar. Mirá la grilla y preguntame lo que " +
+  "necesites para armar las reglas: qué es programa y qué capítulo, si hay temporada o número, y qué columnas van al EPG.";
+
+/** Deja pedido que el agente se abra en la semana de esa señal y pregunte lo que necesita (señal nueva sin ejemplo). */
+export function pedirAlAgente(senalId: string) {
+  try {
+    sessionStorage.setItem(PREGUNTAR, senalId);
+  } catch {
+    // Sin almacenamiento, la persona le escribe al agente.
+  }
+}
+
 const anchoInicial = () => Number(leer(ANCHO)) || Math.round(window.innerWidth / 3);
 const limitarAncho = (a: number) => Math.min(Math.max(a, 320), Math.round(window.innerWidth * 0.7));
 
@@ -84,6 +97,17 @@ export function Agente({ senalId }: { senalId: string | null }) {
   }, [hilo, acciones]);
   useEffect(() => {
     setPropuesta(null);  // la propuesta era de la señal anterior
+    let pendiente: string | null = null;
+    try {
+      pendiente = sessionStorage.getItem(PREGUNTAR);
+    } catch {
+      return;
+    }
+    if (!senalId || pendiente !== senalId) return;
+    sessionStorage.removeItem(PREGUNTAR);
+    plegar(false);
+    elegirChat(null);
+    void enviar(PEDIDO_SIN_EJEMPLO);
   }, [senalId]);
 
   const plegar = (si: boolean) => {
@@ -168,13 +192,13 @@ export function Agente({ senalId }: { senalId: string | null }) {
     refrescarLimites();
   };
 
-  const enviar = async () => {
-    const pedido = escrito.trim();
+  const enviar = async (fijo?: string) => {
+    const pedido = (fijo ?? escrito).trim();
     if (!pedido) {
       setError("Escribí qué querés que haga el agente");
       return;
     }
-    const previo = hilo;
+    const previo = fijo ? [] : hilo;  // el pedido fijo arranca un chat nuevo
     setError("");
     setEscrito("");
     decir({ rol: "persona", texto: pedido });

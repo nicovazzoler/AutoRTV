@@ -13,8 +13,8 @@ import pandas as pd
 from fastapi import APIRouter, Cookie, Depends, Header, File, Form, HTTPException, Query, Response, UploadFile
 from pydantic import BaseModel, TypeAdapter, ValidationError
 
-from app import (acciones, almacen, armados, auth, catalogo, conversaciones, corridas, export, inputs, parecidas, pautas,
-                 semana, semanas, tablas)
+from app import (acciones, almacen, armados, auth, catalogo, conversaciones, corridas, export, fechar, inputs, parecidas,
+                 pautas, semana, semanas, tablas, web)
 from app.agent import asistente as asistente_ia
 from app.agent import banco, cliente, controles, lectura, uso
 from app.agent import parecidas as parecidas_ia
@@ -24,6 +24,7 @@ from app.engine.comparar import diferencias, porcentaje_igual, sugerir_correccio
 from app.engine.pipeline import DE_ESTRUCTURA, aplicar, armar_salida, correr
 from app.engine.tarjetas.estructura import a_fecha, a_hora
 from app.inputs import epg as epg_crudo
+from app.inputs import varios as inputs_varios
 from app.validate import grilla
 
 publico = APIRouter(prefix="/api")
@@ -575,18 +576,21 @@ def borrar_ejemplo(senal_id: str, nombre: str):
 
 
 @api.post("/senales/crear")
-async def crear_senal(nombre: str = Form(""), grilla_cruda: UploadFile = File(...), ejemplo: UploadFile = File(...),
+async def crear_senal(nombre: str = Form(""), grilla_cruda: UploadFile = File(...), ejemplo: UploadFile | None = File(None),
                       agregar_a: str | None = Form(None), confirmar: bool = Form(False),
                       u: auth.Usuario = Depends(auth.usuario_actual)):
-    """Crea una señal a partir de la grilla como viene y el EPG terminado (macro hecha).
+    """Crea una señal a partir de la grilla como viene y el EPG terminado (macro hecha), si lo hay.
 
-    Si ya hay señales con un nombre igual o parecido responde 409 con la lista, para que la persona
+    Sin ejemplo, la grilla queda como semana abierta y el agente pregunta lo que necesita. Si ya hay señales con un nombre igual o parecido responde 409 con la lista, para que la persona
     confirme (`confirmar`) o sume el par como ejemplo de una de ellas (`agregar_a`).
     """
     nombre = " ".join(nombre.split())
     if not agregar_a and not nombre:
         raise HTTPException(422, "Escribí el nombre de la señal")
-    crudo, terminado = await _leer_archivo(grilla_cruda), await _leer_archivo(ejemplo)
+    crudo = await _leer_archivo(grilla_cruda)
+    terminado = await _leer_archivo(ejemplo) if ejemplo else None
+    if terminado is None and agregar_a:
+        raise HTTPException(422, "Para sumar un ejemplo a una señal hace falta el EPG terminado")
     senal_id = agregar_a or _slug(nombre)
     sello = dt.datetime.now().strftime("ejemplo-%Y%m%d-%H%M%S")
     try:
@@ -605,13 +609,14 @@ async def crear_senal(nombre: str = Form(""), grilla_cruda: UploadFile = File(..
         existentes, base, n = set(almacen.listar_ejemplos(senal_id)), sello, 2
         while sello in existentes:  # dos ejemplos subidos en el mismo segundo
             sello, n = f"{base}-{n}", n + 1
-        almacen.guardar_ejemplo(senal_id, sello, crudo, terminado, u.usuario)
+        if terminado is not None:
+            almacen.guardar_ejemplo(senal_id, sello, crudo, terminado, u.usuario)
     except almacen.NoExiste:
         raise HTTPException(404, "No existe la señal")
     except ValueError as e:
         raise HTTPException(422, str(e))
     try:
-        esperado = pd.read_excel(io.BytesIO(terminado), dtype=object)
+        esperado = pd.read_excel(io.BytesIO(terminado), dtype=object) if terminado else None
     except Exception:
         esperado = None
     leida, agente = _leer_con_agente(receta, crudo, esperado, u.usuario)
@@ -619,11 +624,12 @@ async def crear_senal(nombre: str = Form(""), grilla_cruda: UploadFile = File(..
         almacen.guardar(leida, "agente")
         receta = leida
     tabla_id = tablas.subir(crudo)
-    resultado = {"id": senal_id, "nombre": receta.nombre, "ejemplo": sello, "tabla_id": tabla_id,
-                 "pautas": _cargar_pautas(senal_id, crudo, terminado, u.usuario), "semana_abierta": False,
+    resultado = {"id": senal_id, "nombre": receta.nombre, "ejemplo": sello if terminado else None, "tabla_id": tabla_id,
+                 "pautas": _cargar_pautas(senal_id, crudo, terminado, u.usuario) if terminado else None,
+                 "semana_abierta": False, "sin_ejemplo": terminado is None,
                  "aviso": _aviso_sin_horario(agente) if _sin_horario(crudo, receta) else None,
                  "lectura_agente": agente}
-    if not agregar_a and _es_de_ahora(terminado, receta):
+    if not agregar_a and (terminado is None or _es_de_ahora(terminado, receta)):
         semanas.abrir(senal_id, tabla_id, crudo, grilla_cruda.filename or "grilla", u.usuario, es_version=False)
         resultado["semana_abierta"] = True
     resultado["armando_reglas"] = _armar_si_no_tiene(senal_id, u.usuario)
@@ -644,6 +650,11 @@ def _leer_con_agente(receta: m.Senal, contenido: bytes, esperado: pd.DataFrame |
     """
     if not _sin_horario(contenido, receta):
         return receta, None
+    try:
+        if fechar.columna_de_dia(inputs.leer(contenido, receta.entrada)) is not None:
+            return receta, None  # semanal con días y sin fechas: se arregla eligiendo el lunes, no con otra lectura
+    except Exception:
+        pass
     proveedor = cliente.proveedor_configurado()
     if proveedor is None:
         return receta, {"logrado": False, "problemas": ["El agente no está configurado (falta ANTHROPIC_API_KEY)."]}
@@ -936,8 +947,10 @@ def _abrir(receta: m.Senal, contenido: bytes, detectada, nombre: str, usuario: s
     if nueva is not receta:
         almacen.guardar(nueva, usuario)
     semanas.abrir(receta.id, tabla_id, contenido, nombre, usuario, version)
-    return {**_semana_abierta(receta.id, nueva), "armando_reglas": _armar_si_no_tiene(receta.id, usuario),
-            "lectura_agente": agente}
+    abierta = _semana_abierta(receta.id, nueva)
+    aviso = fechar.aviso(inputs.leer(contenido, nueva.entrada), fechas["desde"], fechas["hasta"])
+    return {**abierta, "armando_reglas": _armar_si_no_tiene(receta.id, usuario), "lectura_agente": agente,
+            "aviso_fechas": aviso}
 
 
 def _fechas(salida: pd.DataFrame, receta: m.Senal) -> dict:
@@ -1107,10 +1120,54 @@ def ver_semana_abierta(senal_id: str):
 
 
 @api.post("/senales/{senal_id}/abierta")
-async def abrir_semana(senal_id: str, archivo: UploadFile = File(...), u: auth.Usuario = Depends(auth.usuario_actual)):
+async def abrir_semana(senal_id: str, archivo: UploadFile | None = File(None), archivos: list[UploadFile] | None = File(None),
+                       u: auth.Usuario = Depends(auth.usuario_actual)):
+    """La grilla de la semana: un archivo, o varios que se leen juntos como una sola semana."""
     receta = _receta(senal_id)
-    contenido = await _leer_archivo(archivo)
-    return _abrir(receta, contenido, _detectar(contenido), archivo.filename or "grilla", u.usuario)
+    subidos = [archivo] if archivo else (archivos or [])
+    if not subidos:
+        raise HTTPException(422, "Subí la grilla")
+    if len(subidos) == 1:
+        contenido, nombre = await _leer_archivo(subidos[0]), subidos[0].filename or "grilla"
+    else:
+        contenido = inputs_varios.empaquetar([(a.filename or "archivo", await _leer_archivo(a)) for a in subidos])
+        nombre = f"{len(subidos)} archivos ({', '.join(a.filename or '' for a in subidos)})"[:200]
+    return _abrir(receta, contenido, _detectar(contenido), nombre, u.usuario)
+
+
+class Link(BaseModel):
+    url: str
+
+
+@api.post("/senales/{senal_id}/abierta/url")
+def abrir_semana_url(senal_id: str, datos: Link, u: auth.Usuario = Depends(auth.usuario_actual)):
+    """La página de la señal bajada desde su link; el link queda en la señal para la semana siguiente."""
+    receta = _receta(senal_id)
+    try:
+        contenido = web.bajar(datos.url)
+    except web.NoSePudo as e:
+        raise HTTPException(422, str(e))
+    detectada = _detectar(contenido)
+    if detectada.tipo == "html":
+        detectada = detectada.model_copy(update={"url": datos.url.strip()})
+        if receta.entrada.tipo == "html" and receta.entrada.url != detectada.url:
+            receta = receta.model_copy(update={"entrada": receta.entrada.model_copy(update={"url": detectada.url})})
+            almacen.guardar(receta, u.usuario)
+    return _abrir(receta, contenido, detectada, datos.url.strip()[:200], u.usuario)
+
+
+class Lunes(BaseModel):
+    lunes: dt.date | None  # None = las fechas como vinieron
+
+
+@api.post("/senales/{senal_id}/abierta/fechar")
+def fechar_abierta(senal_id: str, datos: Lunes):
+    """Pasa la semana abierta (semanal sin fechas, o con fechas viejas) a la semana de ese lunes."""
+    receta = _receta(senal_id)
+    if semanas.leer(senal_id) is None:
+        raise HTTPException(404, "Esta señal no tiene una semana abierta: subí la grilla")
+    semanas.fijar_lunes(senal_id, datos.lunes)
+    return _semana_abierta(senal_id, receta)
 
 
 @api.post("/senales/{senal_id}/abierta/texto")

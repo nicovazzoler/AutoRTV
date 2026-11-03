@@ -72,6 +72,15 @@ export interface SemanaAbierta {
   campos_clave?: string[];
   armando_reglas?: boolean;
   lectura_agente?: LecturaAgente | null;
+  aviso_fechas?: AvisoFechas | null;
+}
+
+/** Una grilla semanal sin fechas, o con fechas viejas: la persona elige desde qué lunes va. */
+export interface AvisoFechas {
+  tipo: "sin_fechas" | "viejas";
+  desde: string | null;
+  hasta: string | null;
+  sugerido: string;
 }
 
 /** Qué hizo el agente cuando el código no encontró fecha y hora en la grilla. */
