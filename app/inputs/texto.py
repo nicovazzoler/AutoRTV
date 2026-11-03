@@ -60,7 +60,7 @@ def _por_lineas(lineas: list[str], entrada: m.EntradaTexto) -> pd.DataFrame:
     """Las líneas de día ("Lunes 2/11") ponen la fecha de las que siguen; las sueltas se suman al detalle."""
     inicio = dt.date.fromisoformat(entrada.fecha_inicio) if entrada.fecha_inicio else None
     anio = inicio.year if inicio else dt.date.today().year
-    fecha, filas, previa = inicio, [], None
+    fecha, filas, previa, nombre_dia = inicio, [], None, None
     for linea in lineas:
         g = LINEA_CON_HORA.match(linea)
         if g:
@@ -68,7 +68,7 @@ def _por_lineas(lineas: list[str], entrada: m.EntradaTexto) -> pd.DataFrame:
             if previa is not None and fecha is not None and hora < previa:
                 fecha += dt.timedelta(days=1)  # pasó la medianoche
             filas.append({"Fecha": dt.datetime.combine(fecha, dt.time(0)) if fecha else None,
-                          "Hora": hora, "Programa": g[3].strip() or None, "Detalle": None})
+                          "Dia": nombre_dia, "Hora": hora, "Programa": g[3].strip() or None, "Detalle": None})
             previa = hora
             continue
         nueva = fecha_de(linea, anio)
@@ -78,6 +78,7 @@ def _por_lineas(lineas: list[str], entrada: m.EntradaTexto) -> pd.DataFrame:
                 fecha = nueva
             elif inicio:
                 fecha = inicio + dt.timedelta(days=(dia - inicio.weekday()) % 7)
+            nombre_dia = linea.strip() if dia is not None else None
             previa = None
             continue
         if filas:
@@ -85,5 +86,9 @@ def _por_lineas(lineas: list[str], entrada: m.EntradaTexto) -> pd.DataFrame:
             filas[-1]["Detalle"] = f"{anterior} {linea.strip()}" if anterior else linea.strip()
     if not filas:
         raise ValueError("No encontré líneas que empiecen con una hora (06:00 Programa)")
-    return pd.DataFrame(filas).astype(object)
+    tabla = pd.DataFrame(filas).astype(object)
+    # Sin fechas, el nombre del día queda para armar la semana desde el lunes que se elija (app/fechar.py).
+    if tabla["Fecha"].notna().any() or tabla["Dia"].isna().all():
+        tabla = tabla.drop(columns="Dia")
+    return tabla
 

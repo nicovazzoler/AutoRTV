@@ -45,12 +45,13 @@ def test_propuesta_invalida_se_corrige_en_la_segunda_vuelta():
     assert proveedor.modelos == ["claude-haiku-5-5", "claude-haiku-5-5"]
 
 
-def test_lectura_que_no_trae_horario_vuelve_con_el_problema():
+def test_lectura_que_no_trae_horario_vuelve_con_el_problema_y_lo_que_salio():
     como_tabla_comun = {"tipo": "excel", "fila_encabezado": 2}
     proveedor = cliente.Grabado([_respuesta(como_tabla_comun)])
     p = lectura.proponer(_por_programa(), proveedor, "claude-haiku-5-5", _ejemplo())
     assert not p.logrado and p.vueltas == lectura.MAX_VUELTAS
     assert any("fecha y hora" in x for x in p.problemas)
+    assert "Así salieron las primeras filas" in proveedor.pedidos[1][-1]["content"]  # ve lo que leyó, no solo el %
 
 
 def test_el_control_tolera_la_zona_horaria_y_cuenta_solo_los_dias_de_la_grilla():
@@ -127,7 +128,7 @@ def test_el_aviso_queda_solo_si_el_agente_tampoco_las_encuentra(cliente, monkeyp
     _senal(cliente)
     d = cliente.post("/api/senales/canal/abierta", files={"archivo": ("g.xlsx", _cuadricula_escondida())}).json()
     assert not d["lectura_agente"]["logrado"] and "fecha y hora" in " ".join(d["lectura_agente"]["problemas"])
-    assert proveedor.modelos == [cliente_mod.MODELO] * 2 + [cliente_mod.MODELO_FUERTE] * 2  # Haiku y después Sonnet
+    assert proveedor.modelos == [cliente_mod.MODELO] * 3 + [cliente_mod.MODELO_FUERTE] * 3  # Haiku y después Sonnet
 
 
 def test_al_crear_la_senal_el_agente_lee_la_grilla_antes_de_cargar_la_base(cliente, monkeypatch):

@@ -15,7 +15,8 @@ from app.agent import cliente, controles
 from app.agent.cliente import Proveedor
 from app.engine import model as m
 
-MAX_VUELTAS = 2
+MAX_VUELTAS = 3
+FILAS_MUESTRA = 8
 FILAS_VISTA = 40
 COLUMNAS_VISTA = 15
 MAX_TEXTO = 6000
@@ -64,20 +65,27 @@ def _celda(v) -> str:
     return " ".join(str(v).split())[:80]
 
 
-def _vista_excel(contenido: bytes) -> str:
+def _vista_hoja(contenido: bytes, hoja, filas_max: int) -> str:
     from app.inputs import cuadricula
 
-    celdas, combinadas = cuadricula._celdas(contenido, 0)
+    celdas, combinadas = cuadricula._celdas(contenido, hoja)
     filas = []
-    for r, fila in enumerate(celdas[:FILAS_VISTA]):
+    for r, fila in enumerate(celdas[:filas_max]):
         valores = [f"{_letra(c)}={_celda(v)}" for c, v in enumerate(fila[:COLUMNAS_VISTA]) if v not in (None, "")]
         if valores:
             filas.append(f"Fila {r + 1}: " + " | ".join(valores))
-    rangos = [f"{_letra(c0)}{r0 + 1}:{_letra(c1 - 1)}{r1}" for r0, r1, c0, c1 in combinadas if r0 < FILAS_VISTA]
+    rangos = [f"{_letra(c0)}{r0 + 1}:{_letra(c1 - 1)}{r1}" for r0, r1, c0, c1 in combinadas if r0 < filas_max]
+    return "\n".join(filas) + "\nCeldas combinadas: " + (", ".join(rangos[:120]) or "ninguna")
+
+
+def _vista_excel(contenido: bytes) -> str:
+    """La primera hoja y, si hay varias, la última: suelen diferir en lo que rompe (fechas, portadas, totales)."""
     hojas = pd.ExcelFile(io.BytesIO(contenido)).sheet_names
-    return (f"Excel con {len(hojas)} hojas: {', '.join(hojas[:40])}.\n"
-            "Primera hoja. Celdas con valor (columna=valor):\n" + "\n".join(filas)
-            + "\n\nCeldas combinadas: " + (", ".join(rangos[:120]) or "ninguna"))
+    vista = (f"Excel con {len(hojas)} hojas: {', '.join(hojas[:60])}.\n"
+             f"Hoja 0 ({hojas[0]}). Celdas con valor (columna=valor):\n" + _vista_hoja(contenido, 0, FILAS_VISTA))
+    if len(hojas) > 1:
+        vista += f"\n\nÚltima hoja ({hojas[-1]}), comienzo:\n" + _vista_hoja(contenido, len(hojas) - 1, FILAS_VISTA // 2)
+    return vista
 
 
 def _vista_pdf(contenido: bytes) -> str:
@@ -131,7 +139,14 @@ def _probar(contenido: bytes, datos: dict | None, esperado: pd.DataFrame | None)
     except Exception as e:
         return entrada.model_dump(exclude_defaults=True), None, [f"El lector falló con esa configuración: {e}"]
     medida = controles.lectura(tabla, esperado)
-    return entrada.model_dump(exclude_defaults=True), medida, controles.problemas_de_lectura(medida)
+    problemas = controles.problemas_de_lectura(medida)
+    if problemas:
+        # Con el % solo no se sabe qué corregir: el agente ve lo que salió de verdad con su configuración.
+        problemas.append(f"Así salieron las primeras filas ({len(tabla)} en total, columnas {list(map(str, tabla.columns))}):\n"
+                         + tabla.head(FILAS_MUESTRA).to_string(max_colwidth=40)[:2500])
+        if salteadas := tabla.attrs.get("salteadas"):
+            problemas.append("Hojas que no se pudieron leer y se saltearon: " + "; ".join(salteadas)[:800])
+    return entrada.model_dump(exclude_defaults=True), medida, problemas
 
 
 def proponer(contenido: bytes, proveedor: Proveedor, modelo: str, esperado: pd.DataFrame | None = None,

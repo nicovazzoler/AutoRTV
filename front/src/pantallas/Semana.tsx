@@ -6,6 +6,7 @@ import { CeldaEditable } from "../piezas/CeldaEditable";
 import { Enlace } from "../piezas/Enlace";
 import { TablaGrilla, type Filtro } from "../piezas/TablaGrilla";
 import { Subir } from "./Subir";
+import { pedirAgente } from "../piezas/Agente";
 import { MotivosAgrupados } from "../piezas/MotivosAgrupados";
 import { Recorrido, type Parecida } from "../piezas/Recorrido";
 import { cumple, FilaFiltros, type Filtros } from "../piezas/FiltrosColumna";
@@ -39,6 +40,11 @@ function fraseCambioVersion(c: CambioVersion, programa: string | null | undefine
   const delEpg = campos.filter((k) => !crudas.includes(k));
   const mostrar = (delEpg.length ? delEpg : campos).sort((a, b) => Number(b === programa) - Number(a === programa));
   return mostrar.map((k) => `${k === programa ? "" : `${k}: `}${c.antes?.[k] || "(vacío)"} → ${c.ahora?.[k] || "(vacío)"}`).join(" · ");
+}
+
+function pedidoHorario(faltan: string[]): string {
+  return `A esta semana le falta ${faltan.join(", ")} en el EPG. Mirá la grilla y armá las reglas para que salgan ` +
+    "(por ejemplo, la duración hasta el programa siguiente), sin tocar lo que ya está bien.";
 }
 
 const VISTAS: { id: Filtro; nombre: string }[] = [
@@ -90,6 +96,8 @@ export function Semana({ senalId }: { senalId: string }) {
     setAvisoFechas(d.aviso_fechas ?? null);
     setLunes(d.aviso_fechas?.sugerido ?? "");
     if (d.armando_reglas) void esperarReglas();
+    // Una señal sin reglas a la que le falta fecha, hora o duración: el agente se abre y propone (se aplica con su ok).
+    else if (d.sin_reglas && d.faltan_horario?.length && d.semana && !d.aviso_fechas) pedirAgente(pedidoHorario(d.faltan_horario));
   };
 
   const rearmarReglas = async () => {
@@ -263,6 +271,12 @@ export function Semana({ senalId }: { senalId: string }) {
         </div>
       </header>
 
+      {!!datos.faltan_horario?.length && resumen.desde && armado !== "armando" && (
+        <p className="nota">
+          Al EPG le falta {datos.faltan_horario.join(", ")}: las tienen que armar las reglas.{" "}
+          <button type="button" className="boton chico" onClick={() => pedirAgente(pedidoHorario(datos.faltan_horario ?? []))}>Que lo arme el agente</button>
+        </p>
+      )}
       {!resumen.desde && !avisoFechas && (
         <p className="error" role="alert">
           No encontré la fecha y la hora en la grilla{lecturaAgente ? `, y el agente tampoco: ${lecturaAgente.problemas.join(" ")}` : ""}. Así no sale la base ni se puede exportar bien. Pasame el archivo para sumar cómo se lee.

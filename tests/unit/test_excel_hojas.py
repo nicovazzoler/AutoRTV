@@ -98,3 +98,37 @@ def test_una_senal_que_leia_una_hoja_pasa_a_leerlas_todas(cliente):
 def test_el_ejemplo_de_varias_hojas_carga_la_base_de_todas():
     entrada = asistente.m.EntradaExcel(tipo="excel", fila_encabezado=3)
     assert len(inputs.leer_ejemplo(_libro(), entrada)) == 9
+
+
+def _con_fecha_imposible_y_hoja_rota() -> bytes:
+    from openpyxl import load_workbook
+    wb = load_workbook(io.BytesIO(_libro()))
+    wb.worksheets[2]["D4"] = "31 SEPTIEMBRE"  # no existe: es el viernes 2/10
+    rota = wb.copy_worksheet(wb.worksheets[0])
+    rota.title = "Rota"
+    rota["A7"] = "a confirmar"  # una hora que es texto: la hoja no se puede leer
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
+def test_una_fecha_que_no_existe_es_el_dia_siguiente_y_una_hoja_rota_se_saltea():
+    contenido = _con_fecha_imposible_y_hoja_rota()
+    tabla = inputs.leer(contenido, inputs.detectar(contenido))
+    assert tabla.attrs["hojas"] == 3 and tabla.attrs["salteadas"][0].startswith("Rota")
+    assert [f.date() for f in tabla["Fecha"]][6:] == [dt.date(2026, 10, 2)] * 2 + [dt.date(2026, 10, 3)]
+
+
+def test_el_agente_puede_elegir_o_saltear_hojas():
+    contenido = _libro()
+    solo_una = inputs.leer(contenido, inputs.m.EntradaExcel(tipo="excel", fila_encabezado=3, hojas=["Día 2"]))
+    assert len(solo_una) == 3 and solo_una["Fecha"].iloc[0].date() == dt.date(2026, 10, 1)
+    sin_una = inputs.leer(contenido, inputs.m.EntradaExcel(tipo="excel", fila_encabezado=3, todas_las_hojas=True,
+                                                           saltear_hojas=["Día 1"]))
+    assert len(sin_una) == 6
+
+
+def test_texto_con_dias_sin_fecha_trae_la_columna_dia():
+    from app.engine import model as m
+    tabla = inputs.leer("LUNES\n06:00 Noticias\nMARTES\n06:00 Cine".encode(), m.EntradaTexto(tipo="texto"))
+    assert tabla["Dia"].tolist() == ["LUNES", "MARTES"] and tabla["Fecha"].isna().all()

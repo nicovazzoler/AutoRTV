@@ -202,6 +202,8 @@ class EntradaExcel(EntradaComun):
     fila_encabezado: int = 1  # 1 = primera fila del Excel
     cuadricula: bool = False  # un día por columna y una franja por fila, con celdas combinadas (inputs.cuadricula)
     todas_las_hojas: bool = False  # una hoja por día (o por semana), todas con el mismo encabezado
+    hojas: list[int | str] = []  # las hojas que se leen, por número (0 = la primera) o nombre; vacío = según lo de arriba
+    saltear_hojas: list[str] = []  # hojas que no son programación (portada, notas) o que vienen rotas
     # Filas sueltas con la fecha ("MIÉRCOLES 30 SEPTIEMBRE 2026") que valen para las de abajo. None = detectar.
     filas_de_fecha: bool | None = None
     # Solo en cuadrícula, para cuando la detección sola no alcanza; None o vacío = detectar.
@@ -252,6 +254,7 @@ class EntradaVarios(EntradaComun):
     """Varios archivos de la misma semana (subidos juntos o en un .zip), uno abajo del otro."""
     tipo: Literal["varios"]
     cada_uno: "Entrada | None" = None  # cómo leer cada archivo; None = cada uno con su formato
+    saltear: list[str] = []  # archivos del zip que no son programación
 
 
 Entrada = Annotated[Union[EntradaExcel, EntradaTexto, EntradaXml, EntradaPdf, EntradaHtml, EntradaWord, EntradaVarios],

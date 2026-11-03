@@ -41,8 +41,9 @@ export function Nueva({ enPanel = false, alCerrar }: { enPanel?: boolean; alCerr
   const { refrescarSenales } = useSesion();
   // El agente abre "Agregar señal" con el nombre ya escrito (/nueva?nombre=…).
   const [nombre, setNombre] = useState(() => new URLSearchParams(location.search).get("nombre") ?? "");
-  const [forma, setForma] = useState<"archivo" | "pegar">("archivo");
-  const [cruda, setCruda] = useState<File | null>(null);
+  const [forma, setForma] = useState<"archivo" | "pegar" | "link">("archivo");
+  const [crudas, setCrudas] = useState<File[]>([]);
+  const [link, setLink] = useState("");
   const [pegada, setPegada] = useState("");
   const [ejemplo, setEjemplo] = useState<File | null>(null);
   const [creando, setCreando] = useState(false);
@@ -64,8 +65,15 @@ export function Nueva({ enPanel = false, alCerrar }: { enPanel?: boolean; alCerr
     return () => clearTimeout(espera);
   }, [nombre, creada]);
 
-  const grillaCruda = () => cruda ?? new File([pegada], pegada.trimStart().startsWith("<") ? "grilla.html" : "grilla.txt");
-  const listo = nombre.trim() && (forma === "archivo" ? !!cruda : !!pegada.trim());
+  const listo = nombre.trim() && (forma === "archivo" ? crudas.length > 0 : forma === "pegar" ? !!pegada.trim() : !!link.trim());
+
+  // La grilla como vino: un archivo, varios (o un zip) que se leen como una semana, el texto pegado o el link.
+  const sumarGrilla = (datos: FormData) => {
+    if (forma === "link") datos.append("url", link.trim());
+    else if (forma === "pegar") datos.append("grilla_cruda", new File([pegada], pegada.trimStart().startsWith("<") ? "grilla.html" : "grilla.txt"));
+    else if (crudas.length === 1) datos.append("grilla_cruda", crudas[0]);
+    else crudas.forEach((f) => datos.append("grillas", f));
+  };
 
   // Las reglas las arma el servidor solo al crear la señal; acá se espera el resultado (o se pide de nuevo).
   const armarReglas = async (c: Creada, otraVez = false) => {
@@ -90,7 +98,7 @@ export function Nueva({ enPanel = false, alCerrar }: { enPanel?: boolean; alCerr
     setError("");
     const datos = new FormData();
     datos.append("nombre", nombre.trim());
-    datos.append("grilla_cruda", grillaCruda());
+    sumarGrilla(datos);
     if (ejemplo) datos.append("ejemplo", ejemplo);
     for (const [k, v] of Object.entries(extra)) datos.append(k, v);
     try {
@@ -171,13 +179,19 @@ export function Nueva({ enPanel = false, alCerrar }: { enPanel?: boolean; alCerr
                 <div className="botones" role="group" aria-label="Cómo la traés" style={{ gap: 6 }}>
                   <button type="button" className="boton chico" aria-pressed={forma === "archivo"} onClick={() => setForma("archivo")}>Archivo</button>
                   <button type="button" className="boton chico" aria-pressed={forma === "pegar"} onClick={() => setForma("pegar")}>Pegar texto o HTML</button>
+                  <button type="button" className="boton chico" aria-pressed={forma === "link"} onClick={() => setForma("link")}>Link de la página</button>
                 </div>
-                {forma === "archivo" ? (
-                  <ZonaArchivo chica archivo={cruda} alElegir={setCruda} deshabilitada={!!creada} etiqueta="Grilla como vino"
-                    ayuda="Excel, PDF, XML, HTML guardado o .txt" />
-                ) : (
+                {forma === "archivo" && (
+                  <ZonaArchivo chica archivo={null} alElegir={() => {}} varios={crudas} alElegirVarios={setCrudas} deshabilitada={!!creada}
+                    etiqueta="Grilla como vino" ayuda="Excel, PDF, Word, XML, HTML, .txt o un .zip · si viene en varios archivos, soltalos juntos" />
+                )}
+                {forma === "pegar" && (
                   <textarea className="entrada" rows={4} value={pegada} onChange={(e) => setPegada(e.target.value)} disabled={!!creada}
                     aria-label="Texto o HTML de la grilla" placeholder="Pegá el texto o el HTML de la página, directo" style={{ minHeight: 100, fontSize: 12 }} />
+                )}
+                {forma === "link" && (
+                  <input className="entrada" type="url" value={link} onChange={(e) => setLink(e.target.value)} disabled={!!creada}
+                    aria-label="Link de la página de la señal" placeholder="https://…/programacion" />
                 )}
               </div>
               <div className="caja-archivo">
