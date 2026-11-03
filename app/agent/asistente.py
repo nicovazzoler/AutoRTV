@@ -91,14 +91,17 @@ class Charla:
     tokens_entrada: int = 0
     tokens_salida: int = 0
     modelo: str = ""
-    acciones: list[dict] = field(default_factory=list)  # lo que la web puede hacer por la persona, con su ok
+    acciones: list[dict] = field(default_factory=list)  # nivel "pagina" las hace la web; "cambio", con «Hacerlo»
     recordar: str = ""  # algo de la persona que el agente quiere guardar para la próxima
+    propuestas: list[dict] = field(default_factory=list)  # {senal, pedido} para el agente de reglas
+    pasos: int = 0
 
 
 @dataclass
 class Persona:
     """Lo que el agente sabe de quien le escribe: su ficha, sus notas y las señales que hay."""
     usuario: str
+    admin: bool = False
     nombre: str = ""
     descripcion: str = ""
     notas: list[str] = field(default_factory=list)
@@ -127,14 +130,20 @@ def _persona(p: Persona) -> list[str]:
     return partes
 
 
+MAX_PASOS = 6
+
+
 def charlar(receta: m.Senal | None, tabla: pd.DataFrame | None, historial: list[dict], mensaje: str,
             proveedor: Proveedor, persona: Persona | None = None) -> Charla:
-    """Respuesta rápida. Si el mensaje pide cambiar reglas o columnas, avisa que hay que armar una propuesta."""
+    """La charla con herramientas: mira lo que necesite de cualquier señal y deja lo que se hace en `acciones`."""
+    from app.agent import herramientas
+
     partes = _persona(persona) if persona else []
     if receta is None:
-        partes.append("(La persona no tiene ninguna señal abierta.)")
+        partes.append("## Señal activa\nNinguna: la persona no tiene una señal abierta.")
     else:
-        partes += [f"## Señal abierta: {receta.id} ({receta.nombre}). Receta actual (tarjetas en orden)",
+        partes += [f"## Señal activa (la que la persona está mirando): {receta.id} ({receta.nombre}). "
+                   "Receta actual (tarjetas en orden)",
                    json.dumps([t.model_dump(exclude_none=True) for t in receta.tarjetas], ensure_ascii=False)]
     if tabla is not None and receta is not None:
         salida, informes = correr(receta, tabla)
@@ -144,31 +153,39 @@ def charlar(receta: m.Senal | None, tabla: pd.DataFrame | None, historial: list[
         if errores:
             partes += ["## Tarjetas con error", "\n".join(errores)]
     else:
-        partes.append("(No hay grilla subida.)")
+        partes.append("(No hay grilla subida en la señal activa.)")
     partes += _conversacion(historial) + ["## Mensaje nuevo", mensaje]
-    r = proveedor.charlar(sistema_charla(), [{"role": "user", "content": "\n\n".join(partes)}])
-    if r.rechazo:
-        return Charla(f"No puedo responder eso ({r.rechazo}).", False, r.tokens_entrada, r.tokens_salida, r.modelo)
-    datos = r.datos if isinstance(r.datos, dict) else {}
-    validas = {i for i, _ in (persona.senales if persona else [])}
-    acciones = [a for a in datos.get("acciones") or [] if _accion_valida(a, validas)]
-    return Charla(str(datos.get("respuesta", "")), bool(datos.get("proponer_cambios", not datos)) and receta is not None,
-                  r.tokens_entrada, r.tokens_salida, r.modelo, acciones, str(datos.get("recordar") or "").strip())
 
-
-PANTALLAS = {"inicio", "semana", "base", "configuracion", "administrar"}
-
-
-def _accion_valida(a, senales: set[str]) -> bool:
-    """Las acciones que la web sabe hacer, sobre señales que existen: lo demás se descarta."""
-    if not isinstance(a, dict):
-        return False
-    tipo, senal = a.get("tipo"), a.get("senal") or ""
-    if tipo == "ir_a":
-        return a.get("pantalla") in PANTALLAS and (a.get("pantalla") in ("inicio", "administrar") or senal in senales)
-    if tipo == "nueva_senal":
-        return bool(str(a.get("nombre") or "").strip())
-    return tipo == "armar_reglas" and senal in senales
+    estado = herramientas.Estado(persona.usuario if persona else "", persona.admin if persona else False,
+                                 receta.id if receta else None, dict(persona.senales) if persona else {})
+    if receta is not None:
+        estado.senales.setdefault(receta.id, receta.nombre)
+    mensajes = [{"role": "user", "content": "\n\n".join(partes)}]
+    charla = Charla("", False)
+    for paso in range(1, MAX_PASOS + 1):
+        r = proveedor.con_herramientas(sistema_charla(), mensajes, herramientas.DEFINICIONES)
+        charla.pasos = paso
+        charla.tokens_entrada += r.tokens_entrada
+        charla.tokens_salida += r.tokens_salida
+        charla.modelo = r.modelo or charla.modelo
+        if r.rechazo:
+            charla.respuesta = f"No puedo responder eso ({r.rechazo})."
+            break
+        usos = [b for b in r.bloques if b.get("type") == "tool_use"]
+        if r.parar != "tool_use" or not usos:
+            charla.respuesta = r.texto
+            break
+        mensajes += [{"role": "assistant", "content": r.bloques},
+                     {"role": "user", "content": [
+                         {"type": "tool_result", "tool_use_id": b["id"], "content": estado.usar(b["name"], b.get("input") or {})}
+                         for b in usos]}]
+    else:
+        charla.respuesta = "Me quedé sin pasos para terminar: decime por dónde sigo."
+    for p in estado.propuestas:
+        p["pedido"] = p["pedido"] or mensaje
+    charla.acciones, charla.propuestas, charla.recordar = estado.acciones, estado.propuestas, estado.recordar.strip()
+    charla.proponer_cambios = any(p["senal"] == estado.activa for p in estado.propuestas)
+    return charla
 
 
 def _conversacion(historial: list[dict]) -> list[str]:

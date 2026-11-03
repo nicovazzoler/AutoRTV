@@ -213,6 +213,19 @@ def guardar_mensaje(datos: MensajeNuevo, u: auth.Usuario = Depends(auth.usuario_
     return {"conversacion_id": cid}
 
 
+class Hecho(BaseModel):
+    senal: str = ""
+    descripcion: str
+
+
+@api.post("/agente/hecho")
+def hecho_por_el_agente(datos: Hecho, u: auth.Usuario = Depends(auth.usuario_actual)):
+    """La web avisa que se hizo algo que propuso el agente: le llega al admin para que lo revise."""
+    if not u.admin:
+        conversaciones.avisar(u.usuario, datos.senal, "agente", datos.descripcion)
+    return {"ok": True}
+
+
 @api.get("/agente/notas")
 def mis_notas(u: auth.Usuario = Depends(auth.usuario_actual)):
     return conversaciones.notas(u.usuario)
@@ -1769,14 +1782,14 @@ def charla_asistente(p: PedidoAsistente, u: auth.Usuario = Depends(auth.usuario_
         raise HTTPException(502, str(e))
     if c.recordar:
         conversaciones.anotar(u.usuario, c.recordar)
-    uso.registrar(u.usuario, p.senal.id if p.senal else "", "[charla] " + p.pedido, 1, c.tokens_entrada,
+    uso.registrar(u.usuario, p.senal.id if p.senal else "", "[charla] " + p.pedido, c.pasos, c.tokens_entrada,
                   c.tokens_salida, True, c.modelo)
     return asdict(c)
 
 
 def _persona(u: auth.Usuario) -> asistente_ia.Persona:
     ficha = auth.perfiles().get(u.usuario, {})
-    return asistente_ia.Persona(u.usuario, ficha.get("nombre", ""), ficha.get("descripcion", ""),
+    return asistente_ia.Persona(u.usuario, u.admin, ficha.get("nombre", ""), ficha.get("descripcion", ""),
                                 [n["texto"] for n in conversaciones.notas(u.usuario)],
                                 [(s["id"], s["nombre"]) for s in almacen.listar()])
 

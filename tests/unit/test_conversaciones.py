@@ -37,7 +37,9 @@ def test_la_charla_sabe_con_quien_habla_recuerda_y_propone_acciones(cliente, mon
     yo = next(u for u in cliente.get("/api/usuarios").json() if u["usuario"] == "admin")
     cliente.put(f"/api/usuarios/{yo['id']}/perfil", json={"nombre": "Nico", "descripcion": "Arma las señales nuevas."})
     c = cliente.post("/api/asistente/charla", json={"pedido": "llevame a XT y creá Canal XX"}).json()
-    assert [a["descripcion"] for a in c["acciones"]] == ["Abrir XT", "Crear"]  # la señal que no existe se descarta
+    # la señal que no existe se descarta; ir y abrir Agregar señal las hace la web sola
+    assert [(a["descripcion"], a["nivel"]) for a in c["acciones"]] == [
+        ("Ir a semana de XT", "pagina"), ("Abrir Agregar señal con «Canal XX»", "pagina")]
     assert c["proponer_cambios"] is False  # sin señal abierta no hay cambios que armar
     pedido = proveedor.pedidos[-1][0]["content"]
     assert "se llama Nico" in pedido and "xt: XT" in pedido

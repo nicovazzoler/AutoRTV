@@ -1,7 +1,7 @@
 """Llamada a Claude. El resto del agente habla con un `Proveedor`, así los tests no gastan."""
 import json
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Protocol
 
@@ -53,6 +53,8 @@ class Respuesta:
     tokens_salida: int = 0
     modelo: str = ""  # el que respondió de verdad, para calcular el costo
     aviso: str = ""
+    bloques: list = field(default_factory=list)  # con herramientas: el contenido tal cual, para reenviarlo
+    parar: str = ""  # stop_reason: "tool_use" si pidió herramientas
 
 
 class ErrorAgente(Exception):
@@ -65,6 +67,8 @@ class Proveedor(Protocol):
     def charlar(self, sistema: str, mensajes: list[dict]) -> Respuesta: ...
 
     def pedir_json(self, sistema: str, mensajes: list[dict], formato: dict, modelo: str, effort: str) -> Respuesta: ...
+
+    def con_herramientas(self, sistema: str, mensajes: list[dict], herramientas: list[dict]) -> Respuesta: ...
 
 
 class Claude:
@@ -117,6 +121,27 @@ class Claude:
             raise ErrorAgente(explicar(e, modelo)) from e
         return _leer(r)
 
+    def con_herramientas(self, sistema: str, mensajes: list[dict], herramientas: list[dict]) -> Respuesta:
+        """Un paso de la charla con herramientas: el modelo contesta o pide herramientas (`parar` = "tool_use")."""
+        import anthropic
+
+        try:
+            r = self._cliente.messages.create(
+                model=MODELO_RAPIDO, max_tokens=4000,
+                system=[{"type": "text", "text": sistema, "cache_control": {"type": "ephemeral"}}],
+                tools=herramientas, messages=mensajes, output_config={"effort": "low"},
+            )
+        except anthropic.APIError as e:
+            raise ErrorAgente(explicar(e, MODELO_RAPIDO)) from e
+        uso = (r.usage.input_tokens + (r.usage.cache_read_input_tokens or 0)
+               + (r.usage.cache_creation_input_tokens or 0), r.usage.output_tokens)
+        if r.stop_reason == "refusal":
+            motivo = getattr(r.stop_details, "explanation", None) or "sin detalle"
+            return Respuesta("", rechazo=motivo, tokens_entrada=uso[0], tokens_salida=uso[1], modelo=r.model)
+        texto = "".join(b.text for b in r.content if b.type == "text")
+        return Respuesta(texto, tokens_entrada=uso[0], tokens_salida=uso[1], modelo=r.model,
+                         bloques=[_bloque(b) for b in r.content], parar=r.stop_reason or "")
+
     def charlar(self, sistema: str, mensajes: list[dict]) -> Respuesta:
         import anthropic
 
@@ -131,6 +156,10 @@ class Claude:
         except anthropic.APIError as e:
             raise ErrorAgente(explicar(e, MODELO_RAPIDO)) from e
         return _leer(r)
+
+
+def _bloque(b) -> dict:
+    return b.model_dump(exclude_none=True) if hasattr(b, "model_dump") else dict(b)
 
 
 def _es_de_modelo(e) -> bool:
@@ -184,6 +213,7 @@ class Grabado:
         self.pedidos: list[list[dict]] = []
         self.fuertes: list[bool] = []
         self.modelos: list[str] = []
+        self._texto_pendiente = ""
 
     def pedir(self, sistema: str, mensajes: list[dict], effort: str, fuerte: bool = False) -> Respuesta:
         self.fuertes.append(fuerte)
@@ -201,6 +231,29 @@ class Grabado:
         if not self.charlas:  # sin charla grabada, todo pasa a propuesta
             return Respuesta("", {"respuesta": "", "proponer_cambios": True})
         return self._siguiente(self.charlas, mensajes)
+
+    def con_herramientas(self, sistema: str, mensajes: list[dict], herramientas: list[dict]) -> Respuesta:
+        """Una charla grabada como las de antes ({respuesta, acciones, proponer_cambios, recordar}) se pasa a herramientas:
+        primero pide las que correspondan y, con sus resultados, contesta el texto."""
+        ultimo = mensajes[-1]["content"]
+        if isinstance(ultimo, list) and any(b.get("type") == "tool_result" for b in ultimo):
+            return Respuesta(self._texto_pendiente, bloques=[{"type": "text", "text": self._texto_pendiente}], parar="end_turn")
+        r = self.charlar(sistema, mensajes)
+        datos = r.datos if isinstance(r.datos, dict) else {}
+        if "herramientas" in datos:  # grabada ya con herramientas: [{"nombre", "datos"}]
+            usos = [(h["nombre"], h.get("datos", {})) for h in datos["herramientas"]]
+        else:
+            usos = [(a.get("tipo", ""), {k: v for k, v in a.items() if k in ("pantalla", "senal", "nombre") and v})
+                    for a in datos.get("acciones") or []]
+            if datos.get("proponer_cambios", not datos):
+                usos.append(("proponer_reglas", {"pedido": ""}))
+            if datos.get("recordar"):
+                usos.append(("recordar", {"texto": datos["recordar"]}))
+        self._texto_pendiente = str(datos.get("respuesta", ""))
+        if not usos:
+            return Respuesta(self._texto_pendiente, bloques=[{"type": "text", "text": self._texto_pendiente}], parar="end_turn")
+        bloques = [{"type": "tool_use", "id": f"t{i}", "name": n, "input": d} for i, (n, d) in enumerate(usos)]
+        return Respuesta("", bloques=bloques, parar="tool_use")
 
     def _siguiente(self, cola: list, mensajes: list[dict]) -> Respuesta:
         self.pedidos.append([dict(m_) for m_ in mensajes])

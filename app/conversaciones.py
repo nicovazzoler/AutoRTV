@@ -89,6 +89,10 @@ def olvidar_nota(usuario: str, nota_id: int) -> None:
 # --- Avisos al admin ---
 
 def avisar(usuario: str, senal_id: str, tipo: str, detalle: str) -> None:
+    from app.historial import ORIGEN
+
+    if ORIGEN.get() == "agente" and tipo != "agente":
+        detalle = "Con el agente: " + detalle
     with db.transaccion() as con:
         con.execute(insert(db.avisos).values(usuario=usuario, senal_id=senal_id, tipo=tipo, detalle=detalle[:2000],
                                              fecha=_ahora(), visto=False))
