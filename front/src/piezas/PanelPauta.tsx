@@ -1,8 +1,7 @@
 import { useState } from "react";
 import { api, textoDeError } from "../api";
-import { haceCuanto } from "../fechas";
 import type { Celdas, PautaBase } from "../tipos";
-import { persona } from "../nombre";
+import { Recorrido, type Parecida } from "./Recorrido";
 
 interface Props {
   senalId: string;
@@ -20,8 +19,13 @@ function texto(v: unknown): string {
   return v === null || v === undefined ? "" : String(v);
 }
 
-/** Una pauta de la base para editar entera, con "Guardado · deshacer" y lo del programa aplicable a todos sus capítulos. */
-export function PanelPauta({ senalId, pauta, columnas, programa, alCambiar, alCerrar }: Props) {
+/**
+ * Una pauta de la base para editar entera (todas sus columnas), con "Guardado · deshacer". Al guardar busca otras
+ * pautas donde vale el mismo arreglo y abre el recorrido.
+ */
+export function PanelPauta({ senalId, pauta, columnas: delCatalogo, programa, alCambiar, alCerrar }: Props) {
+  const columnas = [...new Set([...delCatalogo, ...Object.keys(pauta.salida)])];
+  const [parecidas, setParecidas] = useState<Parecida[] | null>(null);
   const [valores, setValores] = useState<Record<string, string>>(() => Object.fromEntries(columnas.map((c) => [c, texto(pauta.salida[c])])));
   const [anterior, setAnterior] = useState<Celdas | null>(null);
   const [aviso, setAviso] = useState("");
@@ -37,6 +41,9 @@ export function PanelPauta({ senalId, pauta, columnas, programa, alCambiar, alCe
       setAnterior(pauta.salida);
       setAviso("Guardado en la base");
       await alCambiar();
+      const encontradas = (await Promise.all(cambiadas.map((c) => api.post<Parecida[]>(
+        `/senales/${senalId}/pautas/${pauta.hash}/parecidas`, { columna: c, antes: pauta.salida[c] ?? null, despues: valores[c] || null })))).flat();
+      if (encontradas.length) setParecidas(encontradas);
     } catch (e) {
       setError(textoDeError(e));
     }
@@ -68,6 +75,12 @@ export function PanelPauta({ senalId, pauta, columnas, programa, alCambiar, alCe
     }
   };
 
+  const arreglarParecidas = async (elegidas: Parecida[]) => {
+    await api.post(`/senales/${senalId}/pautas/aplicar`, elegidas.map((x) => ({ hash: x.clave, columna: x.columna, valor: x.despues })));
+    setAviso(`Guardado en la base, y en ${elegidas.length} ${elegidas.length === 1 ? "pauta parecida" : "pautas parecidas"}`);
+    await alCambiar();
+  };
+
   const olvidar = async () => {
     if (!confirm("¿Olvidar esta pauta? La próxima vez que venga la arman las reglas y pide revisión.")) return;
     try {
@@ -84,7 +97,6 @@ export function PanelPauta({ senalId, pauta, columnas, programa, alCambiar, alCe
       <div className="panel-contenido">
         <div className="agente-cabeza">
           <div style={{ flex: "1 1 auto", minWidth: 0 }}>
-            <span className="chico tenue">{pauta.estado === "editada" ? "corregida a mano" : "aprobada"} por {persona(pauta.usuario)} · {haceCuanto(pauta.actualizado)}</span>
             <h2 className="serif" style={{ margin: "2px 0 0", fontSize: 24, fontWeight: 500 }}>{nombrePrograma || "Pauta"}</h2>
           </div>
           <button type="button" className="boton-redondo" aria-label="Cerrar" onClick={alCerrar}>✕</button>
@@ -94,7 +106,8 @@ export function PanelPauta({ senalId, pauta, columnas, programa, alCambiar, alCe
           <label key={c} className="campo">
             <span style={{ display: "flex", gap: 8 }}>{c}<span style={{ flexGrow: 1 }} />
               {programa && c !== programa && !DEL_CAPITULO.test(c) && nombrePrograma && (
-                <button type="button" className="enlace-chico" onClick={() => aTodoElPrograma(c)}>Aplicar a todo {nombrePrograma}</button>
+                <button type="button" className="enlace-chico" title={`En todas las pautas de ${nombrePrograma}`}
+                  onClick={() => aTodoElPrograma(c)}>Aplicar a todas las pautas idénticas</button>
               )}
             </span>
             {valores[c].length > 60
@@ -111,6 +124,7 @@ export function PanelPauta({ senalId, pauta, columnas, programa, alCambiar, alCe
         )}
         {error && <p className="error chico" role="alert">{error}</p>}
       </div>
+      {parecidas && <Recorrido candidatas={parecidas} alAplicar={arreglarParecidas} alCerrar={() => setParecidas(null)} />}
     </aside>
   );
 }

@@ -13,10 +13,11 @@ import pandas as pd
 from fastapi import APIRouter, Cookie, Depends, Header, File, Form, HTTPException, Query, Response, UploadFile
 from pydantic import BaseModel, TypeAdapter, ValidationError
 
-from app import (acciones, almacen, armados, auth, catalogo, conversaciones, corridas, export, inputs, pautas, semana,
-                 semanas, tablas)
+from app import (acciones, almacen, armados, auth, catalogo, conversaciones, corridas, export, inputs, parecidas, pautas,
+                 semana, semanas, tablas)
 from app.agent import asistente as asistente_ia
 from app.agent import banco, cliente, controles, lectura, uso
+from app.agent import parecidas as parecidas_ia
 from app.engine import model as m
 from app.engine import titulos
 from app.engine.comparar import diferencias, porcentaje_igual, sugerir_correcciones
@@ -1199,6 +1200,91 @@ def editar_celda_abierta(senal_id: str, datos: Celda, u: auth.Usuario = Depends(
     receta, p = _pedido_abierta(senal_id)
     _editar_celda(senal_id, _correr(p), receta, datos.fila, datos.columna, datos.valor, u.usuario)
     return _grilla_abierta(senal_id)
+
+
+# --- Después de corregir: las otras filas donde vale el mismo arreglo ---
+
+class Correccion(BaseModel):
+    columna: str
+    antes: object = None
+    despues: object = None
+
+
+class CorreccionEnSemana(Correccion):
+    fila: int
+
+
+class CambioPauta(BaseModel):
+    hash: str
+    columna: str
+    valor: object = None
+
+
+class CambioFila(BaseModel):
+    fila: int
+    columna: str
+    valor: object = None
+
+
+def _filtrar_parecidas(senal_id: str, datos: Correccion, candidatas: list, u: auth.Usuario) -> list[dict]:
+    r = parecidas_ia.filtrar(datos.columna, datos.antes, datos.despues, candidatas, cliente.proveedor_configurado())
+    if r is not None:
+        uso.registrar(u.usuario, senal_id, "[parecidas]", 1, r.tokens_entrada, r.tokens_salida, True, r.modelo)
+    return [p.json() for p in candidatas]
+
+
+@api.post("/senales/{senal_id}/pautas/{h}/parecidas")
+def parecidas_en_base(senal_id: str, h: str, datos: Correccion, u: auth.Usuario = Depends(auth.usuario_actual)):
+    """Otras pautas de la base donde se puede hacer el mismo arreglo que se le hizo a `h`."""
+    receta, base = _receta(senal_id), pautas.base(senal_id)
+    columnas = sorted({c for p in base.values() for c in p["salida"]})
+    programa = semana.columna_programa(columnas, receta.validaciones, semana.pares_de_la_base(base))
+    filas = [(clave, p["salida"]) for clave, p in base.items()]
+    return _filtrar_parecidas(senal_id, datos, parecidas.buscar(filas, datos.columna, datos.antes, datos.despues,
+                                                                programa, h), u)
+
+
+@api.post("/senales/{senal_id}/pautas/aplicar")
+def aplicar_en_base(senal_id: str, cambios: list[CambioPauta], u: auth.Usuario = Depends(auth.usuario_actual)):
+    cat = catalogo.leer()
+    lista = [(c.hash, c.columna, _convertir(c.valor, c.columna, cat) if isinstance(c.valor, str) else c.valor)
+             for c in cambios]
+    return {"aplicadas": pautas.editar_celdas(senal_id, lista, u.usuario)}
+
+
+@api.post("/senales/{senal_id}/abierta/parecidas")
+def parecidas_en_semana(senal_id: str, datos: CorreccionEnSemana, u: auth.Usuario = Depends(auth.usuario_actual)):
+    """Otras filas de la semana (una por pauta) donde se puede hacer el mismo arreglo que en `fila`."""
+    receta, p = _pedido_abierta(senal_id)
+    c = _correr(p)
+    contenido = pautas.columnas_de_contenido(c.salida, receta.validaciones)
+    vistas, filas = {c.hashes[datos.fila] if 0 <= datos.fila < len(c.hashes) else None}, []
+    for i, h in enumerate(c.hashes):
+        if h not in vistas:
+            vistas.add(h)
+            filas.append((str(i), {col: pautas.valor_json(c.salida.iloc[i][col]) for col in contenido}))
+    return _filtrar_parecidas(senal_id, datos, parecidas.buscar(filas, datos.columna, datos.antes, datos.despues,
+                                                                c.programa, str(datos.fila)), u)
+
+
+@api.post("/senales/{senal_id}/abierta/aplicar")
+def aplicar_en_semana(senal_id: str, cambios: list[CambioFila], u: auth.Usuario = Depends(auth.usuario_actual)):
+    """Corrige varias celdas de la semana de una vez: cada pauta queda así en la base."""
+    receta, p = _pedido_abierta(senal_id)
+    c = _correr(p)
+    contenido = pautas.columnas_de_contenido(c.salida, receta.validaciones)
+    por_fila: dict[int, dict] = {}
+    for x in cambios:
+        if x.columna not in contenido or not 0 <= x.fila < len(c.salida):
+            raise HTTPException(422, f"No se puede corregir {x.columna} en la fila {x.fila + 1}")
+        valor = _convertir(x.valor, x.columna, c.catalogo) if isinstance(x.valor, str) else x.valor
+        por_fila.setdefault(x.fila, {})[x.columna] = valor
+    nuevas = {}
+    for fila, valores in por_fila.items():
+        salida = {col: pautas.valor_json(c.salida.iloc[fila][col]) for col in contenido} | valores
+        nuevas[c.hashes[fila]] = {"crudo": c.crudas[fila], "salida": salida}
+    pautas.guardar(senal_id, nuevas, "editada", u.usuario, pisar=True)
+    return {"aplicadas": len(nuevas)}
 
 
 # Hasta qué mes se repite la última semana: el de su último día, o también el siguiente.

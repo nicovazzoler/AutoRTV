@@ -619,3 +619,16 @@ body.ajustando-columna, body.ajustando-columna * { cursor: col-resize !important
 .lista-avisos li button { align-self: flex-start; }
 .insignia-avisos { display: inline-grid; place-items: center; min-width: 18px; height: 18px; padding: 0 5px; margin-left: 6px; border-radius: 999px;
   background: var(--revisar); color: var(--fondo); font-size: 11px; font-weight: 700; }
+
+/* Recorrido de pautas parecidas, después de una corrección. */
+.recorrido { position: fixed; z-index: 40; left: 50%; top: 50%; transform: translate(-50%, -50%); width: min(640px, calc(100vw - 32px));
+  max-height: min(640px, calc(100vh - 64px)); display: flex; flex-direction: column; gap: 14px; padding: 20px; border-radius: 18px;
+  border: 1px solid var(--borde); background: var(--panel); box-shadow: 0 24px 60px rgba(0, 0, 0, 0.45); }
+.recorrido-cabeza { display: flex; gap: 12px; align-items: flex-start; justify-content: space-between; }
+.recorrido-cabeza h2 { margin: 0 0 4px; font-family: "Fraunces Variable", serif; font-weight: 600; font-size: 20px; }
+.recorrido-lista { margin: 0; padding: 0; list-style: none; overflow-y: auto; flex: 1 1 auto; border-top: 1px solid var(--borde); outline: none; }
+.recorrido-lista li { display: flex; gap: 12px; align-items: flex-start; padding: 10px 8px; border-bottom: 1px solid var(--borde); cursor: pointer; border-radius: 8px; }
+.recorrido-lista li > div { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.recorrido-lista li[aria-current="true"] { background: color-mix(in srgb, var(--acento) 16%, transparent); }
+.recorrido-lista input { margin-top: 4px; width: 18px; height: 18px; accent-color: var(--acento); }
+.tachado { text-decoration: line-through; color: var(--tenue); }

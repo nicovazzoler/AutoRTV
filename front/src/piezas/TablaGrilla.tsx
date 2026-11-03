@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { api, textoDeError } from "../api";
 import { normalizar } from "../estado";
 import { CeldaEditable } from "./CeldaEditable";
+import { Recorrido, type Parecida } from "./Recorrido";
 import { cumple, FilaFiltros, type Filtros } from "./FiltrosColumna";
 import { useSesion } from "../sesion";
 import type { GrillaAbierta, Grupo } from "../tipos";
@@ -20,6 +21,7 @@ export function TablaGrilla({ senalId, filtro }: { senalId: string; filtro: Filt
   const [q, setQ] = useState("");
   const [filtros, setFiltros] = useState<Filtros>({});
   const [mostrar, setMostrar] = useState(DE_A);
+  const [parecidas, setParecidas] = useState<Parecida[] | null>(null);
 
   const recibir = (d: GrillaAbierta) => {
     setDatos(d);
@@ -62,10 +64,19 @@ export function TablaGrilla({ senalId, filtro }: { senalId: string; filtro: Filt
   const guardar = async (fila: number, columna: string, valor: string) => {
     setError("");
     try {
+      const antes = datos.filas[fila][datos.columnas.indexOf(columna)];
       recibir(await api.post<GrillaAbierta>(`/senales/${senalId}/abierta/celda`, { fila, columna, valor }));
+      const r = await api.post<Parecida[]>(`/senales/${senalId}/abierta/parecidas`, { fila, columna, antes, despues: valor });
+      if (r.length) setParecidas(r);
     } catch (e) {
       setError(textoDeError(e));
     }
+  };
+
+  const arreglarParecidas = async (elegidas: Parecida[]) => {
+    await api.post(`/senales/${senalId}/abierta/aplicar`,
+      elegidas.map((x) => ({ fila: Number(x.clave), columna: x.columna, valor: x.despues === null ? null : String(x.despues) })));
+    recibir(await api.get<GrillaAbierta>(`/senales/${senalId}/abierta/grilla`));
   };
 
   return (
@@ -114,6 +125,7 @@ export function TablaGrilla({ senalId, filtro }: { senalId: string; filtro: Filt
         {visibles.length > mostrar && <button type="button" className="boton chico" onClick={() => setMostrar(mostrar + DE_A)}>Ver más</button>}
         {datos.total_filas > datos.filas.length && <span className="chico tenue">La grilla tiene {datos.total_filas} filas; acá se muestran las primeras {datos.filas.length}.</span>}
       </div>
+      {parecidas && <Recorrido candidatas={parecidas} alAplicar={arreglarParecidas} alCerrar={() => setParecidas(null)} />}
     </section>
   );
 }
