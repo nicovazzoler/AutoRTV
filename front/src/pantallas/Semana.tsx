@@ -10,6 +10,7 @@ import { cumple, FilaFiltros, type Filtros } from "../piezas/FiltrosColumna";
 import { tomarSemana } from "../semanaReciente";
 import { useSesion } from "../sesion";
 import type { CambioVersion, Celdas, LecturaAgente, SemanaAbierta } from "../tipos";
+import { persona } from "../nombre";
 
 function valores(celdas: Celdas, sin: string | null | undefined, cuantos: number, yaVistos: Celdas = {}): string {
   const vistos = new Set(Object.values(yaVistos).map(String));
@@ -53,7 +54,6 @@ export function Semana({ senalId }: { senalId: string }) {
   const [error, setError] = useState("");
   const [ocupado, setOcupado] = useState<string | null>(null);
   const [menuExportar, setMenuExportar] = useState(false);
-  const [verTodo, setVerTodo] = useState<boolean | null>(null);
   const [filtros, setFiltros] = useState<Filtros>({});
   const [desde, setDesde] = useState("");
   const [hasta, setHasta] = useState("");
@@ -132,6 +132,19 @@ export function Semana({ senalId }: { senalId: string }) {
     }
   };
 
+  const borrarGrilla = async () => {
+    if (!window.confirm("¿Borrar esta grilla? Si era una versión corregida, vuelve la anterior; si no, la señal queda sin grilla. Lo que ya está en la base no se toca.")) return;
+    setError("");
+    try {
+      const d = await api.borrar<SemanaAbierta>(`/senales/${senalId}/abierta`);
+      setVista(null);
+      setLecturaAgente(null);
+      recibir(d);
+    } catch (e) {
+      setError(textoDeError(e));
+    }
+  };
+
   const confirmar = async (formato: "xlsx" | "csv") => {
     setMenuExportar(false);
     const quedan = datos?.resumen?.revisar ?? 0;
@@ -174,11 +187,7 @@ export function Semana({ senalId }: { senalId: string }) {
   const confirmada = semana.confirmada && semana.confirmada >= semana.subida;
   const casiTodaNueva = resumen.filas >= 10 && resumen.revisar >= resumen.filas / 2;
   const contenido = datos.contenido ?? [];
-  const clave = datos.campos_clave?.length ? datos.campos_clave : contenido;
-  // Si un error está en una columna que no es clave, se ve todo de entrada para que no quede escondido.
-  const errorFueraDeClave = revisar.some((p) => p.motivos.some((m) => contenido.some((c) => !clave.includes(c) && m.startsWith(`${c}:`))));
-  const todo = verTodo ?? errorFueraDeClave;
-  const columnas = todo ? contenido : clave;
+  const columnas = contenido;
   const filtradas = revisar.filter((p) => cumple((c) => (c === "Motivo" ? p.motivos.join(" ") : p.salida[c]), filtros));
 
   return (
@@ -187,7 +196,7 @@ export function Semana({ senalId }: { senalId: string }) {
       <header className="cabecera">
         <div className="cabecera-textos">
           <span className="antetitulo">
-            {senal?.nombre ?? senalId} · {resumen.desde ? `Semana ${numeroSemana(resumen.desde)} · ` : ""}{semana.version > 1 ? `v${semana.version} · ` : ""}{semana.nombre} · subida por {semana.subida_por} {haceCuanto(semana.subida)}
+            {senal?.nombre ?? senalId} · {resumen.desde ? `Semana ${numeroSemana(resumen.desde)} · ` : ""}{semana.version > 1 ? `v${semana.version} · ` : ""}{semana.nombre}{(datos.lectura?.hojas ?? 1) > 1 ? ` (leí ${datos.lectura?.hojas} hojas)` : ""} · subida por {persona(semana.subida_por)} {haceCuanto(semana.subida)}
           </span>
           <h1 className="titulo">{rangoSemana(resumen.desde, resumen.hasta)}</h1>
           <p className="bajada">
@@ -197,6 +206,7 @@ export function Semana({ senalId }: { senalId: string }) {
         </div>
         <div className="botones" style={{ position: "relative" }}>
           <button type="button" className="boton" onClick={() => setSubiendo(true)}>Subir otra</button>
+          <button type="button" className="boton" onClick={borrarGrilla}>Borrar esta grilla</button>
           <button type="button" className="boton principal" aria-haspopup="menu" aria-expanded={menuExportar}
             disabled={ocupado === "confirmar"} onClick={() => setMenuExportar(!menuExportar)}>
             {ocupado === "confirmar" ? "Confirmando…" : confirmada ? "Exportar de nuevo" : "Confirmar y exportar"}
@@ -244,7 +254,7 @@ export function Semana({ senalId }: { senalId: string }) {
         <p className="nota">Es la versión {semana.version} de esta semana: reemplazó a «{semana.anterior_nombre}». Lo que cambió está abajo; hay que volver a confirmar y exportar.</p>
       )}
       {confirmada && semana.confirmada && (
-        <p className="nota">Confirmada por {semana.confirmada_por} {haceCuanto(semana.confirmada)}. Lo nuevo ya está en la base: la semana que viene sale solo.</p>
+        <p className="nota">Confirmada por {persona(semana.confirmada_por)} {haceCuanto(semana.confirmada)}. Lo nuevo ya está en la base: la semana que viene sale solo.</p>
       )}
       {error && <p className="error" role="alert">{error}</p>}
 
@@ -290,12 +300,6 @@ export function Semana({ senalId }: { senalId: string }) {
               <div className="seccion-cabeza">
                 <h2>Para revisar</h2>
                 <span className="chico tenue">{resumen.pautas_revisar} {resumen.pautas_revisar === 1 ? "pauta" : "pautas"} · {resumen.revisar} {resumen.revisar === 1 ? "emisión" : "emisiones"} · doble clic en una celda para corregirla</span>
-                <span style={{ flexGrow: 1 }} />
-                {revisar.length > 0 && (
-                  <button type="button" className="boton chico" aria-pressed={todo} onClick={() => setVerTodo(!todo)}>
-                    {todo ? "Solo los campos clave" : `Ver todo (${contenido.length} columnas)`}
-                  </button>
-                )}
               </div>
               {revisar.length === 0 ? (
                 <p className="tenue" style={{ marginTop: 12 }}>Nada para revisar: todo salió de la base o entra solo.</p>
@@ -309,7 +313,8 @@ export function Semana({ senalId }: { senalId: string }) {
                         {columnas.map((c) => <th key={c}>{c}</th>)}
                         <th>Veces</th><th>Cómo vino</th>
                       </tr>
-                      <FilaFiltros columnas={["Motivo", ...columnas]} filtros={filtros} alCambiar={setFiltros} antes={1} />
+                      <FilaFiltros columnas={["Motivo", ...columnas]} filtros={filtros} alCambiar={setFiltros} antes={1}
+                        valores={(c) => revisar.flatMap((p) => (c === "Motivo" ? p.motivos : [p.salida[c]]))} />
                     </thead>
                     <tbody>
                       {filtradas.map((p) => (

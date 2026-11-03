@@ -40,7 +40,7 @@ def leer_ejemplo(contenido: bytes, entrada) -> pd.DataFrame:
     from app.pautas import tiene_horario
     propia = detectar(contenido)
     if mismo_formato(propia, entrada):
-        return leer(contenido, entrada)
+        return leer(contenido, con_todas_las_hojas(entrada, propia))
     try:
         tabla = leer(contenido, entrada)
         if tiene_horario(tabla):
@@ -48,6 +48,13 @@ def leer_ejemplo(contenido: bytes, entrada) -> pd.DataFrame:
     except Exception:
         pass
     return leer(contenido, propia)
+
+
+def con_todas_las_hojas(entrada, detectada):
+    """Si el libro trae varias hojas de programación y la lectura guardada lee una sola, pasa a leerlas todas."""
+    if getattr(detectada, "todas_las_hojas", False) and not entrada.todas_las_hojas:
+        return entrada.model_copy(update={"todas_las_hojas": True, "fila_encabezado": detectada.fila_encabezado})
+    return entrada
 
 
 def mismo_formato(a, b) -> bool:
@@ -64,8 +71,9 @@ def detectar(contenido: bytes):
     if contenido.startswith(b"PK") or contenido.startswith(b"\xd0\xcf\x11\xe0"):  # xlsx / xls
         if cuadricula.es_cuadricula(contenido):
             return m.EntradaExcel(tipo="excel", cuadricula=True)
-        fila = excel.detectar_fila_encabezado(io.BytesIO(contenido))
-        return m.EntradaExcel(tipo="excel", fila_encabezado=fila, todas_las_hojas=excel.hojas_iguales(contenido, fila))
+        if varias := excel.hojas_de_programacion(contenido):
+            return m.EntradaExcel(tipo="excel", fila_encabezado=varias[0], todas_las_hojas=True)
+        return m.EntradaExcel(tipo="excel", fila_encabezado=excel.detectar_fila_encabezado(io.BytesIO(contenido)))
     inicio = texto.decodificar(contenido[:4000]).lstrip().lower()
     if inicio.startswith("<?xml") or "<programme" in inicio or inicio.startswith("<tv"):
         return m.EntradaXml(tipo="xml")

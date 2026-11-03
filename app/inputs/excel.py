@@ -22,12 +22,29 @@ def leer(origen: str | Path | BinaryIO, entrada: m.EntradaExcel) -> pd.DataFrame
         origen = io.BytesIO(origen)
     hojas = pd.read_excel(origen, sheet_name=None if entrada.todas_las_hojas else entrada.hoja,
                           header=entrada.fila_encabezado - 1, dtype=object)
-    tablas = list(hojas.values()) if isinstance(hojas, dict) else [hojas]
+    tablas = _de_programacion(list(hojas.values())) if isinstance(hojas, dict) else [hojas]
     tablas = [_limpia(t) for t in _mismas_columnas(tablas)]
     if entrada.filas_de_fecha is not False:
         tablas = [_con_filas_de_fecha(t, forzar=entrada.filas_de_fecha is True) for t in tablas]
     df = pd.concat(tablas, ignore_index=True) if len(tablas) > 1 else tablas[0]
-    return df.astype(object).where(df.notna(), None)
+    df = df.astype(object).where(df.notna(), None)
+    df.attrs["hojas"] = len(tablas)
+    return df
+
+
+def _encabezado(t: pd.DataFrame) -> set[str]:
+    return {str(c).strip().lower() for c in t.columns if not str(c).startswith("Unnamed")}
+
+
+def _parecido(a: set[str], b: set[str]) -> bool:
+    return bool(a) and len(a & b) >= len(a) * 0.7
+
+
+def _de_programacion(tablas: list[pd.DataFrame]) -> list[pd.DataFrame]:
+    """Solo las hojas con el encabezado de la mayoría: una portada o una hoja de notas no suman filas."""
+    encabezados = [_encabezado(t) for t in tablas]
+    modelo = max(encabezados, key=lambda e: sum(_parecido(e, otro) for otro in encabezados))
+    return [t for t, e in zip(tablas, encabezados) if _parecido(modelo, e)]
 
 
 def _limpia(df: pd.DataFrame) -> pd.DataFrame:
@@ -104,17 +121,23 @@ def _con_filas_de_fecha(df: pd.DataFrame, forzar: bool = False) -> pd.DataFrame:
     return salida
 
 
-def hojas_iguales(contenido: bytes, fila_encabezado: int) -> bool:
-    """Si el libro trae varias hojas con el mismo encabezado: una por día o por semana."""
+def hojas_de_programacion(contenido: bytes) -> tuple[int, int] | None:
+    """(fila de encabezado, cuántas hojas) si el libro trae varias hojas con el mismo encabezado; None si no.
+
+    El encabezado se busca en cada hoja: la primera puede ser una portada.
+    """
     libro = pd.ExcelFile(io.BytesIO(contenido))
     if len(libro.sheet_names) < 2:
-        return False
-    encabezados = [tuple(str(c).strip().lower() for c in pd.read_excel(libro, sheet_name=h, header=fila_encabezado - 1, nrows=0).columns)
-                   for h in libro.sheet_names]
-    _, veces = Counter(len(e) for e in encabezados).most_common(1)[0]
-    primero = set(encabezados[0])
-    parecidas = sum(len(primero & set(e)) >= len(primero) * 0.7 for e in encabezados)
-    return parecidas >= max(2, len(encabezados) * 0.6) and veces >= 2
+        return None
+    filas = [detectar_fila_encabezado(libro, h) for h in libro.sheet_names]
+    encabezados = [_encabezado(pd.read_excel(libro, sheet_name=h, header=f - 1, nrows=0))
+                   for h, f in zip(libro.sheet_names, filas)]
+    iguales = [[_parecido(e, otro) for otro in encabezados] for e in encabezados]
+    mejor = max(range(len(encabezados)), key=lambda i: sum(iguales[i]))
+    cuantas = sum(iguales[mejor])
+    if cuantas < max(2, len(encabezados) * 0.6):
+        return None
+    return filas[mejor], cuantas
 
 
 def detectar_fila_encabezado(origen: BinaryIO, hoja: int | str = 0, buscar: int = 10) -> int:

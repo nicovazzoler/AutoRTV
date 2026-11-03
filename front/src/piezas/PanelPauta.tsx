@@ -2,6 +2,7 @@ import { useState } from "react";
 import { api, textoDeError } from "../api";
 import { haceCuanto } from "../fechas";
 import type { Celdas, PautaBase } from "../tipos";
+import { persona } from "../nombre";
 
 interface Props {
   senalId: string;
@@ -83,7 +84,7 @@ export function PanelPauta({ senalId, pauta, columnas, programa, alCambiar, alCe
       <div className="panel-contenido">
         <div className="agente-cabeza">
           <div style={{ flex: "1 1 auto", minWidth: 0 }}>
-            <span className="chico tenue">{pauta.estado === "editada" ? "corregida a mano" : "aprobada"} por {pauta.usuario} · {haceCuanto(pauta.actualizado)}</span>
+            <span className="chico tenue">{pauta.estado === "editada" ? "corregida a mano" : "aprobada"} por {persona(pauta.usuario)} · {haceCuanto(pauta.actualizado)}</span>
             <h2 className="serif" style={{ margin: "2px 0 0", fontSize: 24, fontWeight: 500 }}>{nombrePrograma || "Pauta"}</h2>
           </div>
           <button type="button" className="boton-redondo" aria-label="Cerrar" onClick={alCerrar}>✕</button>
@@ -93,7 +94,7 @@ export function PanelPauta({ senalId, pauta, columnas, programa, alCambiar, alCe
           <label key={c} className="campo">
             <span style={{ display: "flex", gap: 8 }}>{c}<span style={{ flexGrow: 1 }} />
               {programa && c !== programa && !DEL_CAPITULO.test(c) && nombrePrograma && (
-                <button type="button" className="enlace-chico" onClick={() => aTodoElPrograma(c)}>aplicar a todo {nombrePrograma}</button>
+                <button type="button" className="enlace-chico" onClick={() => aTodoElPrograma(c)}>Aplicar a todo {nombrePrograma}</button>
               )}
             </span>
             {valores[c].length > 60
@@ -106,7 +107,7 @@ export function PanelPauta({ senalId, pauta, columnas, programa, alCambiar, alCe
           <button type="button" className="boton chico" onClick={olvidar}>Olvidar esta pauta</button>
         </div>
         {aviso && (
-          <p className="nota chico" role="status" style={{ margin: 0 }}>✓ {aviso}{anterior && <> · <button type="button" className="enlace-chico" onClick={deshacer}>deshacer</button></>}</p>
+          <p className="nota chico" role="status" style={{ margin: 0 }}>✓ {aviso}{anterior && <> · <button type="button" className="enlace-chico" onClick={deshacer}>Deshacer</button></>}</p>
         )}
         {error && <p className="error chico" role="alert">{error}</p>}
       </div>

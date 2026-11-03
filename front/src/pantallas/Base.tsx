@@ -7,6 +7,7 @@ import { Enlace } from "../piezas/Enlace";
 import { aBase, navegar } from "../ruta";
 import { useSesion } from "../sesion";
 import type { Celdas, ColumnasBase, ListaPautas, PautaBase, ValorColumna } from "../tipos";
+import { persona } from "../nombre";
 
 function vinoComo(crudo: Celdas): string {
   return Object.values(crudo).filter((v) => v !== null && v !== undefined && String(v).trim() !== "").map(String).join(" · ");
@@ -236,7 +237,7 @@ function BaseDe({ senalId }: { senalId: string }) {
                     alGuardar={(v) => editarCelda(p, c, v)} />
                 ))}
                 <td className="chico tenue" style={{ whiteSpace: "nowrap" }}>
-                  {p.usuario} · {haceCuanto(p.actualizado)}{p.estado === "editada" ? " · a mano" : ""}
+                  {persona(p.usuario)} · {haceCuanto(p.actualizado)}{p.estado === "editada" ? " · a mano" : ""}
                 </td>
               </tr>
             ))}
@@ -260,7 +261,7 @@ function BaseDe({ senalId }: { senalId: string }) {
             {cols.map((c) => <option key={c} value={c}>{c}</option>)}
           </select>
           <span>a</span>
-          <input className="entrada" aria-label="Valor" style={{ width: 160 }} value={cambiarValor} onChange={(e) => setCambiarValor(e.target.value)} placeholder="vacío" />
+          <input className="entrada" aria-label="Valor" style={{ width: 160 }} value={cambiarValor} onChange={(e) => setCambiarValor(e.target.value)} placeholder="Vacío" />
           <span>en <b>{cuantas} {cuantas === 1 ? "pauta" : "pautas"}</b></span>
           <button type="button" className="boton principal chico" onClick={aplicar} disabled={!cambiarColumna}>Cambiar</button>
           <span style={{ flexGrow: 1 }} />

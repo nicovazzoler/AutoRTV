@@ -5,6 +5,7 @@ import { Enlace } from "../piezas/Enlace";
 import { aSenal, navegar } from "../ruta";
 import { useSesion } from "../sesion";
 import { Nueva } from "./Nueva";
+import { persona } from "../nombre";
 
 /** La lista de señales para elegir con cuál trabajar; arriba las que tienen algo para revisar. */
 export function Inicio({ nueva }: { nueva: boolean }) {
@@ -27,11 +28,11 @@ export function Inicio({ nueva }: { nueva: boolean }) {
     <div className="pantalla-con-panel">
       <main className="contenido" style={{ maxWidth: 960 }}>
         <header className="cabecera-textos">
-          <span className="antetitulo">{hoyLargo()} · {saludo().toLowerCase()}, {yo.usuario}</span>
+          <span className="antetitulo">{hoyLargo()} · {saludo().toLowerCase()}, {persona(yo.usuario)}</span>
           <h1 className="titulo">Señales</h1>
         </header>
         <div className="botones" style={{ alignItems: "center", paddingBottom: 14, borderBottom: "2px solid var(--texto)" }}>
-          <input className="entrada buscador" type="search" aria-label="Filtrar señales" placeholder="filtrar señales…" value={q}
+          <input className="entrada buscador" type="search" aria-label="Filtrar señales" placeholder="Filtrar señales…" value={q}
             onChange={(e) => setQ(e.target.value)} style={{ flex: "1 1 320px" }} />
           <Enlace a="/nueva" className="boton principal">+ Agregar señal</Enlace>
         </div>

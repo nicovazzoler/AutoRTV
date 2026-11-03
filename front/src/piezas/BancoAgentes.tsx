@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { api, textoDeError } from "../api";
 import { haceCuanto } from "../fechas";
+import { persona } from "../nombre";
 
 interface SenalBanco {
   id: string;
@@ -85,7 +86,7 @@ function porQue(problemas: string[] | undefined, explicacion?: string) {
   if (!problemas?.length && !explicacion) return null;
   return (
     <details className="chico">
-      <summary className="tenue" style={{ cursor: "pointer" }}>por qué</summary>
+      <summary className="tenue" style={{ cursor: "pointer" }}>Por qué</summary>
       {explicacion && <p style={{ margin: "4px 0" }}>{explicacion}</p>}
       {!!problemas?.length && <ul style={{ margin: "4px 0", paddingLeft: 16 }}>{problemas.map((x, i) => <li key={i}>{x.slice(0, 400)}</li>)}</ul>}
     </details>
@@ -111,7 +112,7 @@ function celdaReglas(x: Reglas | null | undefined) {
       <b className={x.despues >= 90 ? "c-nueva" : x.despues >= 70 ? undefined : "c-revisar"}>{Math.round(x.antes)} → {Math.round(x.despues)} %</b>
       <span className="chico tenue"> · {x.vueltas} {x.vueltas === 1 ? "vuelta" : "vueltas"} · {usd(x.costo)}</span>
       <br />
-      {x.tarjetas ? <span className="chico tenue">{x.tarjetas} tarjetas · </span> : <span className="chico c-revisar">sin tarjetas · </span>}
+      {x.tarjetas ? <span className="chico tenue">{x.tarjetas} tarjetas · </span> : <span className="chico c-revisar">Sin tarjetas · </span>}
       <span className="chico tenue">{fallan.length ? `falla en: ${fallan.map(([c, p]) => `${c} ${Math.round(p)} %`).join(", ")}` : "todas las columnas al 100 %"}</span>
       {porQue(x.problemas, x.explicacion)}
     </span>
@@ -181,7 +182,7 @@ export function BancoAgentes() {
     <section aria-label="Banco de agentes" className="seccion" style={{ gap: 16 }}>
       <div className="seccion-cabeza">
         <h2>Banco de agentes</h2>
-        <span className="chico tenue">prueba Haiku y Sonnet contra el ejemplo más reciente de cada señal · gasta API de verdad</span>
+        <span className="chico tenue">Prueba Haiku y Sonnet contra el ejemplo más reciente de cada señal · gasta API de verdad</span>
       </div>
       {error && <p className="error" role="alert">{error}</p>}
 
@@ -226,7 +227,7 @@ export function BancoAgentes() {
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
           <div className="seccion-cabeza">
             <h3 className="serif" style={{ margin: 0, fontSize: 20 }}>Corrida {abierta.id}</h3>
-            <span className="chico tenue">{abierta.usuario} · {haceCuanto(abierta.inicio)} · {abierta.estado} · {usd(abierta.gastado)} de {usd(abierta.parametros.tope)}</span>
+            <span className="chico tenue">{persona(abierta.usuario)} · {haceCuanto(abierta.inicio)} · {abierta.estado} · {usd(abierta.gastado)} de {usd(abierta.parametros.tope)}</span>
             <span style={{ flexGrow: 1 }} />
             <a className="enlace-chico" href={`/api/admin/banco/${abierta.id}`} download={`banco-${abierta.id}.json`}>Bajar el detalle (JSON)</a>
           </div>
@@ -254,12 +255,12 @@ export function BancoAgentes() {
                       )}</td>
                     );
                     if (r.lectura) filas.push(
-                      <tr key={`${r.nombre}-l`}>{senal}<td className="tenue">lectura</td>
+                      <tr key={`${r.nombre}-l`}>{senal}<td className="tenue">Lectura</td>
                         <td>{celdaLectura(r.lectura.haiku)}</td><td>{celdaLectura(r.lectura.sonnet)}</td><td>{celdaLectura(r.lectura.escalera)}</td></tr>);
                     if (r.reglas && "error" in r.reglas) filas.push(
-                      <tr key={`${r.nombre}-r`}>{r.lectura ? <td /> : senal}<td className="tenue">reglas</td><td colSpan={3} className="c-revisar">{r.reglas.error}</td></tr>);
+                      <tr key={`${r.nombre}-r`}>{r.lectura ? <td /> : senal}<td className="tenue">Reglas</td><td colSpan={3} className="c-revisar">{r.reglas.error}</td></tr>);
                     else if (r.reglas) filas.push(
-                      <tr key={`${r.nombre}-r`}>{r.lectura ? <td /> : senal}<td className="tenue">reglas</td>
+                      <tr key={`${r.nombre}-r`}>{r.lectura ? <td /> : senal}<td className="tenue">Reglas</td>
                         <td>{celdaReglas(r.reglas.haiku)}</td><td>{celdaReglas(r.reglas.sonnet)}</td><td>{celdaReglas(r.reglas.escalera)}</td></tr>);
                     return filas;
                   })}

@@ -9,12 +9,14 @@ interface Props {
   alGuardar: (valor: string) => Promise<void>;
 }
 
-const LARGO = 60;
+// Más largo que esto, la celda muestra 2 renglones con "…" y el texto entero se lee tocándola.
+const LARGO = 40;
 
 /** Celda que se corrige con doble clic (o Enter desde el teclado). Enter guarda, Escape cancela. */
 export function CeldaEditable({ valor, editable, columna, clase = "", aviso, alGuardar }: Props) {
   const [editando, setEditando] = useState(false);
   const [guardando, setGuardando] = useState(false);
+  const [leyendo, setLeyendo] = useState(false);
   const texto = valor === null || valor === undefined ? "" : String(valor);
 
   const tecla = async (e: KeyboardEvent<HTMLInputElement | HTMLTextAreaElement>) => {
@@ -46,12 +48,17 @@ export function CeldaEditable({ valor, editable, columna, clase = "", aviso, alG
   }
   const clases = [clase, editable ? "editable" : "", aviso ? "invalida" : ""].filter(Boolean).join(" ");
   const largo = texto.length > LARGO;
-  const titulo = [aviso, largo ? texto : null, editable ? "Doble clic para corregir" : null].filter(Boolean).join("\n\n") || undefined;
+  const titulo = [aviso, editable ? "Doble clic para corregir" : null].filter(Boolean).join("\n\n") || undefined;
   return (
-    <td className={clases} title={titulo} tabIndex={editable ? 0 : undefined}
-      onDoubleClick={editable ? () => setEditando(true) : undefined}
-      onKeyDown={editable ? (e) => e.key === "Enter" && setEditando(true) : undefined}>
+    <td className={`${clases}${largo ? " celda-larga" : ""}`} title={titulo} tabIndex={editable || largo ? 0 : undefined}
+      onClick={largo ? () => setLeyendo(!leyendo) : undefined} onBlur={() => setLeyendo(false)}
+      onDoubleClick={editable ? () => { setLeyendo(false); setEditando(true); } : undefined}
+      onKeyDown={(e) => {
+        if (e.key === "Escape") setLeyendo(false);
+        if (editable && e.key === "Enter") setEditando(true);
+      }}>
       {largo ? <span className="dos-renglones">{texto}</span> : texto}
+      {leyendo && <div className="globito" role="note">{texto}</div>}
     </td>
   );
 }

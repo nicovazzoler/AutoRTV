@@ -82,7 +82,7 @@ export function Agente({ senalId }: { senalId: string | null }) {
     refrescarLimites();
   };
 
-  const enviar = async (forzar: boolean) => {
+  const enviar = async () => {
     const pedido = escrito.trim();
     if (!pedido) {
       setError("Escribí qué querés que haga el agente");
@@ -92,27 +92,25 @@ export function Agente({ senalId }: { senalId: string | null }) {
     setError("");
     setEscrito("");
     decir({ rol: "persona", texto: pedido });
-    if (!forzar) {
-      setTrabajando("rapido");
-      try {
-        const { datos: receta } = await api.conVersion<Receta>(`/senales/${senalId}`);
-        const c = await api.post<Charla>("/asistente/charla", { senal: receta, pedido, tabla_id: tablaId, historial: previo, contexto });
-        if (c.respuesta) decir({ rol: "asistente", texto: c.respuesta });
-        setTrabajando("");
-        refrescarLimites();
-        if (!c.proponer_cambios) return;
-      } catch (e) {
-        setError(textoDeError(e));
-        setTrabajando("");
-        return;
-      }
+    setTrabajando("rapido");
+    try {
+      const { datos: receta } = await api.conVersion<Receta>(`/senales/${senalId}`);
+      const c = await api.post<Charla>("/asistente/charla", { senal: receta, pedido, tabla_id: tablaId, historial: previo, contexto });
+      if (c.respuesta) decir({ rol: "asistente", texto: c.respuesta });
+      setTrabajando("");
+      refrescarLimites();
+      if (!c.proponer_cambios) return;
+    } catch (e) {
+      setError(textoDeError(e));
+      setTrabajando("");
+      return;
     }
     await proponer(pedido, previo);
   };
 
   const enviarFormulario = (e: FormEvent) => {
     e.preventDefault();
-    enviar(false);
+    enviar();
   };
 
   const marcarAplicada = (i: number) => setPropuesta((p) => p && { ...p, aplicadas: new Set([...p.aplicadas, i]) });
@@ -285,14 +283,11 @@ export function Agente({ senalId }: { senalId: string | null }) {
       )}
       {error && <p className="error chico" role="alert">{error}</p>}
       <form onSubmit={enviarFormulario} style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-        <label className="campo">Escribile
-          <textarea className="entrada" rows={3} value={escrito} onChange={(e) => setEscrito(e.target.value)} disabled={!!trabajando}
-            placeholder="Ej.: el año viene pegado al título" style={{ minHeight: 0, fontFamily: "inherit", fontSize: 14 }}
-            onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); enviar(false); } }} />
-        </label>
-        <div className="botones" style={{ gap: 8 }}>
-          <button type="submit" className="boton fuerte" style={{ flex: "1 1 auto" }} disabled={!!trabajando}>Enviar</button>
-          <button type="button" className="boton chico" style={{ minHeight: 44 }} disabled={!!trabajando} onClick={() => enviar(true)}>Proponer cambios</button>
+        <div className="caja-chat">
+          <textarea rows={3} value={escrito} onChange={(e) => setEscrito(e.target.value)} disabled={!!trabajando}
+            aria-label="Escribile al agente" placeholder="Ej.: el año viene pegado al título"
+            onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); enviar(); } }} />
+          <button type="submit" className="enviar-chat" aria-label="Enviar" disabled={!!trabajando || !escrito.trim()}>↑</button>
         </div>
       </form>
     </aside>

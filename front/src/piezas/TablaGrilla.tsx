@@ -8,7 +8,7 @@ import type { GrillaAbierta, Grupo } from "../tipos";
 
 export type Filtro = "todas" | Grupo["grupo"];
 
-const MARCA: Record<Grupo["grupo"], string> = { base: "base", nueva_lista: "nueva", revisar: "revisar" };
+const MARCA: Record<Grupo["grupo"], string> = { base: "Base", nueva_lista: "Nueva", revisar: "Revisar" };
 const DE_A = 300;
 
 /** La semana emisión por emisión, filtrada por estado (lo eligen los botones de la Semana) y por columna. */
@@ -90,7 +90,8 @@ export function TablaGrilla({ senalId, filtro }: { senalId: string; filtro: Filt
         <table className="tabla-datos">
           <thead>
             <tr><th>Estado</th>{datos.columnas.map((c) => <th key={c}>{c}</th>)}</tr>
-            <FilaFiltros columnas={datos.columnas} filtros={filtros} alCambiar={setFiltros} antes={1} />
+            <FilaFiltros columnas={datos.columnas} filtros={filtros} alCambiar={setFiltros} antes={1}
+              valores={(c) => datos.filas.map((f) => f[datos.columnas.indexOf(c)])} />
           </thead>
           <tbody>
             {visibles.slice(0, mostrar).map(({ fila, i, grupo }) => (

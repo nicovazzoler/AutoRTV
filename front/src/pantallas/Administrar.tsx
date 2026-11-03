@@ -3,6 +3,7 @@ import { api, textoDeError } from "../api";
 import { BancoAgentes } from "../piezas/BancoAgentes";
 import { ZonaArchivo } from "../piezas/ZonaArchivo";
 import { useSesion } from "../sesion";
+import { persona } from "../nombre";
 
 interface Usuario {
   id: number;
@@ -181,7 +182,7 @@ export function Administrar() {
             <tbody>
               {usuarios.map((u) => (
                 <tr key={u.id}>
-                  <td className="serif" style={{ fontSize: 18 }}>{u.usuario}</td>
+                  <td className="serif" style={{ fontSize: 18 }}>{persona(u.usuario)}</td>
                   <td className="tenue">{u.admin ? "Admin" : "Usuario"}</td>
                   <td className="derecha" style={{ fontVariantNumeric: "tabular-nums" }}>{usoDe(u.usuario)?.pedidos_hoy ?? 0}</td>
                   <td className="derecha tenue" style={{ fontVariantNumeric: "tabular-nums" }}>{usd(usoDe(u.usuario)?.usd_mes ?? 0)}</td>
@@ -195,7 +196,7 @@ export function Administrar() {
           </table>
         </div>
         <form onSubmit={crear} className="botones" style={{ alignItems: "flex-end", marginTop: 16 }}>
-          <label className="campo">Usuario nuevo<input className="entrada" name="usuario" placeholder="nombre" required style={{ minHeight: 40, borderRadius: 999 }} /></label>
+          <label className="campo">Usuario nuevo<input className="entrada" name="usuario" placeholder="Nombre" required style={{ minHeight: 40, borderRadius: 999 }} /></label>
           <label className="campo" style={{ flexDirection: "row", alignItems: "center", gap: 8, minHeight: 40, color: "var(--texto)" }}>
             <input type="checkbox" name="admin" style={{ width: 18, height: 18, accentColor: "var(--acento)" }} />Admin
           </label>
@@ -252,14 +253,14 @@ export function Administrar() {
 
       {pestana === "uso" && (
       <section aria-label="Uso del agente" className="seccion" style={{ gap: 16 }}>
-        <div className="seccion-cabeza"><h2>Uso del agente</h2><span className="chico tenue">este mes · estimado con el precio de cada modelo</span></div>
+        <div className="seccion-cabeza"><h2>Uso del agente</h2><span className="chico tenue">Este mes · estimado con el precio de cada modelo</span></div>
         {uso && !uso.configurado && <p className="error">El agente no está configurado: falta ANTHROPIC_API_KEY en Railway.</p>}
         <div className="tres-columnas">
-          <div><div className="serif" style={{ fontSize: 36 }}>{usd(totalMes)}</div><span className="chico tenue">en el mes · {pedidosMes} pedidos</span></div>
+          <div><div className="serif" style={{ fontSize: 36 }}>{usd(totalMes)}</div><span className="chico tenue">En el mes · {pedidosMes} pedidos</span></div>
           <div><div className="serif" style={{ fontSize: 36 }}>{usd(totalHoy)}</div><span className="chico tenue">hoy</span></div>
           <form onSubmit={(e) => { e.preventDefault(); accion({ tipo: "cambiar_limite_diario", valor: Number(tope) }); }}>
             <div className="serif" style={{ fontSize: 36 }}>{uso?.limite_diario ?? "—"}</div>
-            <label className="campo" style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>pedidos por persona y día
+            <label className="campo" style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>Pedidos por persona y día
               <input className="entrada" type="number" min={1} max={1000} value={tope} onChange={(e) => setTope(e.target.value)} style={{ width: 80, minHeight: 32 }} />
               <button type="submit" className="boton chico" style={{ minHeight: 32 }}>Cambiar</button>
             </label>

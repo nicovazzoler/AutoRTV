@@ -6,6 +6,7 @@ import { ZonaArchivo } from "../piezas/ZonaArchivo";
 import { recordarSemana } from "../semanaReciente";
 import { useSesion } from "../sesion";
 import type { SemanaAbierta } from "../tipos";
+import { persona } from "../nombre";
 
 type Forma = "archivo" | "texto" | "web";
 
@@ -63,8 +64,8 @@ export function Subir({ senalId, alLeer, alCancelar }: { senalId: string; alLeer
       {abierta && (
         <p className="nota" role="status">
           Ya está abierta la semana <b>{rangoSemana(abierta.resumen?.desde ?? null, abierta.resumen?.hasta ?? null).toLowerCase()}</b>
-          {abierta.version > 1 ? ` (v${abierta.version})` : ""}, subida por {abierta.subida_por} {haceCuanto(abierta.subida)}
-          {abierta.confirmada_por ? ` y confirmada por ${abierta.confirmada_por}` : " y todavía sin confirmar"}.
+          {abierta.version > 1 ? ` (v${abierta.version})` : ""}, subida por {persona(abierta.subida_por)} {haceCuanto(abierta.subida)}
+          {abierta.confirmada_por ? ` y confirmada por ${persona(abierta.confirmada_por)}` : " y todavía sin confirmar"}.
           Si la grilla nueva es de esas mismas fechas, queda como versión corregida y te muestro qué cambió; si es de otra semana, la reemplaza.
           Lo corregido en la base se conserva siempre.
         </p>

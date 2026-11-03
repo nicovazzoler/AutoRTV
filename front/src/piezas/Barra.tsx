@@ -4,6 +4,7 @@ import { useSesion } from "../sesion";
 import { useTema } from "../tema";
 import { CambiarClave } from "./CambiarClave";
 import { Enlace } from "./Enlace";
+import { persona } from "../nombre";
 
 interface Props {
   destino: Destino;
@@ -37,7 +38,7 @@ export function Barra({ destino, ultimaSenal, alSalir }: Props) {
       <div className="barra-cuenta">
         <button type="button" className="cuenta-boton" aria-haspopup="menu" aria-expanded={abierto} onClick={() => setAbierto(!abierto)}>
           <span className="inicial" aria-hidden="true">{yo.usuario[0]?.toUpperCase()}</span>
-          <span className="cuenta-nombre"><b>{yo.usuario}</b></span>
+          <span className="cuenta-nombre"><b>{persona(yo.usuario)}</b></span>
         </button>
         {abierto && (
           <div className="menu-cuenta flotante" role="menu" aria-label="Tu cuenta">

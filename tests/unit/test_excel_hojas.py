@@ -63,3 +63,38 @@ def test_cada_titulo_en_su_columna_lleva_su_tarjeta_de_criterios():
     sembrada = asistente.con_criterios(receta, tabla, [asistente.Ejemplo("ej", tabla, ejemplo)], "ej")
     leidas = {(t.columna, t.programa, t.idioma) for t in sembrada.tarjetas}
     assert leidas == {("Nombre (English)", "TIT ING", "en"), ("Nombre (Español)", "TIT PRIN", "es")}
+
+
+def _con_portada(contenido: bytes) -> bytes:
+    from openpyxl import load_workbook
+    wb = load_workbook(io.BytesIO(contenido))
+    portada = wb.create_sheet("Portada", 0)
+    portada.append(["XT · Programación de octubre"])
+    portada.append([None])
+    portada.append(["Contacto", "Teléfono"])
+    portada.append(["Ana", "1234"])
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
+def test_una_portada_no_suma_filas():
+    contenido = _con_portada(_libro())
+    entrada = inputs.detectar(contenido)
+    tabla = inputs.leer(contenido, entrada)
+    assert tabla.attrs["hojas"] == 3 and len(tabla) == 9
+
+
+def test_una_senal_que_leia_una_hoja_pasa_a_leerlas_todas(cliente):
+    receta = {"id": "xt", "nombre": "XT", "entrada": {"tipo": "excel", "fila_encabezado": 3},
+              "salida": {"columnas": []}, "tarjetas": []}
+    cliente.put("/api/senales/xt", json=receta)
+    d = cliente.post("/api/senales/xt/abierta", files={"archivo": ("XT.xlsx", _libro())}).json()
+    assert d["lectura"]["hojas"] == 3 and d["resumen"]["filas"] == 9
+    assert (d["resumen"]["desde"], d["resumen"]["hasta"]) == ("2026-09-30", "2026-10-03")
+    assert cliente.get("/api/senales/xt").json()["entrada"]["todas_las_hojas"]
+
+
+def test_el_ejemplo_de_varias_hojas_carga_la_base_de_todas():
+    entrada = asistente.m.EntradaExcel(tipo="excel", fila_encabezado=3)
+    assert len(inputs.leer_ejemplo(_libro(), entrada)) == 9
