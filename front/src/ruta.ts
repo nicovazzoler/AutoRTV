@@ -28,6 +28,7 @@ export type Destino =
   | { pantalla: "login" }
   | { pantalla: "inicio"; nueva?: boolean }
   | { pantalla: "admin" }
+  | { pantalla: "historial" }
   | { pantalla: "semana"; senal: string }
   | { pantalla: "base"; senal: string | null; config: boolean };
 
@@ -43,6 +44,7 @@ export function rutaNueva(ruta: string): string | null {
 export function leerRuta(ruta: string): Destino {
   if (ruta === "/login") return { pantalla: "login" };
   if (ruta === "/admin") return { pantalla: "admin" };
+  if (ruta === "/historial") return { pantalla: "historial" };
   if (ruta === "/nueva") return { pantalla: "inicio", nueva: true };
   const semana = ruta.match(new RegExp(`^/s/${ID}/?$`));
   if (semana) return { pantalla: "semana", senal: semana[1] };

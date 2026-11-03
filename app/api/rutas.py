@@ -13,8 +13,8 @@ import pandas as pd
 from fastapi import APIRouter, Cookie, Depends, Header, File, Form, HTTPException, Query, Response, UploadFile
 from pydantic import BaseModel, TypeAdapter, ValidationError
 
-from app import (acciones, almacen, armados, auth, catalogo, conversaciones, corridas, export, fechar, inputs, parecidas,
-                 pautas, semana, semanas, tablas, web)
+from app import (acciones, almacen, armados, auth, catalogo, conversaciones, corridas, export, fechar, historial, inputs,
+                 parecidas, pautas, semana, semanas, tablas, web)
 from app.agent import asistente as asistente_ia
 from app.agent import banco, cliente, controles, lectura, uso
 from app.agent import parecidas as parecidas_ia
@@ -146,6 +146,20 @@ def borrar_usuario(usuario_id: int, yo: auth.Usuario = Depends(auth.solo_admin))
     return {"ok": True}
 
 
+# --- Historial ---
+
+@api.get("/historial")
+def ver_historial(usuario: str | None = None, u: auth.Usuario = Depends(auth.usuario_actual)):
+    """Las cargas de semana con lo que se cambió en cada una. Cada uno ve lo suyo; el admin, lo de todos o de quien elija."""
+    return historial.cargas(usuario if u.admin else u.usuario)
+
+
+@api.get("/historial/{senal_id}")
+def detalle_historial(senal_id: str, carga: str = "", usuario: str | None = None,
+                      u: auth.Usuario = Depends(auth.usuario_actual)):
+    return historial.detalle(senal_id, carga, usuario if u.admin else u.usuario)
+
+
 # --- Avisos al admin ---
 
 @api.get("/admin/avisos", dependencies=[Depends(auth.solo_admin)])
@@ -248,9 +262,11 @@ def guardar_senal(senal_id: str, receta: m.Senal, response: Response,
         raise HTTPException(409, f"{c.usuario} guardó cambios el {c.fecha:%d/%m a las %H:%M}")
     except ValueError as e:
         raise HTTPException(422, str(e))
-    if antes is not None and not u.admin and (cambios := asistente_ia.cambios(antes, receta)):
-        conversaciones.avisar(u.usuario, senal_id, "reglas",
-                              "; ".join(_frase_cambio(c) for c in cambios[:10]))
+    cambios = asistente_ia.cambios(antes, receta) if antes is not None else []
+    if cambios:
+        historial.anotar(senal_id, u.usuario, "reglas", [{"programa": _frase_cambio(c)} for c in cambios])
+    if cambios and not u.admin:
+        conversaciones.avisar(u.usuario, senal_id, "reglas", "; ".join(_frase_cambio(c) for c in cambios[:10]))
     return {"ok": True}
 
 
@@ -791,7 +807,13 @@ class EdicionVarias(Seleccion):
 @api.post("/senales/{senal_id}/pautas/editar-varias")
 def editar_varias(senal_id: str, datos: EdicionVarias, u: auth.Usuario = Depends(auth.usuario_actual)):
     valor = _convertir(datos.valor, datos.columna, catalogo.leer())
-    return {"editadas": pautas.editar_varias(senal_id, datos.resolver(senal_id), datos.columna, valor, u.usuario)}
+    hashes, base = datos.resolver(senal_id), pautas.base(senal_id)
+    editadas = pautas.editar_varias(senal_id, hashes, datos.columna, valor, u.usuario)
+    historial.anotar(senal_id, u.usuario, "base", [
+        {"pauta": h, "programa": _programa_de_pauta(base.get(h)), "columna": datos.columna,
+         "antes": base[h]["salida"].get(datos.columna), "despues": valor} for h in hashes if h in base])
+    _avisar_si_son_muchas(u, senal_id, editadas, f"cambió {datos.columna} en")
+    return {"editadas": editadas}
 
 
 @api.post("/senales/{senal_id}/pautas/olvidar-varias")
@@ -807,8 +829,13 @@ class EdicionPauta(BaseModel):
 def editar_pauta(senal_id: str, h: str, datos: EdicionPauta, u: auth.Usuario = Depends(auth.usuario_actual)):
     cat = catalogo.leer()
     salida = {c: _convertir(v, c, cat) if isinstance(v, str) else v for c, v in datos.salida.items()}
-    if not pautas.editar(senal_id, h, salida, u.usuario):
+    antes = pautas.leer(senal_id, h)
+    if antes is None or not pautas.editar(senal_id, h, salida, u.usuario):
         raise HTTPException(404, "No existe esa pauta")
+    historial.anotar(senal_id, u.usuario, "base", [
+        {"pauta": h, "programa": _programa_de_pauta({"salida": salida}), "columna": col,
+         "antes": antes["salida"].get(col), "despues": v}
+        for col, v in salida.items() if pautas.normalizar(v) != pautas.normalizar(antes["salida"].get(col))])
     return {"ok": True}
 
 
@@ -838,9 +865,12 @@ def _editar_celda(senal_id: str, c: Corrida, receta: m.Senal, fila: int, columna
     if not 0 <= fila < len(c.salida):
         raise HTTPException(422, "Esa fila no existe")
     salida = {col: pautas.valor_json(c.salida.iloc[fila][col]) for col in contenido}
+    antes = salida.get(columna)
     salida[columna] = _convertir(valor, columna, c.catalogo)
     h = c.hashes[fila]
     pautas.guardar(senal_id, {h: {"crudo": c.crudas[fila], "salida": salida}}, "editada", usuario, pisar=True)
+    historial.anotar(senal_id, usuario, "corregida", [{"pauta": h, "programa": salida.get(c.programa), "columna": columna,
+                                                       "antes": antes, "despues": salida[columna]}])
     return h
 
 
@@ -855,8 +885,12 @@ def _convertir(valor: str | None, columna: str, cat: list):
     return valor
 
 
-def _guardar_nuevas(senal_id: str, p: Pedido, usuario: str, solo: set[str] | None = None) -> int:
-    """Pasa a la base, como revisadas, las pautas nuevas de la grilla tal como las arman hoy las reglas."""
+def _guardar_nuevas(senal_id: str, p: Pedido, usuario: str, solo: set[str] | None = None,
+                    tipo: str | None = None) -> int:
+    """Pasa a la base, como revisadas, las pautas nuevas de la grilla tal como las arman hoy las reglas.
+
+    Con `tipo` ("aceptada" o "confirmada"), cada una queda en el historial.
+    """
     c = _correr(p)
     contenido = pautas.columnas_de_contenido(c.salida, p.senal.validaciones)
     nuevas = {}
@@ -865,7 +899,11 @@ def _guardar_nuevas(senal_id: str, p: Pedido, usuario: str, solo: set[str] | Non
         if estado == "nueva" and h not in nuevas and (solo is None or h in solo):
             nuevas[h] = {"crudo": c.crudas[i],
                          "salida": {col: pautas.valor_json(c.salida.iloc[i][col]) for col in contenido}}
-    return pautas.guardar(senal_id, nuevas, "revisada", usuario)
+    guardadas = pautas.guardar(senal_id, nuevas, "revisada", usuario)
+    if tipo:
+        historial.anotar(senal_id, usuario, tipo, [{"pauta": h, "programa": x["salida"].get(c.programa)}
+                                                   for h, x in nuevas.items()])
+    return guardadas
 
 
 @api.post("/senales/{senal_id}/pautas/revisar")
@@ -1193,7 +1231,7 @@ class Hashes(BaseModel):
 @api.post("/senales/{senal_id}/abierta/aceptar")
 def aceptar_abierta(senal_id: str, datos: Hashes, u: auth.Usuario = Depends(auth.usuario_actual)):
     receta, p = _pedido_abierta(senal_id)
-    _guardar_nuevas(senal_id, p, u.usuario, set(datos.hashes))
+    _guardar_nuevas(senal_id, p, u.usuario, set(datos.hashes), tipo="aceptada")
     return _semana_abierta(senal_id, receta)
 
 
@@ -1208,7 +1246,8 @@ def borrar_abierta(senal_id: str):
 @api.post("/senales/{senal_id}/abierta/confirmar")
 def confirmar_abierta(senal_id: str, u: auth.Usuario = Depends(auth.usuario_actual)):
     receta, p = _pedido_abierta(senal_id)
-    _guardar_nuevas(senal_id, p, u.usuario)
+    if not _guardar_nuevas(senal_id, p, u.usuario, tipo="confirmada"):
+        historial.anotar(senal_id, u.usuario, "confirmada", [{"programa": "Semana confirmada sin pautas nuevas"}])
     semanas.confirmar(senal_id, u.usuario)
     return _semana_abierta(senal_id, receta)
 
@@ -1306,7 +1345,19 @@ def aplicar_en_base(senal_id: str, cambios: list[CambioPauta], u: auth.Usuario =
     cat = catalogo.leer()
     lista = [(c.hash, c.columna, _convertir(c.valor, c.columna, cat) if isinstance(c.valor, str) else c.valor)
              for c in cambios]
-    return {"aplicadas": pautas.editar_celdas(senal_id, lista, u.usuario)}
+    base = pautas.base(senal_id)
+    aplicadas = pautas.editar_celdas(senal_id, lista, u.usuario)
+    historial.anotar(senal_id, u.usuario, "base", [
+        {"pauta": h, "programa": _programa_de_pauta(base.get(h)), "columna": col,
+         "antes": (base.get(h) or {}).get("salida", {}).get(col), "despues": v} for h, col, v in lista if h in base])
+    _avisar_si_son_muchas(u, senal_id, aplicadas, "corrigió de una vez en la Base")
+    return {"aplicadas": aplicadas}
+
+
+def _programa_de_pauta(pauta: dict | None):
+    """Para mostrar en el historial: el primer texto de la pauta (casi siempre el programa)."""
+    salida = (pauta or {}).get("salida", {})
+    return next((v for v in salida.values() if isinstance(v, str) and v.strip()), None)
 
 
 @api.post("/senales/{senal_id}/abierta/parecidas")
@@ -1336,12 +1387,26 @@ def aplicar_en_semana(senal_id: str, cambios: list[CambioFila], u: auth.Usuario 
             raise HTTPException(422, f"No se puede corregir {x.columna} en la fila {x.fila + 1}")
         valor = _convertir(x.valor, x.columna, c.catalogo) if isinstance(x.valor, str) else x.valor
         por_fila.setdefault(x.fila, {})[x.columna] = valor
-    nuevas = {}
+    nuevas, anotadas = {}, []
     for fila, valores in por_fila.items():
-        salida = {col: pautas.valor_json(c.salida.iloc[fila][col]) for col in contenido} | valores
+        antes = {col: pautas.valor_json(c.salida.iloc[fila][col]) for col in contenido}
+        salida = antes | valores
         nuevas[c.hashes[fila]] = {"crudo": c.crudas[fila], "salida": salida}
+        anotadas += [{"pauta": c.hashes[fila], "programa": salida.get(c.programa), "columna": col, "antes": antes.get(col),
+                      "despues": v} for col, v in valores.items()]
     pautas.guardar(senal_id, nuevas, "editada", u.usuario, pisar=True)
+    historial.anotar(senal_id, u.usuario, "corregida", anotadas)
+    _avisar_si_son_muchas(u, senal_id, len(nuevas), "corrigió de una vez")
     return {"aplicadas": len(nuevas)}
+
+
+# Más pautas que esto cambiadas de una sola vez por alguien que no es admin: le llega un aviso al admin.
+MUCHAS_PAUTAS = 20
+
+
+def _avisar_si_son_muchas(u: auth.Usuario, senal_id: str, cuantas: int, que: str) -> None:
+    if not u.admin and cuantas > MUCHAS_PAUTAS:
+        conversaciones.avisar(u.usuario, senal_id, "base", f"{que} {cuantas} pautas")
 
 
 # Hasta qué mes se repite la última semana: el de su último día, o también el siguiente.

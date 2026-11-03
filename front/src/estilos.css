@@ -632,3 +632,11 @@ body.ajustando-columna, body.ajustando-columna * { cursor: col-resize !important
 .recorrido-lista li[aria-current="true"] { background: color-mix(in srgb, var(--acento) 16%, transparent); }
 .recorrido-lista input { margin-top: 4px; width: 18px; height: 18px; accent-color: var(--acento); }
 .tachado { text-decoration: line-through; color: var(--tenue); }
+.lista-historial { margin: 0; padding: 0; list-style: none; border-top: 2px solid var(--texto); }
+.lista-historial > li { border-bottom: 1px solid var(--borde); }
+.fila-historial { display: grid; grid-template-columns: 1.2fr 1.3fr 1.4fr 0.8fr 1.6fr; gap: 12px; align-items: baseline; width: 100%;
+  padding: 14px 4px; border: 0; background: transparent; color: var(--texto); font: inherit; text-align: left; cursor: pointer; }
+.fila-historial:hover, .fila-historial[aria-expanded="true"] { background: color-mix(in srgb, var(--panel) 70%, transparent); }
+.detalle-historial { margin: 0 0 12px; padding: 0 12px; list-style: none; display: flex; flex-direction: column; gap: 8px; }
+.detalle-historial li { display: flex; flex-direction: column; gap: 2px; padding: 6px 0; border-bottom: 1px dashed var(--borde); }
+@media (max-width: 800px) { .fila-historial { grid-template-columns: 1fr; gap: 4px; } }

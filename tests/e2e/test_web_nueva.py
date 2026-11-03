@@ -150,7 +150,14 @@ def test_semana_de_punta_a_punta(servidor, tmp_path):
         pagina.get_by_role("link", name="Canal Demo").wait_for()
         assert pagina.locator(".fila-senal .pendiente").count() == 0
 
-        pagina.get_by_role("button", name="admin").click()
+        # Historial: la carga de la semana con lo aceptado y confirmado; al tocarla se ve el detalle.
+        pagina.get_by_role("navigation", name="Pantallas").get_by_role("link", name="Historial").click()
+        fila = pagina.locator(".fila-historial", has_text="1 aceptada")  # la v1: la v2 se confirmó sin aceptar nada
+        fila.get_by_text("Confirmada", exact=True).wait_for()
+        fila.click()
+        pagina.locator(".detalle-historial").get_by_text("Aceptó").first.wait_for()
+
+        pagina.locator(".cuenta-boton").click()
         pagina.get_by_role("menuitem", name="Pasar a tema claro").click()
         assert pagina.evaluate("document.documentElement.dataset.tema") == "claro"
         pagina.get_by_role("menuitem", name="Salir").click()

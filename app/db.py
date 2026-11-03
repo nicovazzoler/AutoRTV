@@ -205,6 +205,23 @@ avisos = Table(
     Column("visto", Boolean, nullable=False, default=False),
 )
 
+cambios = Table(
+    "cambios", metadata,  # el historial: qué cambió cada uno, carga por carga de la semana
+    Column("id", Integer, primary_key=True),
+    Column("usuario", String(100), nullable=False, index=True),
+    Column("fecha", DateTime, nullable=False, index=True),
+    Column("senal_id", String(64), nullable=False, index=True),
+    Column("carga", String(32)),  # tabla_id de la grilla abierta en ese momento
+    Column("desde", String(10)),
+    Column("hasta", String(10)),
+    Column("tipo", String(20), nullable=False),  # corregida | aceptada | confirmada | base | reglas
+    Column("pauta", String(16)),
+    Column("programa", Text),
+    Column("columna", String(100)),
+    Column("antes", JSON),
+    Column("despues", JSON),
+)
+
 _motores: dict[str, Engine] = {}
 
 
