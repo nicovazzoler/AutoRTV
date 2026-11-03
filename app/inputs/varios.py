@@ -50,7 +50,10 @@ def leer(contenido: bytes, entrada: m.EntradaVarios) -> pd.DataFrame:
     from app import inputs
 
     tablas = []
+    saltear = {n.strip().lower() for n in entrada.saltear}
     for nombre, datos in archivos(contenido):
+        if nombre.strip().lower() in saltear:
+            continue
         propia = entrada.cada_uno or inputs.detectar(datos)
         try:
             tablas.append(inputs.leer(datos, propia))

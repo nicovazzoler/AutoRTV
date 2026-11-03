@@ -496,6 +496,8 @@ def _armar_semana(c: Corrida, receta: m.Senal) -> dict:
         "contenido": contenido,
         "programa": c.programa,
         "criterios_en_prueba": confianza.sin_confianza(receta),
+        "faltan_horario": _faltan_horario(c.salida, receta),
+        "sin_reglas": not receta.tarjetas,
         "campos_clave": semana.campos_clave(contenido, c.programa),
         "revisar": revisar,
         "nuevas": nuevas,
@@ -617,7 +619,8 @@ def borrar_ejemplo(senal_id: str, nombre: str):
 
 
 @api.post("/senales/crear")
-async def crear_senal(nombre: str = Form(""), grilla_cruda: UploadFile = File(...), ejemplo: UploadFile | None = File(None),
+async def crear_senal(nombre: str = Form(""), grilla_cruda: UploadFile | None = File(None),
+                      grillas: list[UploadFile] | None = File(None), url: str = Form(""), ejemplo: UploadFile | None = File(None),
                       agregar_a: str | None = Form(None), confirmar: bool = Form(False),
                       u: auth.Usuario = Depends(auth.usuario_actual)):
     """Crea una señal a partir de la grilla como viene y el EPG terminado (macro hecha), si lo hay.
@@ -628,7 +631,7 @@ async def crear_senal(nombre: str = Form(""), grilla_cruda: UploadFile = File(..
     nombre = " ".join(nombre.split())
     if not agregar_a and not nombre:
         raise HTTPException(422, "Escribí el nombre de la señal")
-    crudo = await _leer_archivo(grilla_cruda)
+    crudo, nombre_grilla = await _grilla_que_vino(grilla_cruda, grillas or [], url)
     terminado = await _leer_archivo(ejemplo) if ejemplo else None
     if terminado is None and agregar_a:
         raise HTTPException(422, "Para sumar un ejemplo a una señal hace falta el EPG terminado")
@@ -644,7 +647,10 @@ async def crear_senal(nombre: str = Form(""), grilla_cruda: UploadFile = File(..
                 mensaje = (f'Ya existe la señal "{nombre}"' if identica
                            else f'Hay señales con un nombre parecido a "{nombre}"')
                 raise HTTPException(409, {"mensaje": mensaje, "parecidas": parecidas, "identica": identica})
-            receta = m.Senal(id=senal_id, nombre=nombre, entrada=_con_epg(_detectar(crudo), crudo),
+            entrada = _con_epg(_detectar(crudo), crudo)
+            if entrada.tipo == "html" and url.strip():
+                entrada = entrada.model_copy(update={"url": url.strip()})
+            receta = m.Senal(id=senal_id, nombre=nombre, entrada=entrada,
                              tarjetas=[], salida=m.Salida(columnas=[]))
             almacen.guardar(receta, u.usuario)
         existentes, base, n = set(almacen.listar_ejemplos(senal_id)), sello, 2
@@ -671,10 +677,27 @@ async def crear_senal(nombre: str = Form(""), grilla_cruda: UploadFile = File(..
                  "aviso": _aviso_sin_horario(agente) if _sin_horario(crudo, receta) else None,
                  "lectura_agente": agente}
     if not agregar_a and (terminado is None or _es_de_ahora(terminado, receta)):
-        semanas.abrir(senal_id, tabla_id, crudo, grilla_cruda.filename or "grilla", u.usuario, es_version=False)
+        semanas.abrir(senal_id, tabla_id, crudo, nombre_grilla, u.usuario, es_version=False)
         resultado["semana_abierta"] = True
     resultado["armando_reglas"] = _armar_si_no_tiene(senal_id, u.usuario)
     return resultado
+
+
+async def _grilla_que_vino(una: UploadFile | None, varias: list[UploadFile], url: str) -> tuple[bytes, str]:
+    """La grilla de una señal nueva: un archivo, varios que se leen juntos (o un zip), o la página bajada del link."""
+    if una is not None:
+        return await _leer_archivo(una), una.filename or "grilla"
+    if len(varias) == 1:
+        return await _leer_archivo(varias[0]), varias[0].filename or "grilla"
+    if varias:
+        contenido = inputs_varios.empaquetar([(a.filename or "archivo", await _leer_archivo(a)) for a in varias])
+        return contenido, f"{len(varias)} archivos ({', '.join(a.filename or '' for a in varias)})"[:200]
+    if url.strip():
+        try:
+            return web.bajar(url), url.strip()[:200]
+        except web.NoSePudo as e:
+            raise HTTPException(422, str(e))
+    raise HTTPException(422, "Subí la grilla como vino, o pegá su link")
 
 
 def _aviso_sin_horario(agente: dict | None) -> str:
@@ -1014,6 +1037,16 @@ def _abrir(receta: m.Senal, contenido: bytes, detectada, nombre: str, usuario: s
     aviso = fechar.aviso(inputs.leer(contenido, nueva.entrada), fechas["desde"], fechas["hasta"])
     return {**abierta, "armando_reglas": _armar_si_no_tiene(receta.id, usuario), "lectura_agente": agente,
             "aviso_fechas": aviso}
+
+
+NOMBRES_HORARIO = {"fecha": "fecha", "hora": "hora", "duracion": "duración"}
+
+
+def _faltan_horario(salida: pd.DataFrame, receta: m.Senal) -> list[str]:
+    """Qué le falta al EPG para validar horarios (fecha, hora, duración): lo tienen que armar las reglas."""
+    cols = grilla.detectar_columnas(list(salida.columns), receta.validaciones)
+    cols = {**pautas.columnas_por_tipo(salida), **{k: v for k, v in cols.items() if v}}
+    return [NOMBRES_HORARIO[k] for k in NOMBRES_HORARIO if not cols.get(k) or cols[k] not in salida.columns]
 
 
 def _fechas(salida: pd.DataFrame, receta: m.Senal) -> dict:

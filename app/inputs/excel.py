@@ -8,7 +8,7 @@ from typing import BinaryIO
 import pandas as pd
 
 from app.engine import model as m
-from app.inputs.pdf import DIAS, _plano, fecha_de
+from app.inputs.pdf import DIAS, _plano, dia_de, dia_siguiente, fecha_de
 
 ANIO = re.compile(r"\b(19|20)\d{2}\b")
 
@@ -20,15 +20,33 @@ def leer(origen: str | Path | BinaryIO, entrada: m.EntradaExcel) -> pd.DataFrame
     """
     if isinstance(origen, (bytes, bytearray)):
         origen = io.BytesIO(origen)
-    hojas = pd.read_excel(origen, sheet_name=None if entrada.todas_las_hojas else entrada.hoja,
-                          header=entrada.fila_encabezado - 1, dtype=object)
-    tablas = _de_programacion(list(hojas.values())) if isinstance(hojas, dict) else [hojas]
+    cuales = entrada.hojas or (None if entrada.todas_las_hojas else entrada.hoja)
+    hojas = pd.read_excel(origen, sheet_name=cuales, header=entrada.fila_encabezado - 1, dtype=object)
+    if isinstance(hojas, dict):
+        saltear = {str(h).strip().lower() for h in entrada.saltear_hojas}
+        hojas = {n: t for n, t in hojas.items() if str(n).strip().lower() not in saltear}
+        tablas = _de_programacion(list(hojas.values()))
+        nombres = [n for n, t in hojas.items() if any(t is x for x in tablas)]
+    else:
+        nombres, tablas = [entrada.hoja], [hojas]
     tablas = [_limpia(t) for t in _mismas_columnas(tablas)]
+    salteadas = []
     if entrada.filas_de_fecha is not False:
-        tablas = [_con_filas_de_fecha(t, forzar=entrada.filas_de_fecha is True) for t in tablas]
+        leidas, ultima = [], None
+        for nombre, t in zip(nombres, tablas):
+            # Una hoja que no se puede leer no tira abajo las demás: se saltea y queda anotada.
+            try:
+                t, ultima = _con_filas_de_fecha(t, forzar=entrada.filas_de_fecha is True, previa=ultima)
+                leidas.append(t)
+            except Exception as e:
+                salteadas.append(f"{nombre} ({e})")
+        tablas = leidas
+    if not tablas:
+        raise ValueError("No se pudo leer ninguna hoja: " + "; ".join(salteadas))
     df = pd.concat(tablas, ignore_index=True) if len(tablas) > 1 else tablas[0]
     df = df.astype(object).where(df.notna(), None)
     df.attrs["hojas"] = len(tablas)
+    df.attrs["salteadas"] = salteadas
     return df
 
 
@@ -83,15 +101,17 @@ def _texto_de(fila) -> str:
     return " ".join(str(v) for v in fila if v is not None)
 
 
-def _con_filas_de_fecha(df: pd.DataFrame, forzar: bool = False) -> pd.DataFrame:
+def _con_filas_de_fecha(df: pd.DataFrame, forzar: bool = False, previa: dt.date | None = None
+                        ) -> tuple[pd.DataFrame, dt.date | None]:
     """Agrega la Fecha de cada programa desde las filas sueltas que la dicen, y saca las filas que no son programas
     (sin hora de inicio, como "Intermedio", o sin ningún texto). Si la tabla ya trae fecha o no hay filas de fecha,
-    queda como vino."""
+    queda como vino. `previa` es la última fecha de la hoja anterior; devuelve la última de esta."""
     inicio = _columna_de_inicio(df)
     con_fecha = any(sum(map(_es_fecha, (v for v in df[c] if v is not None))) > len(df) / 2 for c in df.columns)
     if inicio is None or (con_fecha and not forzar):
-        return df
+        return df, previa
     fechas, filas, fecha, anterior, anio = [], [], None, None, None
+    ultima = previa
     for i, fila in enumerate(df.itertuples(index=False)):
         valores = list(fila)
         if valores[df.columns.get_loc(inicio)] is None:
@@ -102,8 +122,12 @@ def _con_filas_de_fecha(df: pd.DataFrame, forzar: bool = False) -> pd.DataFrame:
                 continue
             nueva = next((v.date() if isinstance(v, (dt.datetime, pd.Timestamp)) else v
                           for v in valores if _es_fecha(v)), None) or fecha_de(texto, anio or dt.date.today().year)
+            dia = dia_de(texto)
+            # "SÁBADO 31 NOVIEMBRE" no existe: es el día que sigue al anterior (el próximo sábado).
+            if nueva is None and dia is not None and re.search(r"\d", texto) and (fecha or ultima):
+                nueva = dia_siguiente(fecha or ultima, dia)
             if nueva:
-                fecha, anterior = nueva, None
+                fecha, anterior, ultima = nueva, None, nueva
             continue
         if not any(isinstance(v, str) and re.search(r"[^\W\d_]", v) for v in valores):
             continue  # la fila que cierra el día: solo horas
@@ -115,10 +139,10 @@ def _con_filas_de_fecha(df: pd.DataFrame, forzar: bool = False) -> pd.DataFrame:
         fechas.append(dt.datetime.combine(fecha, dt.time()) if fecha else None)
         filas.append(i)
     if not any(fechas):
-        return df
+        return df, previa
     salida = df.iloc[filas].reset_index(drop=True)
     salida.insert(0, "Fecha", fechas)
-    return salida
+    return salida, (fecha or ultima)
 
 
 def hojas_de_programacion(contenido: bytes) -> tuple[int, int] | None:
@@ -136,6 +160,10 @@ def hojas_de_programacion(contenido: bytes) -> tuple[int, int] | None:
     mejor = max(range(len(encabezados)), key=lambda i: sum(iguales[i]))
     cuantas = sum(iguales[mejor])
     if cuantas < max(2, len(encabezados) * 0.6):
+        return None
+    # Varias hojas iguales sin horas (un índice, notas) no son la programación.
+    muestra = _limpia(pd.read_excel(libro, sheet_name=libro.sheet_names[mejor], header=filas[mejor] - 1, dtype=object))
+    if _columna_de_inicio(muestra) is None:
         return None
     return filas[mejor], cuantas
 

@@ -15,14 +15,19 @@ from app.agent import cliente, controles
 from app.agent.cliente import Proveedor
 from app.engine import model as m
 
-MAX_VUELTAS = 2
+MAX_VUELTAS = 3
+FILAS_MUESTRA = 8
 FILAS_VISTA = 40
 COLUMNAS_VISTA = 15
 MAX_TEXTO = 6000
+MAX_HOJAS_MAPA = 31
+FILAS_MAPA = 5
+FILAS_HOJA_PEDIDA = 120
 ENTRADA = TypeAdapter(m.Entrada)
 FORMATO = {
     "type": "object",
-    "properties": {"explicacion": {"type": "string"}, "entrada_json": {"type": "string"}},
+    "properties": {"explicacion": {"type": "string"}, "entrada_json": {"type": "string"},
+                   "ver_hoja": {"type": "string"}},
     "required": ["explicacion", "entrada_json"],
     "additionalProperties": False,
 }
@@ -64,20 +69,72 @@ def _celda(v) -> str:
     return " ".join(str(v).split())[:80]
 
 
-def _vista_excel(contenido: bytes) -> str:
-    from app.inputs import cuadricula
-
-    celdas, combinadas = cuadricula._celdas(contenido, 0)
+def _filas(celdas: list[list], filas_max: int, ancho_max: int = 0) -> list[str]:
     filas = []
-    for r, fila in enumerate(celdas[:FILAS_VISTA]):
+    for r, fila in enumerate(celdas):
         valores = [f"{_letra(c)}={_celda(v)}" for c, v in enumerate(fila[:COLUMNAS_VISTA]) if v not in (None, "")]
         if valores:
-            filas.append(f"Fila {r + 1}: " + " | ".join(valores))
-    rangos = [f"{_letra(c0)}{r0 + 1}:{_letra(c1 - 1)}{r1}" for r0, r1, c0, c1 in combinadas if r0 < FILAS_VISTA]
-    hojas = pd.ExcelFile(io.BytesIO(contenido)).sheet_names
-    return (f"Excel con {len(hojas)} hojas: {', '.join(hojas[:40])}.\n"
-            "Primera hoja. Celdas con valor (columna=valor):\n" + "\n".join(filas)
-            + "\n\nCeldas combinadas: " + (", ".join(rangos[:120]) or "ninguna"))
+            texto = f"Fila {r + 1}: " + " | ".join(valores)
+            filas.append(texto[:ancho_max] if ancho_max else texto)
+        if len(filas) == filas_max:
+            break
+    return filas
+
+
+def _vista_hoja(celdas: list[list], combinadas: list[tuple], filas_max: int) -> str:
+    rangos = [f"{_letra(c0)}{r0 + 1}:{_letra(c1 - 1)}{r1}" for r0, r1, c0, c1 in combinadas if r0 < filas_max]
+    return ("\n".join(_filas(celdas[:filas_max], filas_max))
+            + "\nCeldas combinadas: " + (", ".join(rangos[:120]) or "ninguna"))
+
+
+def _hoja_detectada(contenido: bytes) -> int:
+    try:
+        hoja = getattr(inputs.detectar(contenido), "hoja", 0)
+    except Exception:
+        return 0
+    return hoja if isinstance(hoja, int) else 0
+
+
+def _vista_excel(contenido: bytes) -> str:
+    """Un mapa de todas las hojas y, completa, la que el código cree que es la grilla."""
+    from app.inputs import cuadricula
+
+    nombres = pd.ExcelFile(io.BytesIO(contenido)).sheet_names
+    hojas = cuadricula.todas_las_celdas(contenido, MAX_HOJAS_MAPA)
+    mapa = []
+    for i, (nombre, celdas, _) in enumerate(hojas):
+        ancho = max((len(f) for f in celdas), default=0)
+        comienzo = _filas(celdas, FILAS_MAPA, ancho_max=300)
+        mapa.append(f"[{i}] {nombre} ({len(celdas)} filas × {ancho} columnas)\n  "
+                    + ("\n  ".join(comienzo) or "(vacía)"))
+    if len(nombres) > MAX_HOJAS_MAPA:
+        mapa.append(f"…y {len(nombres) - MAX_HOJAS_MAPA} hojas más: {', '.join(nombres[MAX_HOJAS_MAPA:][:60])}")
+    elegida = min(_hoja_detectada(contenido), len(hojas) - 1)
+    nombre, celdas, combinadas = hojas[elegida]
+    return (f"Excel con {len(nombres)} hojas. Mapa (número, nombre, tamaño y primeras filas con valor):\n"
+            + "\n".join(mapa)
+            + f"\n\nLa hoja [{elegida}] {nombre} parece la grilla. Celdas con valor (columna=valor):\n"
+            + _vista_hoja(celdas, combinadas, FILAS_VISTA)
+            + "\n\nSi la grilla está en otra hoja, pedila con ver_hoja.")
+
+
+def _hoja_pedida(contenido: bytes, pedida: str) -> str:
+    """La hoja entera (hasta FILAS_HOJA_PEDIDA filas) que pidió el agente, por número o por nombre."""
+    from app.inputs import cuadricula
+
+    nombres = pd.ExcelFile(io.BytesIO(contenido)).sheet_names
+    pedida = pedida.strip()
+    if pedida.isdigit() and int(pedida) < len(nombres):
+        i = int(pedida)
+    else:
+        coinciden = [i for i, n in enumerate(nombres) if n.strip().lower() == pedida.lower()]
+        if not coinciden:
+            return f"No hay una hoja «{pedida}». Las hojas son: " + ", ".join(f"[{i}] {n}" for i, n in enumerate(nombres[:60]))
+        i = coinciden[0]
+    celdas, combinadas = cuadricula._celdas(contenido, i)
+    return (f"Hoja [{i}] {nombres[i]} ({len(celdas)} filas). Celdas con valor (columna=valor):\n"
+            + _vista_hoja(celdas, combinadas, FILAS_HOJA_PEDIDA)
+            + "\n\nAhora devolvé la configuración completa en entrada_json (o pedí otra hoja con ver_hoja).")
 
 
 def _vista_pdf(contenido: bytes) -> str:
@@ -99,6 +156,13 @@ def _vista_texto(contenido: bytes) -> str:
     return re.sub(r"\s+", " ", texto)[:MAX_TEXTO]
 
 
+def _es_excel(contenido: bytes) -> bool:
+    from app.inputs import varios, word
+
+    return (contenido.startswith(b"PK") and not varios.es_zip_suelto(contenido) and not word.es_word(contenido)) \
+        or contenido.startswith(b"\xd0\xcf\x11\xe0")
+
+
 def vista_cruda(contenido: bytes) -> str:
     """El comienzo del archivo tal como vino, en texto, para que el agente vea su forma."""
     from app.inputs import varios, word
@@ -111,7 +175,7 @@ def vista_cruda(contenido: bytes) -> str:
                 + (vista_cruda(lista[0][1]) if lista else "(vacío)"))
     if word.es_word(contenido):
         return "Word (.docx), sus tablas o su texto:\n" + word.leer(contenido, m.EntradaWord(tipo="word")).head(FILAS_VISTA).to_string()[:MAX_TEXTO]
-    if contenido.startswith(b"PK") or contenido.startswith(b"\xd0\xcf\x11\xe0"):
+    if _es_excel(contenido):
         return _vista_excel(contenido)
     if contenido.startswith(b"%PDF"):
         return _vista_pdf(contenido)
@@ -131,7 +195,14 @@ def _probar(contenido: bytes, datos: dict | None, esperado: pd.DataFrame | None)
     except Exception as e:
         return entrada.model_dump(exclude_defaults=True), None, [f"El lector falló con esa configuración: {e}"]
     medida = controles.lectura(tabla, esperado)
-    return entrada.model_dump(exclude_defaults=True), medida, controles.problemas_de_lectura(medida)
+    problemas = controles.problemas_de_lectura(medida)
+    if problemas:
+        # Con el % solo no se sabe qué corregir: el agente ve lo que salió de verdad con su configuración.
+        problemas.append(f"Así salieron las primeras filas ({len(tabla)} en total, columnas {list(map(str, tabla.columns))}):\n"
+                         + tabla.head(FILAS_MUESTRA).to_string(max_colwidth=40)[:2500])
+        if salteadas := tabla.attrs.get("salteadas"):
+            problemas.append("Hojas que no se pudieron leer y se saltearon: " + "; ".join(salteadas)[:800])
+    return entrada.model_dump(exclude_defaults=True), medida, problemas
 
 
 def proponer(contenido: bytes, proveedor: Proveedor, modelo: str, esperado: pd.DataFrame | None = None,
@@ -152,6 +223,11 @@ def proponer(contenido: bytes, proveedor: Proveedor, modelo: str, esperado: pd.D
         if r.rechazo:
             resultado.problemas = [f"El agente no quiso responder ({r.rechazo})."]
             return resultado
+        if (pedida := str((r.datos or {}).get("ver_hoja") or "").strip()) and _es_excel(contenido):
+            resultado.problemas = [f"Pidió ver la hoja {pedida} y no llegó a proponer una lectura."]
+            mensajes += [{"role": "assistant", "content": r.texto or "(respuesta vacía)"},
+                         {"role": "user", "content": _hoja_pedida(contenido, pedida)}]
+            continue
         entrada, medida, problemas = _probar(contenido, r.datos, esperado)
         resultado.entrada, resultado.medida, resultado.problemas = entrada, medida, problemas
         resultado.explicacion = (r.datos or {}).get("explicacion", "")

@@ -86,3 +86,19 @@ def test_un_archivo_de_sinopsis_se_cruza_con_la_grilla_por_titulo():
     contenido = varios.empaquetar([("grilla.xlsx", grilla), ("sinopsis.xlsx", sinopsis)])
     leida = inputs.leer(contenido, inputs.detectar(contenido))
     assert len(leida) == 4 and leida["Sinopsis"].tolist() == ["El día.", "Películas.", "Para chicos.", "El día."]
+
+
+def test_agregar_una_senal_con_varios_archivos_o_con_el_link(cliente, monkeypatch):
+    from app import web
+    from tests.unit.test_epg_crudo import _own
+    grillas = [("grillas", ("lunes.xlsx", _dia(dt.datetime(2026, 11, 2), "Lunes"))),
+               ("grillas", ("martes.xlsx", _dia(dt.datetime(2026, 11, 3), "Martes")))]
+    r = cliente.post("/api/senales/crear", files=grillas, data={"nombre": "Dos Archivos"}).json()
+    semana = cliente.get("/api/senales/dos-archivos/abierta").json()
+    assert r["sin_ejemplo"] and semana["resumen"]["filas"] == 4 and semana["semana"]["nombre"].startswith("2 archivos")
+    assert semana["sin_reglas"] and semana["faltan_horario"] == ["duración"]  # el agente se abre a armarla
+
+    monkeypatch.setattr(web, "bajar", lambda url: _own())
+    assert cliente.post("/api/senales/crear", data={"nombre": "Por Link", "url": "https://canal.example/grilla"}).status_code == 200
+    assert cliente.get("/api/senales/por-link").json()["entrada"]["url"] == "https://canal.example/grilla"
+    assert cliente.post("/api/senales/crear", data={"nombre": "Nada"}).status_code == 422

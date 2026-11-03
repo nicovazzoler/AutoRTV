@@ -65,9 +65,36 @@ def con_todas_las_hojas(entrada, detectada):
     return entrada
 
 
+MAX_HOJAS_A_MIRAR = 31
+
+
+def _hoja_con_la_grilla(contenido: bytes) -> m.EntradaExcel:
+    """La grilla puede no estar en la primera hoja (portada, instructivo, otras señales): la primera que sea una
+    cuadrícula o una tabla con fecha y hora. Si ninguna, la primera, como siempre."""
+    from app.inputs import cuadricula, excel
+    from app.pautas import tiene_horario
+
+    try:
+        nombres = pd.ExcelFile(io.BytesIO(contenido)).sheet_names
+    except Exception:
+        nombres = [0]
+    for i in range(1, min(len(nombres), MAX_HOJAS_A_MIRAR)):
+        if cuadricula.es_cuadricula(contenido, i):
+            return m.EntradaExcel(tipo="excel", cuadricula=True, hoja=i)
+    for i in range(min(len(nombres), MAX_HOJAS_A_MIRAR)):
+        entrada = m.EntradaExcel(tipo="excel", hoja=i, fila_encabezado=excel.detectar_fila_encabezado(io.BytesIO(contenido), i))
+        try:
+            if tiene_horario(excel.leer(io.BytesIO(contenido), entrada)):
+                return entrada
+        except Exception:
+            continue
+    return m.EntradaExcel(tipo="excel", fila_encabezado=excel.detectar_fila_encabezado(io.BytesIO(contenido)))
+
+
 def mismo_formato(a, b) -> bool:
-    """Mismo tipo y, en Excel, la misma forma (tabla común o cuadrícula)."""
-    return a.tipo == b.tipo and getattr(a, "cuadricula", False) == getattr(b, "cuadricula", False)
+    """Mismo tipo y, en Excel, la misma forma (tabla común o cuadrícula) en la misma hoja."""
+    return (a.tipo == b.tipo and getattr(a, "cuadricula", False) == getattr(b, "cuadricula", False)
+            and getattr(a, "hoja", 0) == getattr(b, "hoja", 0))
 
 
 def detectar(contenido: bytes):
@@ -87,7 +114,7 @@ def detectar(contenido: bytes):
             return m.EntradaExcel(tipo="excel", cuadricula=True)
         if varias := excel.hojas_de_programacion(contenido):
             return m.EntradaExcel(tipo="excel", fila_encabezado=varias[0], todas_las_hojas=True)
-        return m.EntradaExcel(tipo="excel", fila_encabezado=excel.detectar_fila_encabezado(io.BytesIO(contenido)))
+        return _hoja_con_la_grilla(contenido)
     inicio = texto.decodificar(contenido[:4000]).lstrip().lower()
     if inicio.startswith("<?xml") or "<programme" in inicio or inicio.startswith("<tv"):
         return m.EntradaXml(tipo="xml")

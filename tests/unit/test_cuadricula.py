@@ -252,3 +252,32 @@ def test_crear_una_senal_con_una_grilla_sin_fecha_ni_hora_avisa(cliente):
     r = cliente.post("/api/senales/crear", files=archivos, data={"nombre": "Rara"})
     assert r.status_code == 200, r.text
     assert "No encontré la fecha y la hora" in r.json()["aviso"]
+
+
+def test_la_cuadricula_puede_estar_en_otra_hoja():
+    from openpyxl import load_workbook
+    wb = load_workbook(io.BytesIO(_por_programa()))
+    for i, titulo in enumerate(["Índice", "Otra señal", "Notas"]):
+        hoja = wb.create_sheet(titulo, i)
+        hoja.append(["Programación de las señales del grupo"])
+        hoja.append(["Ver la última hoja"])
+    buf = io.BytesIO()
+    wb.save(buf)
+    contenido = buf.getvalue()
+    entrada = inputs.detectar(contenido)
+    assert entrada.cuadricula and entrada.hoja == 3
+    assert inputs.leer(contenido, entrada).equals(cuadricula.leer(_por_programa()))
+
+
+def test_una_tabla_con_fecha_y_hora_en_otra_hoja():
+    from openpyxl import Workbook
+    wb = Workbook()
+    wb.active.append(["Portada"])
+    hoja = wb.create_sheet("Grilla")
+    hoja.append(["Fecha", "Hora", "Programa"])
+    hoja.append([dt.datetime(2026, 11, 2), dt.time(6), "Noticias"])
+    hoja.append([dt.datetime(2026, 11, 2), dt.time(7), "Cine"])
+    buf = io.BytesIO()
+    wb.save(buf)
+    entrada = inputs.detectar(buf.getvalue())
+    assert entrada.hoja == 1 and len(inputs.leer(buf.getvalue(), entrada)) == 2

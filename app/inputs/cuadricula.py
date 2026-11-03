@@ -61,6 +61,21 @@ def _celdas_xlsx(contenido: bytes, hoja) -> tuple[list[list], list[tuple]]:
     return celdas, combinadas
 
 
+def todas_las_celdas(contenido: bytes, maximo: int) -> list[tuple[str, list[list], list[tuple]]]:
+    """(nombre, celdas, combinadas) de las primeras `maximo` hojas, abriendo el libro una sola vez."""
+    if contenido.startswith(b"PK"):
+        from openpyxl import load_workbook
+
+        libro = load_workbook(io.BytesIO(contenido), data_only=True)
+        return [(h.title, [list(f) for f in h.iter_rows(values_only=True)],
+                 [(r.min_row - 1, r.max_row, r.min_col - 1, r.max_col) for r in h.merged_cells.ranges])
+                for h in libro.worksheets[:maximo]]
+    import xlrd
+
+    libro = xlrd.open_workbook(file_contents=contenido, formatting_info=True)
+    return [(nombre, *_celdas_xls(contenido, i)) for i, nombre in enumerate(libro.sheet_names()[:maximo])]
+
+
 def _celdas(contenido: bytes, hoja) -> tuple[list[list], list[tuple]]:
     """Valores de la hoja y bloques combinados (fila desde, fila hasta, col desde, col hasta; el hasta no entra)."""
     if contenido.startswith(b"PK"):

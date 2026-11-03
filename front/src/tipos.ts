@@ -76,6 +76,8 @@ export interface SemanaAbierta {
   aviso_fechas?: AvisoFechas | null;
   propuestas_reglas?: number;
   criterios_en_prueba?: boolean;
+  faltan_horario?: string[];
+  sin_reglas?: boolean;
 }
 
 /** Una grilla semanal sin fechas, o con fechas viejas: la persona elige desde qué lunes va. */

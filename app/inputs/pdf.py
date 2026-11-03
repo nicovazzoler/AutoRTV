@@ -68,14 +68,26 @@ def dia_de(texto) -> int | None:
 
 
 def fecha_de(texto, anio: int | None) -> dt.date | None:
+    """La fecha escrita en el texto, o None si no hay o no existe ("31 NOVIEMBRE")."""
     t = _plano(texto or "")
-    if g := re.search(r"(\d{1,2})/(\d{1,2})/(\d{4})", t):
-        return dt.date(int(g[3]), int(g[2]), int(g[1]))
-    if anio and (g := re.search(r"\b(\d{1,2})/(\d{1,2})\b", t)):
-        return dt.date(anio, int(g[2]), int(g[1]))
-    if anio and (g := re.search(r"(\d{1,2})\s*[-/ de]*\s*([a-z]{3})", t)) and g[2] in MESES:
-        return dt.date(anio, MESES[g[2]], int(g[1]))
+    try:
+        if g := re.search(r"(\d{1,2})/(\d{1,2})/(\d{4})", t):
+            return dt.date(int(g[3]), int(g[2]), int(g[1]))
+        if anio and (g := re.search(r"\b(\d{1,2})/(\d{1,2})\b", t)):
+            return dt.date(anio, int(g[2]), int(g[1]))
+        if anio and (g := re.search(r"(\d{1,2})\s*[-/ de]*\s*([a-z]{3})", t)) and g[2] in MESES:
+            return dt.date(anio, MESES[g[2]], int(g[1]))
+    except ValueError:
+        return None
     return None
+
+
+def dia_siguiente(anterior: dt.date, dia_semana: int | None) -> dt.date:
+    """Para una fecha que no se pudo leer: el día que sigue a `anterior` o, si se sabe qué día de la semana es, el
+    primero con ese nombre desde `anterior` (puede ser el mismo: la hoja nueva arranca el día que terminó la anterior)."""
+    if dia_semana is None:
+        return anterior + dt.timedelta(days=1)
+    return anterior + dt.timedelta(days=(dia_semana - anterior.weekday()) % 7)
 
 
 def _lunes_de_semana(texto: str) -> dt.date | None:

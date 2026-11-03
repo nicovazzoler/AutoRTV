@@ -45,12 +45,13 @@ def test_propuesta_invalida_se_corrige_en_la_segunda_vuelta():
     assert proveedor.modelos == ["claude-haiku-5-5", "claude-haiku-5-5"]
 
 
-def test_lectura_que_no_trae_horario_vuelve_con_el_problema():
+def test_lectura_que_no_trae_horario_vuelve_con_el_problema_y_lo_que_salio():
     como_tabla_comun = {"tipo": "excel", "fila_encabezado": 2}
     proveedor = cliente.Grabado([_respuesta(como_tabla_comun)])
     p = lectura.proponer(_por_programa(), proveedor, "claude-haiku-5-5", _ejemplo())
     assert not p.logrado and p.vueltas == lectura.MAX_VUELTAS
     assert any("fecha y hora" in x for x in p.problemas)
+    assert "Así salieron las primeras filas" in proveedor.pedidos[1][-1]["content"]  # ve lo que leyó, no solo el %
 
 
 def test_el_control_tolera_la_zona_horaria_y_cuenta_solo_los_dias_de_la_grilla():
@@ -127,7 +128,7 @@ def test_el_aviso_queda_solo_si_el_agente_tampoco_las_encuentra(cliente, monkeyp
     _senal(cliente)
     d = cliente.post("/api/senales/canal/abierta", files={"archivo": ("g.xlsx", _cuadricula_escondida())}).json()
     assert not d["lectura_agente"]["logrado"] and "fecha y hora" in " ".join(d["lectura_agente"]["problemas"])
-    assert proveedor.modelos == [cliente_mod.MODELO] * 2 + [cliente_mod.MODELO_FUERTE] * 2  # Haiku y después Sonnet
+    assert proveedor.modelos == [cliente_mod.MODELO] * 3 + [cliente_mod.MODELO_FUERTE] * 3  # Haiku y después Sonnet
 
 
 def test_al_crear_la_senal_el_agente_lee_la_grilla_antes_de_cargar_la_base(cliente, monkeypatch):
@@ -148,3 +149,41 @@ def test_sin_agente_el_aviso_lo_dice(cliente):
     r = cliente.post("/api/senales/crear", files={"grilla_cruda": ("g.xlsx", excel(tabla)), "ejemplo": ("e.xlsx", excel(tabla))},
                      data={"nombre": "Canal"}).json()
     assert "el agente tampoco" in r["aviso"] and "no está configurado" in r["aviso"]
+
+
+def _libro_con_la_grilla_al_final() -> bytes:
+    """8 hojas: 7 de notas y la grilla en la última, que la detección del código encuentra."""
+    import io
+    from openpyxl import Workbook
+    wb = Workbook()
+    wb.active.title = "Portada"
+    wb.active["A1"] = "Canal Ágape"
+    for i in range(1, 7):
+        wb.create_sheet(f"Notas {i}")["A1"] = f"nota {i}"
+    ws = wb.create_sheet("Grilla")
+    ws.append(["Fecha", "Hora", "Programa"])
+    for hora, titulo in [(6, "Noticias"), (7, "Cocina"), (8, "Cine")]:
+        ws.append([dt.datetime(2026, 11, 2), dt.time(hora), titulo])
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
+def test_el_mapa_lista_todas_las_hojas_y_muestra_completa_la_de_la_grilla():
+    vista = lectura.vista_cruda(_libro_con_la_grilla_al_final())
+    assert "Excel con 8 hojas" in vista
+    assert all(f"[{i}] " in vista for i in range(8)) and "Fila 1: A=nota 6" in vista
+    assert "La hoja [7] Grilla parece la grilla" in vista and "Fila 4: A=2026-11-02 | B=08:00 | C=Cine" in vista
+
+
+def test_el_agente_pide_una_hoja_y_despues_propone_leerla():
+    contenido = _libro_con_la_grilla_al_final()
+    proveedor = cliente.Grabado([{"explicacion": "Quiero ver la hoja 7.", "entrada_json": "", "ver_hoja": "7"},
+                                 _respuesta({"tipo": "excel", "hoja": 7, "fila_encabezado": 1})])
+    p = lectura.proponer(contenido, proveedor, "claude-haiku-5-5")
+    assert p.logrado and p.vueltas == 2 and p.entrada["hoja"] == 7
+    assert "Hoja [7] Grilla (4 filas)" in proveedor.pedidos[1][-1]["content"]
+
+
+def test_una_hoja_que_no_existe_vuelve_con_la_lista():
+    assert "Las hojas son: [0] Portada" in lectura._hoja_pedida(_libro_con_la_grilla_al_final(), "Semana")
