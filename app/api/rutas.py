@@ -1110,10 +1110,10 @@ def _fechas(salida: pd.DataFrame, receta: m.Senal) -> dict:
            or pautas.columnas_por_tipo(salida).get("fecha"))
     if not col or col not in salida.columns:
         return {"desde": None, "hasta": None}
-    fechas = pd.to_datetime(salida[col], errors="coerce", dayfirst=True).dropna()
-    if fechas.empty:
+    fechas = [f for v in salida[col] if (f := a_fecha(v))]
+    if not fechas:
         return {"desde": None, "hasta": None}
-    return {"desde": fechas.min().date().isoformat(), "hasta": fechas.max().date().isoformat()}
+    return {"desde": min(fechas).isoformat(), "hasta": max(fechas).isoformat()}
 
 
 def _semana_abierta(senal_id: str, receta: m.Senal) -> dict:
