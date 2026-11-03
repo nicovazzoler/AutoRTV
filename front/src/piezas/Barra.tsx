@@ -27,6 +27,7 @@ export function Barra({ destino, ultimaSenal, alSalir }: Props) {
   const pestanas = [
     { id: "inicio", nombre: "Inicio", a: "/", cuenta: pendientes || "" },
     { id: "base", nombre: "Base", a: ultimaSenal ? `/base/${ultimaSenal}` : "/base", cuenta: "" },
+    { id: "historial", nombre: "Historial", a: "/historial", cuenta: "" },
   ];
   const actual = destino.pantalla === "semana" ? "inicio" : destino.pantalla;
 

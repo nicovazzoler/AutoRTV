@@ -5,6 +5,7 @@ import { ContextoSesion, type Sesion } from "./sesion";
 import type { Inicio as DatosInicio, MetaSemana, Yo } from "./tipos";
 import { Barra } from "./piezas/Barra";
 import { Agente } from "./piezas/Agente";
+import { Historial } from "./pantallas/Historial";
 import { Login } from "./pantallas/Login";
 import { Inicio } from "./pantallas/Inicio";
 import { Semana } from "./pantallas/Semana";
@@ -97,6 +98,7 @@ export function App() {
         {destino.pantalla === "base" && !destino.config && <Base key={`${senalBase}-${revision}`} senalId={senalBase} />}
         {destino.pantalla === "base" && destino.config && senalBase && <Configuracion key={clave} senalId={senalBase} />}
         {destino.pantalla === "admin" && <Administrar key={revision} />}
+        {destino.pantalla === "historial" && <Historial />}
         <Agente senalId={senalAgente} />
       </div>
     </ContextoSesion.Provider>

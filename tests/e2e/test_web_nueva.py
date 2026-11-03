@@ -97,8 +97,11 @@ def test_semana_de_punta_a_punta(servidor, tmp_path):
         pagina.get_by_role("button", name="Leer la grilla").click()
         pagina.locator("h1", has_text="Del 2 al 6 de noviembre").wait_for()
 
-        # Base vacía: los dos programas son nuevos y se arranca en "Para revisar". "Está bien" saca uno.
+        # Base vacía: los dos programas son nuevos y se arranca en "Para revisar", agrupado por motivo.
         assert pagina.get_by_role("button", name="Para revisar · 5").get_attribute("aria-pressed") == "true"
+        grupo = pagina.locator("details.grupo-motivo", has_text="Programa nuevo")
+        grupo.get_by_text("2 pautas").wait_for()
+        pagina.get_by_role("button", name="Por pauta").click()
         filas = pagina.locator("section[aria-label='Para revisar'] tbody tr")
         assert filas.count() == 2
         pagina.get_by_label("Filtrar Motivo").fill("ruta sonora")
@@ -150,7 +153,14 @@ def test_semana_de_punta_a_punta(servidor, tmp_path):
         pagina.get_by_role("link", name="Canal Demo").wait_for()
         assert pagina.locator(".fila-senal .pendiente").count() == 0
 
-        pagina.get_by_role("button", name="admin").click()
+        # Historial: la carga de la semana con lo aceptado y confirmado; al tocarla se ve el detalle.
+        pagina.get_by_role("navigation", name="Pantallas").get_by_role("link", name="Historial").click()
+        fila = pagina.locator(".fila-historial", has_text="1 aceptada")  # la v1: la v2 se confirmó sin aceptar nada
+        fila.get_by_text("Confirmada", exact=True).wait_for()
+        fila.click()
+        pagina.locator(".detalle-historial").get_by_text("Aceptó").first.wait_for()
+
+        pagina.locator(".cuenta-boton").click()
         pagina.get_by_role("menuitem", name="Pasar a tema claro").click()
         assert pagina.evaluate("document.documentElement.dataset.tema") == "claro"
         pagina.get_by_role("menuitem", name="Salir").click()
@@ -379,6 +389,7 @@ def test_corregir_una_celda_ofrece_arreglar_las_parecidas(servidor, tmp_path):
             "archivo": {"name": "mayus.xlsx", "mimeType": "application/octet-stream", "buffer": archivo.read_bytes()}}).ok
 
         pagina.goto(servidor + "/s/mayus")
+        pagina.get_by_role("button", name="Por pauta").click()
         filas = pagina.locator("section[aria-label='Para revisar'] tbody tr")
         filas.first.locator("td.programa").dblclick()
         pagina.get_by_label("Corregir Programa").fill("Memory Lane")
@@ -392,4 +403,20 @@ def test_corregir_una_celda_ofrece_arreglar_las_parecidas(servidor, tmp_path):
         grilla = pagina.request.get(servidor + "/api/senales/mayus/abierta/grilla").json()
         i = grilla["columnas"].index("Programa")
         assert [f[i] for f in grilla["filas"]] == ["Memory Lane", "Memory Lane", "RUTA SONORA"]
+        navegador.close()
+
+
+def test_por_motivo_se_aceptan_todas_juntas(servidor, tmp_path):
+    with playwright.sync_playwright() as p:
+        navegador, pagina = _entrar(p, servidor)
+        receta = {"id": "grupos", "nombre": "Grupos", "entrada": {"tipo": "excel"}, "tarjetas": [SEPARAR],
+                  "salida": {"columnas": []}}
+        assert pagina.request.put(servidor + "/api/senales/grupos", data=receta).ok
+        archivo = _grilla(tmp_path)
+        assert pagina.request.post(servidor + "/api/senales/grupos/abierta", multipart={
+            "archivo": {"name": "g.xlsx", "mimeType": "application/octet-stream", "buffer": archivo.read_bytes()}}).ok
+        pagina.goto(servidor + "/s/grupos")
+        grupo = pagina.locator("details.grupo-motivo", has_text="Programa nuevo")
+        grupo.get_by_role("button", name="Están bien todas").click()
+        pagina.get_by_text("Nada para revisar").wait_for()
         navegador.close()
