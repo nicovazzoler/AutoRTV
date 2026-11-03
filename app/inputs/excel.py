@@ -161,6 +161,10 @@ def hojas_de_programacion(contenido: bytes) -> tuple[int, int] | None:
     cuantas = sum(iguales[mejor])
     if cuantas < max(2, len(encabezados) * 0.6):
         return None
+    # Varias hojas iguales sin horas (un índice, notas) no son la programación.
+    muestra = _limpia(pd.read_excel(libro, sheet_name=libro.sheet_names[mejor], header=filas[mejor] - 1, dtype=object))
+    if _columna_de_inicio(muestra) is None:
+        return None
     return filas[mejor], cuantas
 
 
