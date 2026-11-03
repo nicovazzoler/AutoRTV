@@ -65,7 +65,7 @@ def con_todas_las_hojas(entrada, detectada):
     return entrada
 
 
-MAX_HOJAS_A_MIRAR = 30
+MAX_HOJAS_A_MIRAR = 31
 
 
 def _hoja_con_la_grilla(contenido: bytes) -> m.EntradaExcel:
