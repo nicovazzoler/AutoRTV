@@ -43,10 +43,23 @@ interface Trio<T> {
   escalera: T | null;
 }
 
+interface Diagnostico {
+  principal: string;
+  necesita: string;
+  hallazgos: { tipo: string; detalle: string }[];
+}
+
+interface ResumenDiagnostico {
+  senales: number;
+  necesita: Record<string, number>;
+  principal: Record<string, number>;
+}
+
 interface ResultadoSenal {
   nombre: string;
   error?: string;
   codigo?: { medida: Medida; problemas: string[] };
+  diagnostico?: Diagnostico;
   lectura?: Trio<Lectura>;
   reglas?: Trio<Reglas> | { error: string };
 }
@@ -67,10 +80,20 @@ interface Corrida {
   parametros: { senales: string[]; tope: number; pasos: string[] };
   progreso: string | null;
   gastado: number;
-  resultado: { senales: ResultadoSenal[]; resumen: { lectura: Cuenta; reglas: Cuenta } } | null;
+  resultado: { senales: ResultadoSenal[]; resumen: { lectura: Cuenta; reglas: Cuenta; diagnostico?: ResumenDiagnostico } } | null;
 }
 
 const POR_DEFECTO = 8;
+
+// Lo que le falta a cada señal según el diagnóstico, de lo más pesado a lo más liviano.
+const NECESITA: [string, string][] = [
+  ["codigo", "necesitan un lector en código"], ["ocr", "son PDF escaneados"], ["opcion", "se arreglan con una opción nueva del lector"],
+  ["reglas", "se arreglan con reglas que ya existen"], ["base", "leen bien y lo que falta sale de la base"], ["nada", "leen bien"],
+];
+const HALLAZGO: Record<string, string> = {
+  no_lee: "No lee", pdf_sin_texto: "PDF sin texto", elegir_hoja: "Elegir hoja", hoja_de_datos: "Hoja de datos",
+  zona_horaria: "Zona horaria", falta_en_el_archivo: "Falta en el archivo", lee_bien: "Lee bien",
+};
 const CADA_MS = 5000;
 
 function usd(n: number): string {
@@ -119,6 +142,22 @@ function celdaReglas(x: Reglas | null | undefined) {
   );
 }
 
+function fraseDiagnostico(d: ResumenDiagnostico): string {
+  const partes = NECESITA.filter(([k]) => d.necesita[k]).map(([k, texto]) => `${d.necesita[k]} ${texto}`);
+  return `Diagnóstico de ${d.senales} ${d.senales === 1 ? "señal" : "señales"}: ${partes.join(" · ")}.`;
+}
+
+function celdaDiagnostico(d: Diagnostico) {
+  return (
+    <span>
+      <b className={d.necesita === "codigo" || d.necesita === "opcion" ? "c-revisar" : undefined}>{HALLAZGO[d.principal] ?? d.principal}</b>
+      {d.hallazgos.length > 0 && (
+        <ul className="chico" style={{ margin: "4px 0 0", paddingLeft: 16 }}>{d.hallazgos.map((h, i) => <li key={i}>{h.detalle}</li>)}</ul>
+      )}
+    </span>
+  );
+}
+
 function frase(nombre: string, c: Cuenta): string {
   if (!c.senales) return "";
   return `${nombre}: Haiku alcanzó en ${c.haiku} de ${c.senales}, Sonnet en ${c.sonnet}${c.escalera ? ` y la escalera recuperó ${c.escalera}` : ""}.`;
@@ -129,7 +168,7 @@ export function BancoAgentes() {
   const [senales, setSenales] = useState<SenalBanco[] | null>(null);
   const [elegidas, setElegidas] = useState<Set<string>>(new Set());
   const [tope, setTope] = useState("5");
-  const [pasos, setPasos] = useState<Set<string>>(new Set(["lectura", "reglas"]));
+  const [pasos, setPasos] = useState<Set<string>>(new Set(["diagnostico", "lectura", "reglas"]));
   const [corridas, setCorridas] = useState<Corrida[]>([]);
   const [abierta, setAbierta] = useState<Corrida | null>(null);
   const [error, setError] = useState("");
@@ -208,7 +247,7 @@ export function BancoAgentes() {
             <input className="entrada" type="number" min={0.5} max={50} step={0.5} value={tope} onChange={(e) => setTope(e.target.value)} />
           </label>
           <div className="botones" style={{ gap: 14 }}>
-            {[["lectura", "Leer la grilla"], ["reglas", "Armar las reglas"]].map(([id, nombre]) => (
+            {[["diagnostico", "Diagnóstico del lector (gratis)"], ["lectura", "Leer la grilla"], ["reglas", "Armar las reglas"]].map(([id, nombre]) => (
               <label key={id} style={{ display: "flex", gap: 6, alignItems: "center" }}>
                 <input type="checkbox" checked={pasos.has(id)} onChange={() => alternar(pasos, id, setPasos)}
                   style={{ width: 18, height: 18, accentColor: "var(--acento)" }} />{nombre}
@@ -219,7 +258,12 @@ export function BancoAgentes() {
             style={{ alignSelf: "flex-start" }}>
             {corriendo ? "Hay una corrida en marcha…" : "Correr banco"}
           </button>
-          <span className="chico tenue">Por señal: Haiku, Sonnet y, si Haiku no alcanza, Sonnet arrancando de lo de Haiku. Cada pedido queda en Uso del agente.</span>
+          <span className="chico tenue">Por señal: Haiku, Sonnet y, si Haiku no alcanza, Sonnet arrancando de lo de Haiku. Cada pedido queda en Uso del agente.
+            El diagnóstico no usa el agente: solo, puede pasar por todas las señales.</span>
+          {senales && elegidas.size < senales.length && (
+            <button type="button" className="enlace-chico" style={{ alignSelf: "flex-start" }}
+              onClick={() => setElegidas(new Set(senales.map((x) => x.id)))}>Elegir las {senales.length}</button>
+          )}
         </div>
       </div>
 
@@ -237,6 +281,7 @@ export function BancoAgentes() {
             </p>
           )}
           {abierta.estado !== "corriendo" && abierta.progreso !== "Listo" && <p className="nota" style={{ margin: 0 }}>{abierta.progreso}</p>}
+          {resumen?.diagnostico && resumen.diagnostico.senales > 0 && <p style={{ margin: 0 }}>{fraseDiagnostico(resumen.diagnostico)}</p>}
           {resumen && (resumen.lectura.senales > 0 || resumen.reglas.senales > 0) && (
             <p style={{ margin: 0 }}>{frase("Lectura", resumen.lectura)} {frase("Reglas", resumen.reglas)}</p>
           )}
@@ -254,13 +299,16 @@ export function BancoAgentes() {
                           el código lee {Math.round(r.codigo.medida.con_horario * 100)} % con horario · empareja {porcentaje(r.codigo.medida.empareja)}</span></>
                       )}</td>
                     );
+                    if (r.diagnostico) filas.push(
+                      <tr key={`${r.nombre}-d`}>{senal}<td className="tenue">Diagnóstico</td><td colSpan={3}>{celdaDiagnostico(r.diagnostico)}</td></tr>);
+                    const primera = !r.diagnostico;
                     if (r.lectura) filas.push(
-                      <tr key={`${r.nombre}-l`}>{senal}<td className="tenue">Lectura</td>
+                      <tr key={`${r.nombre}-l`}>{primera ? senal : <td />}<td className="tenue">Lectura</td>
                         <td>{celdaLectura(r.lectura.haiku)}</td><td>{celdaLectura(r.lectura.sonnet)}</td><td>{celdaLectura(r.lectura.escalera)}</td></tr>);
                     if (r.reglas && "error" in r.reglas) filas.push(
-                      <tr key={`${r.nombre}-r`}>{r.lectura ? <td /> : senal}<td className="tenue">Reglas</td><td colSpan={3} className="c-revisar">{r.reglas.error}</td></tr>);
+                      <tr key={`${r.nombre}-r`}>{r.lectura || r.diagnostico ? <td /> : senal}<td className="tenue">Reglas</td><td colSpan={3} className="c-revisar">{r.reglas.error}</td></tr>);
                     else if (r.reglas) filas.push(
-                      <tr key={`${r.nombre}-r`}>{r.lectura ? <td /> : senal}<td className="tenue">Reglas</td>
+                      <tr key={`${r.nombre}-r`}>{r.lectura || r.diagnostico ? <td /> : senal}<td className="tenue">Reglas</td>
                         <td>{celdaReglas(r.reglas.haiku)}</td><td>{celdaReglas(r.reglas.sonnet)}</td><td>{celdaReglas(r.reglas.escalera)}</td></tr>);
                     return filas;
                   })}

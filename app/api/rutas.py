@@ -1901,7 +1901,7 @@ def lanzar_banco(p: PedidoBanco, u: auth.Usuario = Depends(auth.solo_admin)):
     if not pasos:
         raise HTTPException(422, f"Los pasos posibles son {', '.join(banco.PASOS)}")
     proveedor = cliente.proveedor_configurado()
-    if proveedor is None:
+    if proveedor is None and not set(pasos) <= banco.SIN_AGENTE:
         raise HTTPException(503, "El asistente no está configurado: falta la variable ANTHROPIC_API_KEY en el servidor")
     try:
         return {"id": corridas.lanzar(u.usuario, p.senales, p.tope, pasos, proveedor)}
