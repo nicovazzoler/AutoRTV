@@ -14,6 +14,7 @@ import { tomarSemana } from "../semanaReciente";
 import { useSesion } from "../sesion";
 import type { AvisoFechas, CambioVersion, Celdas, LecturaAgente, SemanaAbierta } from "../tipos";
 import { persona } from "../nombre";
+import { confirmar } from "../piezas/Dialogos";
 
 function valores(celdas: Celdas, sin: string | null | undefined, cuantos: number, yaVistos: Celdas = {}): string {
   const vistos = new Set(Object.values(yaVistos).map(String));
@@ -170,7 +171,8 @@ export function Semana({ senalId }: { senalId: string }) {
   };
 
   const borrarGrilla = async () => {
-    if (!window.confirm("¿Borrar esta grilla? Si era una versión corregida, vuelve la anterior; si no, la señal queda sin grilla. Lo que ya está en la base no se toca.")) return;
+    if (!await confirmar({ texto: "Si era una versión corregida, vuelve la anterior; si no, la señal queda sin grilla. Lo que ya está en la base no se toca.",
+      boton: "Borrar grilla", peligro: true })) return;
     setError("");
     try {
       const d = await api.borrar<SemanaAbierta>(`/senales/${senalId}/abierta`);
@@ -182,10 +184,11 @@ export function Semana({ senalId }: { senalId: string }) {
     }
   };
 
-  const confirmar = async (formato: "xlsx" | "csv") => {
+  const confirmarYExportar = async (formato: "xlsx" | "csv") => {
     setMenuExportar(false);
     const quedan = datos?.resumen?.revisar ?? 0;
-    if (quedan > 0 && !confirm(`Quedan ${quedan} filas para revisar. Si confirmás, entran a la base como están. ¿Confirmar igual?`)) return;
+    if (quedan > 0 && !await confirmar({ titulo: `Quedan ${quedan} filas para revisar`, texto: "Si confirmás, entran a la base como están.",
+      boton: "Confirmar igual" })) return;
     setOcupado("confirmar");
     setError("");
     try {
@@ -264,8 +267,8 @@ export function Semana({ senalId }: { senalId: string }) {
                   </select>
                 </label>
               )}
-              <button type="button" onClick={() => confirmar("xlsx")}>Excel (.xlsx)</button>
-              <button type="button" onClick={() => confirmar("csv")}>CSV</button>
+              <button type="button" onClick={() => confirmarYExportar("xlsx")}>Excel (.xlsx)</button>
+              <button type="button" onClick={() => confirmarYExportar("csv")}>CSV</button>
             </div>
           )}
         </div>

@@ -8,6 +8,7 @@ import { aBase, navegar } from "../ruta";
 import { useSesion } from "../sesion";
 import type { Celdas, ColumnasBase, ListaPautas, PautaBase, ValorColumna } from "../tipos";
 import { persona } from "../nombre";
+import { confirmar } from "../piezas/Dialogos";
 
 function vinoComo(crudo: Celdas): string {
   return Object.values(crudo).filter((v) => v !== null && v !== undefined && String(v).trim() !== "").map(String).join(" · ");
@@ -145,8 +146,9 @@ function BaseDe({ senalId }: { senalId: string }) {
     return `Listo: ${r.editadas} pautas con ${cambiarColumna} = ${cambiarValor || "(vacío)"}. La semana abierta ya sale así.`;
   });
 
-  const olvidar = () => {
-    if (!confirm(`¿Olvidar ${cuantas} pautas? La próxima vez que vengan las arman las reglas y piden revisión.`)) return;
+  const olvidar = async () => {
+    if (!await confirmar({ texto: "La próxima vez que vengan las arman las reglas y piden revisión.",
+      boton: cuantas === 1 ? "Olvidar 1 pauta" : `Olvidar ${cuantas} pautas`, peligro: true })) return;
     hacer(async () => {
       const r = await api.post<{ olvidadas: number }>(`/senales/${senalId}/pautas/olvidar-varias`, seleccion());
       return `Se olvidaron ${r.olvidadas} pautas.`;

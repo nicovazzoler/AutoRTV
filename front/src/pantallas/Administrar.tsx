@@ -6,6 +6,7 @@ import { useSesion } from "../sesion";
 import { persona } from "../nombre";
 import { haceCuanto } from "../fechas";
 import { Enlace } from "../piezas/Enlace";
+import { confirmar, pedirTexto } from "../piezas/Dialogos";
 
 interface Usuario {
   id: number;
@@ -145,7 +146,8 @@ export function Administrar() {
   };
 
   const borrar = async (u: Usuario) => {
-    if (!confirm(`¿Borrar el usuario ${u.usuario}? Se le cierran las sesiones.`)) return;
+    if (!await confirmar({ texto: `Se borra el usuario ${u.usuario} y se le cierran las sesiones.`, boton: `Borrar a ${u.usuario}`,
+      peligro: true })) return;
     try {
       await api.borrar(`/usuarios/${u.id}`);
       await cargar();
@@ -168,12 +170,8 @@ export function Administrar() {
   };
 
   const borrarSenal = async (id: string, nombre: string) => {
-    const escrito = prompt(`Se borra «${nombre}» con sus reglas, ejemplos, base de pautas y semana abierta. No se puede deshacer.\n\nEscribí el nombre de la señal para confirmar:`);
-    if (escrito === null) return;
-    if (escrito.trim().toLowerCase() !== nombre.trim().toLowerCase()) {
-      setError("El nombre no coincide: no se borró nada.");
-      return;
-    }
+    if (!await pedirTexto({ titulo: `Borrar ${nombre}`, esperado: nombre, boton: `Borrar ${nombre}`,
+      texto: `Se borra «${nombre}» con sus reglas, ejemplos, base de pautas y semana abierta. No se puede deshacer.` })) return;
     setError("");
     try {
       await api.borrar(`/senales/${id}`);

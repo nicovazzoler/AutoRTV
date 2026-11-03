@@ -11,6 +11,7 @@ import { pedirAgente } from "../piezas/Agente";
 import { useSesion } from "../sesion";
 import type { Evaluacion, Receta, Version } from "../tipos";
 import { persona } from "../nombre";
+import { confirmar } from "../piezas/Dialogos";
 
 interface Informe {
   id: string;
@@ -88,7 +89,7 @@ export function Configuracion({ senalId }: { senalId: string }) {
   };
 
   const sacarRegla = async (p: PropuestaRegla) => {
-    if (!receta || !confirm("¿Sacar esta regla? Se puede deshacer desde el historial de abajo.")) return;
+    if (!receta || !await confirmar({ texto: "Se puede deshacer desde el historial de abajo.", boton: "Sacar la regla", peligro: true })) return;
     setError("");
     try {
       await api.put(`/senales/${senalId}`, { ...receta, tarjetas: receta.tarjetas.filter((t) => t.id !== p.tarjeta) }, { "If-Match": version });
@@ -101,7 +102,8 @@ export function Configuracion({ senalId }: { senalId: string }) {
   };
 
   const restaurar = async (v: Version, cual: string) => {
-    if (!confirm(`¿Volver las reglas a como estaban ${cual}? Queda como un cambio más, así también se puede deshacer.`)) return;
+    if (!await confirmar({ titulo: `Volver a las reglas de ${cual}`, texto: "Queda como un cambio más, así también se puede deshacer.",
+      boton: "Volver a esas reglas" })) return;
     setError("");
     try {
       await api.conVersion(`/senales/${senalId}/historial/${v.id}/restaurar`, "POST", { "If-Match": version });
@@ -113,7 +115,8 @@ export function Configuracion({ senalId }: { senalId: string }) {
   };
 
   const borrarEjemplo = async (nombre: string) => {
-    if (!confirm(`¿Borrar el ejemplo «${nombreEjemplo(nombre)}»? La base de pautas no cambia.`)) return;
+    if (!await confirmar({ texto: `Se borra el ejemplo «${nombreEjemplo(nombre)}». La base de pautas no cambia.`, boton: "Borrar el ejemplo",
+      peligro: true })) return;
     try {
       await api.borrar(`/senales/${senalId}/ejemplos/${encodeURIComponent(nombre)}`);
       await cargar();
@@ -176,7 +179,9 @@ export function Configuracion({ senalId }: { senalId: string }) {
   };
 
   const limpiarBase = async () => {
-    if (!confirm("¿Sacar de la base las columnas que en realidad son horario (por ejemplo una hora con AM/PM)? Las pautas que solo se diferenciaban por eso se juntan en una.")) return;
+    if (!await confirmar({ titulo: "Limpiar la base",
+      texto: "Salen de la base las columnas que en realidad son horario (por ejemplo una hora con AM/PM). Las pautas que solo se diferenciaban por eso se juntan en una.",
+      boton: "Sacar las columnas de horario", peligro: true })) return;
     try {
       const r = await api.post<{ antes: number; despues: number; columnas: string[] }>(`/senales/${senalId}/pautas/limpiar`, {});
       setAviso(r.columnas.length

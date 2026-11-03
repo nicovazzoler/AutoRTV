@@ -27,8 +27,13 @@ def web_compilada():
     subprocess.run(["npm", "run", "build"], cwd=FRONT, check=True)
 
 
-# Lo que contesta el navegador cuando la página pide escribir algo (prompt).
-RESPUESTAS = {}
+def _responder(pagina, boton, escribir=None):
+    """Contesta el modal de confirmación de la web: escribe lo que pide (si pide) y toca el botón."""
+    modal = pagina.locator("dialog.dialogo[open]")
+    if escribir is not None:
+        modal.get_by_role("textbox").fill(escribir)
+    modal.get_by_role("button", name=boton, exact=True).click()
+    modal.wait_for(state="hidden")
 
 
 def _grilla(tmp_path, segundo="Ruta Sonora - Live", nombre="noviembre.xlsx"):
@@ -72,7 +77,6 @@ def test_semana_de_punta_a_punta(servidor, tmp_path):
     with playwright.sync_playwright() as p:
         navegador = _navegador(p)
         pagina = navegador.new_page(accept_downloads=True)
-        pagina.on("dialog", lambda d: d.accept())
 
         pagina.goto(servidor + "/")
         pagina.wait_for_url("**/login")
@@ -119,6 +123,7 @@ def test_semana_de_punta_a_punta(servidor, tmp_path):
         pagina.get_by_role("button", name="Confirmar y exportar").click()
         with pagina.expect_download() as bajada:
             pagina.get_by_role("button", name="Excel (.xlsx)").click()
+            _responder(pagina, "Confirmar igual")  # queda 1 fila para revisar
         assert bajada.value.suggested_filename.endswith(".xlsx")
         pagina.wait_for_selector("text=Confirmada por admin")
 
@@ -136,6 +141,7 @@ def test_semana_de_punta_a_punta(servidor, tmp_path):
         pagina.get_by_label("Hasta", exact=True).fill("2026-11-02T23:59")
         with pagina.expect_download() as bajada:
             pagina.get_by_role("button", name="Excel (.xlsx)").click()
+            _responder(pagina, "Confirmar igual")
         from openpyxl import load_workbook
         with open(bajada.value.path(), "rb") as f:
             assert load_workbook(f).active.max_row == 2  # encabezado + el lunes
@@ -144,7 +150,7 @@ def test_semana_de_punta_a_punta(servidor, tmp_path):
         pagina.get_by_role("button", name="Exportar de nuevo").click()
         pagina.get_by_label("Hasta", exact=True).fill("")
         pagina.get_by_label("Repetir la última semana").select_option(label="Hasta fin de noviembre")
-        pagina.get_by_role("button", name="Excel (.xlsx)").click()
+        pagina.get_by_role("button", name="Excel (.xlsx)").click()  # ya no queda nada para revisar: no pregunta
         pagina.get_by_role("alert").filter(has_text="hace falta una semana entera").wait_for()
 
         # Volver a la lista: confirmar pasó lo nuevo a la base y no queda nada pendiente.
@@ -247,6 +253,7 @@ def test_agente_flotante_con_contexto(servidor, tmp_path):
         agente.get_by_role("button", name="Cerrar el agente").click()  # flota encima de la pantalla
         pagina.locator("main .regla", has_text="Pasa Titulo a MAYÚSCULAS").wait_for()
         pagina.get_by_role("button", name="Deshacer el último cambio").click()
+        _responder(pagina, "Volver a esas reglas")
         pagina.locator("main .regla", has_text="Parte Titulo en Programa y Capitulo").wait_for()
         navegador.close()
 
@@ -316,6 +323,32 @@ def test_el_agente_lleva_a_otra_senal_y_marca_el_cambio_que_no_es_de_la_que_se_m
         navegador.close()
 
 
+def test_el_modal_de_confirmar_cancela_con_esc_y_devuelve_el_foco(servidor, tmp_path):
+    with playwright.sync_playwright() as p:
+        navegador, pagina = _entrar(p, servidor)
+        _con_semana(pagina, servidor, tmp_path)
+        pagina.goto(servidor + "/s/canal")
+        borrar = pagina.get_by_role("button", name="Borrar esta grilla")
+        modal = pagina.locator("dialog.dialogo[open]")
+
+        borrar.click()
+        assert modal.get_by_role("button", name="Cancelar").evaluate("b => b === document.activeElement")  # destructivo: foco en Cancelar
+        pagina.keyboard.press("Escape")
+        modal.wait_for(state="hidden")
+        assert borrar.evaluate("b => b === document.activeElement")  # el foco vuelve al botón que lo abrió
+
+        borrar.click()
+        _responder(pagina, "Cancelar")
+        assert pagina.request.get(servidor + "/api/senales/canal/abierta").json()["semana"] is not None
+
+        borrar.click()
+        assert "peligro" in modal.get_by_role("button", name="Borrar grilla").get_attribute("class")
+        _responder(pagina, "Borrar grilla")
+        pagina.wait_for_function("() => !document.querySelector('dialog.dialogo[open]')")
+        assert pagina.request.get(servidor + "/api/senales/canal/abierta").json()["semana"] is None
+        navegador.close()
+
+
 def test_links_viejos_redirigen(servidor):
     with playwright.sync_playwright() as p:
         navegador, pagina = _entrar(p, servidor)
@@ -341,7 +374,6 @@ def _ejemplo(tmp_path):
 def _entrar(p, servidor):
     navegador = _navegador(p)
     pagina = navegador.new_page()
-    pagina.on("dialog", lambda d: d.accept(RESPUESTAS.get("prompt", "")) if d.type == "prompt" else d.accept())
     pagina.goto(servidor + "/login")
     pagina.fill("input[name=usuario]", "admin")
     pagina.fill("input[name=clave]", "clave-segura")
@@ -397,6 +429,7 @@ def test_admin_usuarios_y_tope(servidor):
         pagina.locator("tr", has_text="lucia").wait_for()
         fila = pagina.locator("tr", has_text="lucia")
         fila.get_by_role("button", name="Borrar").click()
+        _responder(pagina, "Borrar a lucia")
         fila.wait_for(state="detached")
 
         pestanas.get_by_role("button", name="Uso del agente").click()
@@ -412,8 +445,10 @@ def test_admin_usuarios_y_tope(servidor):
         pagina.reload()
         pestanas.get_by_role("button", name="Señales").click()
         pagina.get_by_label("Buscar señal").fill("para borrar")
-        RESPUESTAS["prompt"] = "para borrar"
         pagina.locator("section[aria-label='Señales'] li", has_text="Para Borrar").get_by_role("button", name="Borrar").click()
+        modal = pagina.locator("dialog.dialogo[open]")
+        assert modal.get_by_role("button", name="Borrar Para Borrar").is_disabled()  # hasta escribir el nombre
+        _responder(pagina, "Borrar Para Borrar", escribir="para borrar")
         pagina.get_by_text("Listo: se borró la señal Para Borrar").wait_for()
         assert pagina.request.get(servidor + "/api/senales/para-borrar").status == 404
         navegador.close()
