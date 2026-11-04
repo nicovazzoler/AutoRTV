@@ -5,6 +5,7 @@ import { frase, fraseCambio, fraseEntrada, fraseIdiomas } from "../frases";
 import { haceCuanto } from "../fechas";
 import { ConfigSenal, RecetaArchivo } from "../piezas/ConfigSenal";
 import { EpgCrudo } from "../piezas/EpgCrudo";
+import { CodigoDelAgente, type Codigo } from "../piezas/CodigoDelAgente";
 import { ParesEjemplos } from "../piezas/ParesEjemplos";
 import { CabeceraBase } from "./Base";
 import { pedirAgente } from "../piezas/Agente";
@@ -241,6 +242,7 @@ export function Configuracion({ senalId }: { senalId: string }) {
           {seccion === "reglas" && (
             <section aria-label="Reglas" className="seccion">
               <span className="chico tenue">Las arma el agente desde los ejemplos y tus pedidos; se cambian hablándole o con «Deshacer».</span>
+              {Boolean(receta.final) && <CodigoDelAgente senalId={senalId} donde="final" codigo={receta.final as Codigo} alCambiar={tocar} />}
               {propuestas.length > 0 && (
                 <div className="propuestas-reglas" aria-label="El agente propone">
                   <span className="etiqueta-propuesta">EL AGENTE PROPONE, POR LO QUE SE CORRIGIÓ</span>
@@ -327,6 +329,11 @@ export function Configuracion({ senalId }: { senalId: string }) {
                     <>
                       <div><dt>Cómo se lee la grilla</dt><dd>{fraseEntrada(receta)}</dd></div>
                       <div><dt>Celdas con varios programas</dt><dd>{receta.entrada.partir ? `Se parten en «${receta.entrada.partir.separador}»` : "No se parten"}</dd></div>
+                      {receta.entrada.tipo === "codigo" && (
+                        <div style={{ gridColumn: "1 / -1" }}>
+                          <CodigoDelAgente senalId={senalId} donde="lector" codigo={receta.entrada.lector as Codigo} alCambiar={tocar} />
+                        </div>
+                      )}
                     </>
                   ) : (
                     <>

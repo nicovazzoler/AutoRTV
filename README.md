@@ -52,6 +52,7 @@ CHROMIUM=/ruta/a/chrome .venv/bin/python -m pytest tests/e2e  # navegador real (
 - Contra Postgres, las tablas se vacían antes de cada test: usar una base solo para eso.
 - El test golden de Concert Channel corre solo si existe `privado/`.
 - El e2e compila `front/` si hace falta (necesita npm).
+- Los tests de la caja de código (`tests/unit/test_caja.py`) necesitan `npm ci` en `caja/`; sin eso se saltean. En la imagen de Docker la autoprueba corre en el build: si un intento hostil sale de la caja, el build falla.
 
 ## Deploy en Railway
 
@@ -93,6 +94,16 @@ Un volumen en `/data` solo hace falta para migrar datos del formato anterior (ve
 - Las charlas cuentan en el tope diario.
 - Sin key, el asistente aparece como "no configurado". Los tests usan respuestas grabadas
   (`AGENTE_FALSO`) y no gastan.
+
+### Agente de la señal
+
+- Cuando las reglas de Haiku no dejan el ejemplo igual (98 % o más, sin filas que falten), sigue el agente de la
+  señal (`app/agent/senal.py`, Sonnet con herramientas): ve la grilla cruda, compara fila por fila con el ejemplo,
+  prueba lecturas, tarjetas y código, y guarda solo lo que mejora el ejemplo. Hasta 24 pasos y US$ 2 por señal.
+- El código es un lector (`leer(datos)`) o un paso final sobre el EPG (`ajustar(filas)`), el único que agrega o
+  saca filas. Corre en la caja (`app/caja`), entra comprobado contra el ejemplo, le deja un aviso al admin y el
+  admin lo apaga en Configuración. Un guardado común no puede traer código nuevo.
+- También corre desde el chat (`armar_reglas` con un pedido) y como paso «agente» del Banco.
 
 ## Datos
 

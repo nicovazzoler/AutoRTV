@@ -215,6 +215,9 @@ def clasificar(salida: pd.DataFrame, estados: list[str], avisos: list, informes:
 
     filas = []
     for i, estado in enumerate(estados):
+        if estado == "generada":  # la agregó el paso final en código, que pasó el ejemplo
+            filas.append({"grupo": "nueva_lista", "motivos": [], "codigos": []})
+            continue
         if estado != "nueva":
             filas.append({"grupo": "base", "motivos": [], "codigos": []})
             continue

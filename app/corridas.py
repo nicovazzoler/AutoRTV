@@ -64,7 +64,8 @@ def pares_de(senales: list[str], tope: int = MAX_SENALES) -> list[banco.Par]:
             continue
         grilla, esperado = almacen.leer_ejemplo(senal_id, nombres[-1])
         receta = almacen.leer(senal_id)
-        pares.append(banco.Par(receta.nombre, grilla, esperado, senal_id, receta.entrada.model_dump()))
+        pares.append(banco.Par(receta.nombre, grilla, esperado, senal_id, receta.entrada.model_dump(),
+                               receta.model_dump(mode="json", exclude_none=True)))
     return pares
 
 

@@ -2,6 +2,7 @@
 import datetime as dt
 import hashlib
 import io
+import json
 import re
 import unicodedata
 
@@ -225,8 +226,18 @@ def _insertar(con, filas: list[dict], pisar: bool) -> None:
     con.execute(sentencia)
 
 
+# Las filas que agrega el paso final en código no vienen de la grilla: no son una pauta de la base.
+GENERADA = "final-"
+
+
+def de_paso_final(fila: dict) -> str:
+    """El hash de una fila que agregó el paso final: sale de lo que dice, para agruparlas en Revisar."""
+    return GENERADA + hashlib.sha1(json.dumps(fila, ensure_ascii=False, default=str).encode()).hexdigest()[:12]
+
+
 def guardar(senal_id: str, pautas: dict[str, dict], estado: str, usuario: str, pisar: bool = False) -> int:
     """Guarda las pautas. Sin `pisar`, las que ya están en la base no se tocan. Devuelve cuántas había nuevas."""
+    pautas = {h: x for h, x in pautas.items() if not h.startswith(GENERADA)}
     if not pautas:
         return 0
     ahora = dt.datetime.now()

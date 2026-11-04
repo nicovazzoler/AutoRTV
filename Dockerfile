@@ -6,13 +6,24 @@ RUN npm ci
 COPY front ./
 RUN npm run build
 
+# La caja (Deno + Pyodide) corre aislado el código que el agente escribe para una señal.
+FROM node:22-slim AS caja
+WORKDIR /caja
+COPY caja/package.json caja/package-lock.json ./
+# El binario de Deno queda copiado en node_modules/deno: el paquete de la plataforma sería el mismo archivo otra vez.
+RUN npm ci --omit=dev --no-audit --no-fund && rm -rf node_modules/@deno && test -x node_modules/deno/deno
+COPY caja/runner.mjs ./
+
 FROM python:3.13-slim
 WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
+COPY --from=caja /caja ./caja
 COPY app ./app
 COPY ejemplos ./ejemplos
 COPY --from=web /front/dist ./front/dist
+# Código hostil contra la caja: si alguno sale, el build falla y no se deploya.
+RUN python -m app.caja
 # Sin DATABASE_URL, los datos van a SQLite en /data.
 ENV DATA_DIR=/data
 # Railway define PORT; 8000 para correrlo local.

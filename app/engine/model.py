@@ -250,6 +250,23 @@ class EntradaWord(EntradaComun):
     fecha_inicio: str | None = None  # AAAA-MM-DD, si el texto no trae la fecha
 
 
+class Codigo(Base):
+    """Código que escribió el agente para una señal. Corre en la caja (app.caja), aislado del servidor."""
+    codigo: str
+    explicacion: str = ""  # qué hace, en castellano, para quien no lee código
+    activo: bool = True  # el admin lo puede apagar
+    # Dio bien contra un ejemplo de la señal. Sin eso, las semanas que pasan por él quedan para revisar.
+    comprobado: bool = False
+    resultado: str = ""  # cómo dio contra el ejemplo al guardarlo
+    autor: str = ""
+
+
+class EntradaCodigo(EntradaComun):
+    """Un lector escrito para esta señal: leer(datos) recibe el archivo (app.caja.datos) y devuelve las filas."""
+    tipo: Literal["codigo"]
+    lector: Codigo
+
+
 class EntradaVarios(EntradaComun):
     """Varios archivos de la misma semana (subidos juntos o en un .zip), uno abajo del otro."""
     tipo: Literal["varios"]
@@ -257,8 +274,8 @@ class EntradaVarios(EntradaComun):
     saltear: list[str] = []  # archivos del zip que no son programación
 
 
-Entrada = Annotated[Union[EntradaExcel, EntradaTexto, EntradaXml, EntradaPdf, EntradaHtml, EntradaWord, EntradaVarios],
-                    Field(discriminator="tipo")]
+Entrada = Annotated[Union[EntradaExcel, EntradaTexto, EntradaXml, EntradaPdf, EntradaHtml, EntradaWord, EntradaVarios,
+                          EntradaCodigo], Field(discriminator="tipo")]
 EntradaVarios.model_rebuild()
 
 
@@ -295,3 +312,5 @@ class Senal(Base):
     idiomas: list[Literal["ing", "port"]] = []
     # Programas que la señal ya emitió; los usa `separar` en modo titulos_conocidos.
     titulos_conocidos: list[str] = []
+    # Paso final en código sobre el EPG armado: puede agregar, sacar y partir filas (app.caja.pasos).
+    final: Codigo | None = None

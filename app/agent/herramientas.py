@@ -44,7 +44,9 @@ PAGINA = [
     _tool("nueva_senal", "Abrir Agregar señal con el nombre ya escrito.", {"nombre": {"type": "string"}}, ["nombre"]),
 ]
 CAMBIO = [
-    _tool("armar_reglas", "Que el agente de reglas arme las reglas de la señal desde sus ejemplos.", {"senal": _SENAL},
+    _tool("armar_reglas", "Que el agente de la señal la deje igual a sus ejemplos: prueba lecturas, reglas y, si no "
+                          "alcanzan, código (por ejemplo para agregar o sacar filas). Corre en segundo plano.",
+          {"senal": _SENAL, "pedido": {"type": "string", "description": "qué le falta a la señal, si la persona lo dijo"}},
           ["senal"]),
     _tool("corregir_pautas", "Cambiar una columna en todas las pautas de la base que cumplen un filtro.",
           {"senal": _SENAL, "filtro": {"type": "object", "description": "{columna: valor} de las pautas a cambiar",
@@ -198,10 +200,12 @@ class Estado:
 
     # --- cambio ---
 
-    def _armar_reglas(self, senal: str) -> str:
+    def _armar_reglas(self, senal: str, pedido: str = "") -> str:
         if not almacen.listar_ejemplos(senal):
             return "Esa señal no tiene ejemplos: sin ejemplo no se pueden armar las reglas solas."
-        self._accion("cambio", "armar_reglas", senal, f"Armar las reglas de {self.senales[senal]} desde sus ejemplos")
+        que = f": {pedido.strip()}" if pedido.strip() else " desde sus ejemplos"
+        self._accion("cambio", "armar_reglas", senal, f"Que el agente trabaje en {self.senales[senal]}{que}",
+                     pedido=pedido.strip())
         return "Quedó como propuesta: la persona lo confirma con «Hacerlo»."
 
     def _columnas(self, senal: str) -> list[str]:

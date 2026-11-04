@@ -191,6 +191,8 @@ def _probar(contenido: bytes, datos: dict | None, esperado: pd.DataFrame | None)
         entrada = ENTRADA.validate_python(json.loads(datos.get("entrada_json") or "{}"))
     except (json.JSONDecodeError, ValidationError) as e:
         return None, None, [f"La configuración no es válida: {str(e)[:500]}"]
+    if inputs.con_codigo(entrada):  # lo escribe el agente de la señal, que lo comprueba contra el ejemplo y avisa al admin
+        return None, None, ["Acá no se escribe código: elegí una de las lecturas que hay."]
     try:
         tabla = inputs.leer(contenido, entrada)
     except Exception as e:

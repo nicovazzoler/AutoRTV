@@ -27,7 +27,8 @@ def _porcentaje(metricas: asistente.Metricas | None, objetivo: str) -> float:
 
 
 def armar(receta: m.Senal, ejemplos: list[asistente.Ejemplo], objetivo: str, proveedor,
-          orden_columnas: list[str] = (), entorno: asistente.Entorno | None = None) -> Armado:
+          orden_columnas: list[str] = (), entorno: asistente.Entorno | None = None, escalera: bool = True) -> Armado:
+    """Sin `escalera`, solo Haiku: lo que no alcance lo sigue quien llama (el agente de la señal)."""
     ejemplo = next(e for e in ejemplos if e.nombre == objetivo)
     pedir = lambda base, fuerte: asistente.pedir(  # noqa: E731
         base, ejemplo.entrada, PEDIDO, proveedor, ejemplos, objetivo=objetivo, orden_columnas=orden_columnas,
@@ -36,7 +37,7 @@ def armar(receta: m.Senal, ejemplos: list[asistente.Ejemplo], objetivo: str, pro
     resultado = Armado(None, _porcentaje(haiku.antes, objetivo), _porcentaje(haiku.antes, objetivo),
                        pedidos=[haiku])
     candidatas = [(haiku, haiku.modelo)]
-    if _porcentaje(haiku.despues, objetivo) < UMBRAL:
+    if escalera and _porcentaje(haiku.despues, objetivo) < UMBRAL:
         base = m.Senal(**haiku.receta) if haiku.receta else receta
         sonnet = pedir(base, True)
         resultado.pedidos.append(sonnet)

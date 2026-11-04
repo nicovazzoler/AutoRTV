@@ -68,7 +68,8 @@ class Proveedor(Protocol):
 
     def pedir_json(self, sistema: str, mensajes: list[dict], formato: dict, modelo: str, effort: str) -> Respuesta: ...
 
-    def con_herramientas(self, sistema: str, mensajes: list[dict], herramientas: list[dict]) -> Respuesta: ...
+    def con_herramientas(self, sistema: str, mensajes: list[dict], herramientas: list[dict], modelo: str | None = None,
+                         effort: str = "low", max_tokens: int = 4000) -> Respuesta: ...
 
 
 class Claude:
@@ -121,26 +122,31 @@ class Claude:
             raise ErrorAgente(explicar(e, modelo)) from e
         return _leer(r)
 
-    def con_herramientas(self, sistema: str, mensajes: list[dict], herramientas: list[dict]) -> Respuesta:
-        """Un paso de la charla con herramientas: el modelo contesta o pide herramientas (`parar` = "tool_use")."""
+    def con_herramientas(self, sistema: str, mensajes: list[dict], herramientas: list[dict], modelo: str | None = None,
+                         effort: str = "low", max_tokens: int = 4000) -> Respuesta:
+        """Un paso de un bucle con herramientas: el modelo contesta o pide herramientas (`parar` = "tool_use")."""
         import anthropic
 
+        modelo = modelo or MODELO_RAPIDO
+        respaldo = {} if "haiku" in modelo else {"betas": ["server-side-fallback-2026-07-01"], "fallbacks": "default"}
+        crear = self._cliente.beta.messages.create if respaldo else self._cliente.messages.create
         try:
-            r = self._cliente.messages.create(
-                model=MODELO_RAPIDO, max_tokens=4000,
+            r = crear(
+                model=modelo, max_tokens=max_tokens,
                 system=[{"type": "text", "text": sistema, "cache_control": {"type": "ephemeral"}}],
-                tools=herramientas, messages=_con_cache(mensajes), output_config={"effort": "low"},
+                tools=herramientas, messages=_con_cache(mensajes), output_config={"effort": effort}, **respaldo,
             )
         except anthropic.APIError as e:
-            raise ErrorAgente(explicar(e, MODELO_RAPIDO)) from e
+            raise ErrorAgente(explicar(e, modelo)) from e
         uso = (r.usage.input_tokens + (r.usage.cache_read_input_tokens or 0)
                + (r.usage.cache_creation_input_tokens or 0), r.usage.output_tokens)
         if r.stop_reason == "refusal":
             motivo = getattr(r.stop_details, "explanation", None) or "sin detalle"
             return Respuesta("", rechazo=motivo, tokens_entrada=uso[0], tokens_salida=uso[1], modelo=r.model)
         texto = "".join(b.text for b in r.content if b.type == "text")
+        # El bloque `fallback` (otro modelo siguió por un rechazo) es una marca para auditar: no se reenvía.
         return Respuesta(texto, tokens_entrada=uso[0], tokens_salida=uso[1], modelo=r.model,
-                         bloques=[_bloque(b) for b in r.content], parar=r.stop_reason or "")
+                         bloques=[_bloque(b) for b in r.content if b.type != "fallback"], parar=r.stop_reason or "")
 
     def charlar(self, sistema: str, mensajes: list[dict]) -> Respuesta:
         import anthropic
@@ -217,6 +223,9 @@ def _leer(r) -> Respuesta:
 class Grabado:
     """Devuelve respuestas fijas en orden. Para tests y para probar la web sin key."""
 
+    # El agente de la señal necesita un guion propio de herramientas: con las respuestas de la charla no corre.
+    con_agente_de_la_senal = False
+
     def __init__(self, respuestas: list[dict]):
         # Las que tienen "respuesta" son de la charla; las de "entrada_json", de la lectura; el resto, propuestas.
         self.charlas = [r for r in respuestas if _clave_de(r) == "charla"]
@@ -244,7 +253,8 @@ class Grabado:
             return Respuesta("", {"respuesta": "", "proponer_cambios": True})
         return self._siguiente(self.charlas, mensajes)
 
-    def con_herramientas(self, sistema: str, mensajes: list[dict], herramientas: list[dict]) -> Respuesta:
+    def con_herramientas(self, sistema: str, mensajes: list[dict], herramientas: list[dict], modelo: str | None = None,
+                         effort: str = "low", max_tokens: int = 4000) -> Respuesta:
         """Una charla grabada como las de antes ({respuesta, acciones, proponer_cambios, recordar}) se pasa a herramientas:
         primero pide las que correspondan y, con sus resultados, contesta el texto."""
         ultimo = mensajes[-1]["content"]

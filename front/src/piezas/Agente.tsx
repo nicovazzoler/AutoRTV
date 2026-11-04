@@ -200,7 +200,7 @@ export function Agente({ senalId }: { senalId: string | null }) {
     setError("");
     try {
       if (a.tipo === "armar_reglas") {
-        await api.post(`/senales/${a.senal}/reglas/armar`, {}, DEL_AGENTE);
+        await api.post(`/senales/${a.senal}/reglas/armar`, { pedido: a.pedido ?? "" }, DEL_AGENTE);
         decir({ rol: "asistente", texto: "(Armando las reglas desde los ejemplos: el resultado aparece en Configuración › Reglas.)" });
       }
       if (a.tipo === "corregir_pautas") {
