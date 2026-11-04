@@ -17,7 +17,7 @@ interface EstadoCaja {
   fecha?: string;
   segundos?: number;
   usuario?: number | null;
-  limites?: { segundos: number; memoria_mb: number };
+  limites?: { segundos: number; memoria_mb: number; del_sistema?: boolean };
 }
 
 /** La autoprueba de la caja en este servidor: si el código que escribe el agente puede correr, y la prueba. */
@@ -65,7 +65,8 @@ export function CajaCodigo() {
           {estado.ok ? "✔" : "✗"} {estado.probando ? "Probando en este servidor…" : estado.motivo}
           {!estado.probando && estado.fecha && (
             <span className="chico tenue"> · {haceCuanto(estado.fecha)} en este servidor
-              {estado.usuario === 65534 ? ", con un usuario sin permisos" : ""}</span>
+              {estado.usuario === 65534 ? ", con un usuario sin permisos" : ""}
+              {estado.limites?.del_sistema ? " y con los topes puestos por el sistema operativo" : ""}</span>
           )}
         </p>
       )}

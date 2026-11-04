@@ -5,7 +5,7 @@ la caja, sin lanzar procesos, y con tiempo y memoria limitados. `autoprueba` lo 
 """
 import json
 import os
-import resource
+import shutil
 import signal
 import subprocess
 import threading
@@ -22,6 +22,10 @@ MAX_LEIDO = MAX_SALIDA + 100_000
 MAX_ERRORES = 100_000
 SIMULTANEOS = 2  # cada corrida ocupa unos 200 MB
 NADIE = 65534
+# Por encima del vigilante: la memoria que el sistema operativo le deja reservar al proceso. WebAssembly reserva de más
+# al crecer, por eso el margen.
+MARGEN_MB = 768
+PRLIMIT = shutil.which("prlimit")
 _turnos = threading.BoundedSemaphore(SIMULTANEOS)
 
 
@@ -33,22 +37,29 @@ def instalada() -> bool:
     return _deno().is_file() and (DIR / "runner.mjs").is_file() and (DIR / "node_modules" / "pyodide").is_dir()
 
 
-def _comando(memoria_mb: int) -> list[str]:
-    return [str(_deno()), "run", "--quiet", "--no-prompt", "--no-lock", "--no-remote", f"--allow-read={DIR}",
+def _comando(memoria_mb: int, segundos: int) -> list[str]:
+    deno = [str(_deno()), "run", "--quiet", "--no-prompt", "--no-lock", "--no-remote", f"--allow-read={DIR}",
             "--deny-net", "--deny-env", "--deny-run", "--deny-ffi", "--deny-sys", "--deny-write", "--deny-import",
             f"--v8-flags=--max-old-space-size={memoria_mb // 2}", str(DIR / "runner.mjs")]
+    if PRLIMIT is None:
+        return deno
+    # Los topes se los pone el proceso a sí mismo antes de ser Deno: desde afuera no se puede una vez que cambió de
+    # usuario. Así no dependen de que el vigilante llegue a tiempo. La CPU suma todos los hilos (V8 compila en
+    # paralelo al arrancar): el tope de tiempo de verdad es el del reloj, este es por si el vigilante no llega.
+    cpu = segundos * 4 + 30
+    return [PRLIMIT, f"--data={(memoria_mb + MARGEN_MB) * 2**20}", f"--cpu={cpu}:{cpu + 1}", "--core=0", "--", *deno]
 
 
-def _lanzar(memoria_mb: int) -> subprocess.Popen:
+def _lanzar(memoria_mb: int, segundos: int) -> subprocess.Popen:
     comun = {"stdin": subprocess.PIPE, "stdout": subprocess.PIPE, "stderr": subprocess.PIPE, "env": {}, "cwd": "/",
              "start_new_session": True}
     if os.geteuid() == 0:
         # Como root se puede bajar a un usuario sin permisos: una barrera más, por si algún día fallan las de Deno.
         try:
-            return subprocess.Popen(_comando(memoria_mb), user=NADIE, group=NADIE, extra_groups=[], **comun)
+            return subprocess.Popen(_comando(memoria_mb, segundos), user=NADIE, group=NADIE, extra_groups=[], **comun)
         except OSError:
             pass
-    return subprocess.Popen(_comando(memoria_mb), **comun)
+    return subprocess.Popen(_comando(memoria_mb, segundos), **comun)
 
 
 def _matar(proc: subprocess.Popen) -> None:
@@ -88,12 +99,7 @@ def correr(codigo: str, datos, funcion: str = "principal", segundos: int = SEGUN
 
 def _correr(pedido: bytes, segundos: int, memoria_mb: int) -> dict:
     inicio = time.monotonic()
-    proc = _lanzar(memoria_mb)
-    for limite, valor in ((resource.RLIMIT_CPU, (segundos, segundos + 1)), (resource.RLIMIT_CORE, (0, 0))):
-        try:
-            resource.prlimit(proc.pid, limite, valor)
-        except (OSError, ValueError):
-            pass  # ya terminó
+    proc = _lanzar(memoria_mb, segundos)
     leido = {"salida": bytearray(), "errores": bytearray()}
     corte: dict = {"motivo": None}
 
@@ -139,9 +145,9 @@ def _correr(pedido: bytes, segundos: int, memoria_mb: int) -> dict:
 def _resultado(codigo_salida: int, leido: dict, motivo: str | None, segundos: int, memoria_mb: int,
                medidas: dict) -> dict:
     errores = leido["errores"].decode(errors="replace")
-    if motivo is None and codigo_salida == -signal.SIGXCPU:
-        motivo = "tiempo"
-    if motivo is None and "heap out of memory" in errores:
+    if motivo is None and codigo_salida in (-signal.SIGXCPU, -signal.SIGKILL):
+        motivo = "tiempo"  # el tope de CPU del sistema operativo
+    if motivo is None and ("heap out of memory" in errores or "MemoryError" in leido["salida"].decode(errors="replace")):
         motivo = "memoria"
     if motivo:
         textos = {"tiempo": f"Se cortó: tardó más de {segundos} s.", "memoria": f"Se cortó: usó más de {memoria_mb} MB.",
