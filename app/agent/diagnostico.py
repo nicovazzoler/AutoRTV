@@ -128,7 +128,7 @@ def _corrimiento(tabla: pd.DataFrame, esperado: pd.DataFrame) -> tuple[int, floa
     return horas, por_hora.get(0, 0.0), por_hora[horas]
 
 
-def _al_subir(guardada, detectada, contenido: bytes):
+def _al_subir(guardada, detectada, contenido: bytes, esperado: pd.DataFrame | None):
     """La lectura con que la app lee esta grilla al recibirla: la guardada, corregida como la corrige al subir una nueva
     (otro formato, varias hojas). Sin agente: lo que haga el agente lo mide el paso de lectura del Banco."""
     if guardada is None or detectada is None:
@@ -136,7 +136,7 @@ def _al_subir(guardada, detectada, contenido: bytes):
     from app.api import rutas
 
     receta = m.Senal(id="diagnostico", nombre="diagnostico", entrada=guardada, tarjetas=[], salida=m.Salida(columnas=[]))
-    return rutas._con_entrada(receta, detectada, contenido).entrada
+    return rutas._con_entrada(receta, detectada, contenido, esperado).entrada
 
 
 FECHA_EN_NOMBRE = re.compile(r"(?<!\d)(\d{1,2}[-_. ]\d{1,2}([-_. ]\d{2,4})?|\d{4}[-_.]\d{1,2}[-_.]\d{1,2})(?!\d)")
@@ -171,7 +171,7 @@ def diagnosticar(contenido: bytes, esperado: pd.DataFrame | None, guardada: dict
         lecturas["detectada"] = {"error": f"{type(e).__name__}: {e}"[:300]}
     guardada_e = lectura.ENTRADA.validate_python(guardada) if guardada else None
     leidas_por = {}
-    for nombre, entrada in (("guardada", guardada_e), ("al_subir", _al_subir(guardada_e, detectada, contenido)),
+    for nombre, entrada in (("guardada", guardada_e), ("al_subir", _al_subir(guardada_e, detectada, contenido, esperado)),
                             ("detectada", detectada)):
         if entrada is None:
             continue
@@ -208,8 +208,9 @@ def diagnosticar(contenido: bytes, esperado: pd.DataFrame | None, guardada: dict
         elif (nombres := _nombres_si_son_varios(contenido)) and len(nombres) >= 2 \
                 and sum(map(_fecha_en_nombre, nombres)) >= 0.8 * len(nombres):
             hallazgos.append({"tipo": "fecha_por_archivo", "archivos": len(nombres),
-                              "detalle": f"Son {len(nombres)} archivos sin fecha adentro y la fecha está en el nombre "
-                                         f"(«{nombres[0]}», «{nombres[-1]}»): falta que cada archivo tome la de su nombre."})
+                              "detalle": f"Son {len(nombres)} archivos sin fecha adentro y el nombre trae la fecha sin "
+                                         f"año o el día de la semana («{nombres[0]}», «{nombres[-1]}»): el lector solo "
+                                         "toma del nombre una fecha completa (20261102 o 02-11-2026)."})
         else:
             if nombres := _nombres_si_son_varios(contenido):
                 lecturas["archivos"] = nombres[:40]

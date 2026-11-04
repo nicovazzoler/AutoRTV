@@ -68,7 +68,7 @@ def _ejemplos(receta) -> list[asistente.Ejemplo]:
     lista = []
     for nombre in list(reversed(almacen.listar_ejemplos(receta.id)))[:MAX_EJEMPLOS]:
         entrada, esperado = almacen.leer_ejemplo(receta.id, nombre)
-        lista.append(asistente.Ejemplo(nombre, inputs.leer_ejemplo(entrada, receta.entrada),
+        lista.append(asistente.Ejemplo(nombre, inputs.leer_ejemplo(entrada, receta.entrada, esperado),
                                        pd.read_excel(io.BytesIO(esperado), dtype=object)))
     return lista
 

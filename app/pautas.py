@@ -426,7 +426,7 @@ def olvidar_varias(senal_id: str, hashes: list[str]) -> int:
 
 def cargar_ejemplo(receta: m.Senal, entrada: bytes, esperado: bytes, usuario: str) -> dict:
     """Suma a la base las pautas de un ejemplo, sin pisar las que ya están."""
-    crudo = inputs.leer_ejemplo(entrada, receta.entrada)
+    crudo = inputs.leer_ejemplo(entrada, receta.entrada, esperado)
     terminado = pd.read_excel(io.BytesIO(esperado), dtype=object)
     terminado = terminado.astype(object).where(terminado.notna(), None)
     pautas, conflictos = desde_ejemplo(crudo, terminado, receta.validaciones)
