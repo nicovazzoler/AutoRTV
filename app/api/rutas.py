@@ -22,7 +22,7 @@ from app.caja import autoprueba
 from app.engine import model as m
 from app.engine import titulos
 from app.engine.comparar import diferencias, porcentaje_igual, sugerir_correcciones
-from app.engine.pipeline import DE_ESTRUCTURA, aplicar, armar_salida, correr
+from app.engine.pipeline import DE_ESTRUCTURA, aplicar, armar_salida, correr, paso_final
 from app.engine.tarjetas.estructura import a_fecha, a_hora
 from app.inputs import epg as epg_crudo
 from app.inputs import excel as inputs_excel
@@ -264,6 +264,7 @@ def guardar_senal(senal_id: str, receta: m.Senal, response: Response,
         antes = almacen.leer(senal_id)
     except almacen.NoExiste:
         antes = None
+    receta = _con_el_codigo_de_antes(receta, antes, u)
     try:
         response.headers["ETag"] = almacen.guardar(receta, u.usuario, esperada=if_match)
     except almacen.Conflicto as c:
@@ -276,6 +277,52 @@ def guardar_senal(senal_id: str, receta: m.Senal, response: Response,
     if cambios and not u.admin:
         conversaciones.avisar(u.usuario, senal_id, "reglas", "; ".join(_frase_cambio(c) for c in cambios[:10]))
     return {"ok": True}
+
+
+def _codigos(receta: m.Senal | None) -> dict:
+    if receta is None:
+        return {}
+    lector = receta.entrada.lector if receta.entrada.tipo == "codigo" else None
+    return {k: c for k, c in (("lector", lector), ("final", receta.final)) if c is not None}
+
+
+def _solo_codigo_guardado(receta: m.Senal) -> m.Senal:
+    """Una receta que llega en un pedido (vista previa, asistente) corre con el código guardado de la señal, no con
+    el que traiga: código nuevo solo lo escribe el agente, que lo comprueba contra el ejemplo."""
+    codigos = _codigos(receta)
+    if not codigos:
+        return receta
+    try:
+        guardada = almacen.leer(receta.id)
+    except (almacen.NoExiste, ValueError):
+        guardada = None
+    previos, cambios = _codigos(guardada), {}
+    if "lector" in codigos and previos.get("lector") != codigos["lector"]:
+        if guardada is None or guardada.entrada.tipo != "codigo":
+            raise HTTPException(422, "El lector en código lo escribe el agente de la señal")
+        cambios["entrada"] = guardada.entrada
+    if "final" in codigos and previos.get("final") != codigos["final"]:
+        cambios["final"] = guardada.final if guardada is not None else None
+    return receta.model_copy(update=cambios) if cambios else receta
+
+
+def _con_el_codigo_de_antes(receta: m.Senal, antes: m.Senal | None, u: auth.Usuario) -> m.Senal:
+    """El código de una señal lo escribe el agente, que lo comprueba contra el ejemplo y avisa al admin.
+
+    Un guardado común puede sacarlo, no traer código nuevo. Si un admin lo cambia a mano, queda sin comprobar.
+    """
+    previos = _codigos(antes)
+    for donde, codigo in _codigos(receta).items():
+        if donde in previos and previos[donde].codigo == codigo.codigo:
+            continue
+        if not u.admin:
+            raise HTTPException(403, "El código de la señal lo escribe el agente: pedíselo en el chat o en Configuración")
+        sin_comprobar = codigo.model_copy(update={"comprobado": False, "resultado": "", "autor": u.usuario})
+        if donde == "lector":
+            receta = receta.model_copy(update={"entrada": receta.entrada.model_copy(update={"lector": sin_comprobar})})
+        else:
+            receta = receta.model_copy(update={"final": sin_comprobar})
+    return receta
 
 
 def _frase_cambio(c: dict) -> str:
@@ -411,6 +458,7 @@ class Corrida:
 
 def _correr(p: Pedido) -> Corrida:
     """Reglas → base de pautas → columnas de salida → orden del catálogo."""
+    p = p.model_copy(update={"senal": _solo_codigo_guardado(p.senal)})
     try:
         tabla = tablas.tabla(p.tabla_id, p.senal.entrada)
     except KeyError:
@@ -430,8 +478,17 @@ def _correr(p: Pedido) -> Corrida:
     cat = catalogo.leer()
     if cat and not p.senal.salida.columnas:
         salida = salida[catalogo.ordenar(list(salida.columns), cat)]
-    return Corrida(salida, r.informes, cat, estados, hashes, pautas.crudas(tabla), tabla, programas, base,
-                   del_programa if del_programa in salida.columns else None)
+    crudas = pautas.crudas(tabla)
+    salida, origen, informe = paso_final(salida, p.senal)
+    if origen is not None:
+        contenido = pautas.columnas_de_contenido(salida, p.senal.validaciones)
+        agregadas = {i: pautas.de_paso_final({c: pautas.valor_json(salida.iloc[i][c]) for c in contenido})
+                     for i, o in enumerate(origen) if o is None}
+        estados = [estados[o] if o is not None else "generada" for o in origen]
+        hashes = [hashes[o] if o is not None else agregadas[i] for i, o in enumerate(origen)]
+        crudas = [crudas[o] if o is not None else {} for o in origen]
+    return Corrida(salida, r.informes + ([informe] if informe else []), cat, estados, hashes, crudas, tabla, programas,
+                   base, del_programa if del_programa in salida.columns else None)
 
 
 def _validar(c: Corrida, receta: m.Senal) -> list:
@@ -443,7 +500,20 @@ def _clasificar(c: Corrida, receta: m.Senal, avisos: list) -> list[dict]:
     columna = c.programa
     capitulo = [x for x in semana.campos_clave(columnas, columna) if x != columna]
     repetidas = semana.sinopsis_repetidas(c.salida, [p["salida"] for p in c.base.values()], columna, capitulo)
-    return semana.clasificar(c.salida, c.estados, avisos, c.informes, c.programas, columna, repetidas)
+    grupos = semana.clasificar(c.salida, c.estados, avisos, c.informes, c.programas, columna, repetidas)
+    if motivo := codigo_sin_comprobar(receta):
+        for g in grupos:
+            g.update(grupo="revisar", motivos=[motivo, *g["motivos"]], codigos=["codigo_sin_comprobar", *g["codigos"]])
+    return grupos
+
+
+def codigo_sin_comprobar(receta: m.Senal) -> str | None:
+    """El código de la señal que todavía no pasó un ejemplo: hasta que lo pase, la semana entera queda para revisar."""
+    if receta.entrada.tipo == "codigo" and receta.entrada.lector.activo and not receta.entrada.lector.comprobado:
+        return "El lector en código todavía no se comprobó con un ejemplo de la señal"
+    if receta.final is not None and receta.final.activo and not receta.final.comprobado:
+        return "El paso final en código todavía no se comprobó con un ejemplo de la señal"
+    return None
 
 
 def _resumen_pautas(estados: list[str]) -> dict:
@@ -595,16 +665,43 @@ def estado_del_armado(senal_id: str):
     return armados.leer(senal_id)
 
 
+class EstadoCodigo(BaseModel):
+    donde: Literal["lector", "final"]
+    activo: bool
+
+
+@api.post("/senales/{senal_id}/codigo", dependencies=[Depends(auth.solo_admin)])
+def prender_o_apagar_codigo(senal_id: str, datos: EstadoCodigo, u: auth.Usuario = Depends(auth.usuario_actual)):
+    """El admin apaga (o vuelve a prender) el código que escribió el agente para la señal."""
+    receta = _receta(senal_id)
+    if datos.donde == "lector":
+        if receta.entrada.tipo != "codigo":
+            raise HTTPException(404, "La señal no tiene lector en código")
+        lector = receta.entrada.lector.model_copy(update={"activo": datos.activo})
+        receta = receta.model_copy(update={"entrada": receta.entrada.model_copy(update={"lector": lector})})
+    else:
+        if receta.final is None:
+            raise HTTPException(404, "La señal no tiene paso final en código")
+        receta = receta.model_copy(update={"final": receta.final.model_copy(update={"activo": datos.activo})})
+    almacen.guardar(receta, u.usuario)
+    return {"ok": True, "activo": datos.activo}
+
+
+class PedidoArmado(BaseModel):
+    pedido: str = ""  # qué le falta a la señal, si la persona lo dijo
+
+
 @api.post("/senales/{senal_id}/reglas/armar")
-def armar_reglas(senal_id: str, u: auth.Usuario = Depends(auth.usuario_actual)):
-    """El agente arma las reglas desde los ejemplos, en segundo plano; el estado se consulta en /reglas/armado."""
+def armar_reglas(senal_id: str, datos: PedidoArmado | None = None, u: auth.Usuario = Depends(auth.usuario_actual)):
+    """El agente deja la señal igual a sus ejemplos, en segundo plano; el estado se consulta en /reglas/armado."""
     _receta(senal_id)
     if cliente.proveedor_configurado() is None:
         raise HTTPException(503, "El asistente no está configurado: falta la variable ANTHROPIC_API_KEY en el servidor")
     if not almacen.listar_ejemplos(senal_id):
         raise HTTPException(422, "La señal no tiene ejemplos para armar las reglas")
-    armados.lanzar(senal_id, u.usuario)
-    _avisar_del_agente(u, senal_id, "pidió armar las reglas desde los ejemplos")
+    pedido = (datos.pedido if datos else "").strip()
+    armados.lanzar(senal_id, u.usuario, pedido)
+    _avisar_del_agente(u, senal_id, f"le pidió al agente: {pedido}" if pedido else "pidió armar las reglas desde los ejemplos")
     return armados.leer(senal_id)
 
 
@@ -722,6 +819,8 @@ def _leer_con_agente(receta: m.Senal, contenido: bytes, esperado: pd.DataFrame |
 
     Se le pide con `motivo` (una señal nueva, otro formato) o si la lectura se ve mal (`_motivo_para_revisar`).
     """
+    if receta.entrada.tipo == "codigo" and receta.entrada.lector.activo:
+        return receta, None  # el lector en código lo cambia el agente de la señal, contra un ejemplo
     motivo = motivo or _motivo_para_revisar(receta, contenido, anterior)
     if motivo is None:
         return receta, None
@@ -966,10 +1065,12 @@ def _editar_celda(senal_id: str, c: Corrida, receta: m.Senal, fila: int, columna
         raise HTTPException(422, "Esta columna sale de las reglas (horario o numeración) y no se edita en la base")
     if not 0 <= fila < len(c.salida):
         raise HTTPException(422, "Esa fila no existe")
+    h = c.hashes[fila]
+    if h.startswith(pautas.GENERADA):
+        raise HTTPException(422, "Esta fila la agrega el paso final en código: no viene de la grilla y no se corrige en la base")
     salida = {col: pautas.valor_json(c.salida.iloc[fila][col]) for col in contenido}
     antes = salida.get(columna)
     salida[columna] = _convertir(valor, columna, c.catalogo)
-    h = c.hashes[fila]
     pautas.guardar(senal_id, {h: {"crudo": c.crudas[fila], "salida": salida}}, "editada", usuario, pisar=True)
     historial.anotar(senal_id, usuario, "corregida", [{"pauta": h, "programa": salida.get(c.programa), "columna": columna,
                                                        "antes": antes, "despues": salida[columna]}])
@@ -1046,6 +1147,8 @@ def _con_entrada(receta: m.Senal, detectada, contenido: bytes, esperado=None) ->
     (o con `esperado`, si se lo pasan).
     """
     entrada = receta.entrada
+    if entrada.tipo == "codigo" and entrada.lector.activo:
+        return receta  # si no puede con la grilla, que se vea el error: lo cambia el agente o lo apaga el admin
     if not inputs.mismo_formato(entrada, detectada) and _sin_horario(contenido, receta):
         entrada = detectada
     elif entrada.tipo == "texto" and entrada.fecha_inicio != detectada.fecha_inicio:
@@ -1096,6 +1199,9 @@ def _abrir(receta: m.Senal, contenido: bytes, detectada, nombre: str, usuario: s
         inputs.leer(contenido, nueva.entrada)
     except Exception as e:
         motivo = f" El agente tampoco pudo: {' '.join(agente['problemas'])}" if agente else ""
+        if nueva.entrada.tipo == "codigo":
+            motivo = (" Si cambió el formato, pedile al agente que actualice el lector con un ejemplo de esta semana, "
+                      "o que el admin lo apague en Configuración › Lectura.")
         raise HTTPException(422, f"No se pudo leer la grilla: {e}.{motivo}")
     tabla_id = tablas.subir(contenido)
     fechas = _fechas(_correr(Pedido(tabla_id=tabla_id, senal=nueva)).salida, nueva)
@@ -1513,7 +1619,7 @@ def aplicar_en_semana(senal_id: str, cambios: list[CambioFila], u: auth.Usuario 
     contenido = pautas.columnas_de_contenido(c.salida, receta.validaciones)
     por_fila: dict[int, dict] = {}
     for x in cambios:
-        if x.columna not in contenido or not 0 <= x.fila < len(c.salida):
+        if x.columna not in contenido or not 0 <= x.fila < len(c.salida) or c.hashes[x.fila].startswith(pautas.GENERADA):
             raise HTTPException(422, f"No se puede corregir {x.columna} en la fila {x.fila + 1}")
         valor = _convertir(x.valor, x.columna, c.catalogo) if isinstance(x.valor, str) else x.valor
         por_fila.setdefault(x.fila, {})[x.columna] = valor
@@ -1722,6 +1828,7 @@ def sumar_criterios(senal_id: str, u: auth.Usuario = Depends(auth.usuario_actual
 @api.post("/senales/{senal_id}/ejemplos/evaluar")
 def evaluar_ejemplos(senal_id: str, receta: m.Senal):
     """Corre la receta (aunque no esté guardada) contra cada ejemplo de la señal."""
+    receta = _solo_codigo_guardado(receta)
     try:
         nombres = almacen.listar_ejemplos(senal_id)
     except ValueError as e:
@@ -1736,7 +1843,7 @@ def evaluar_ejemplos(senal_id: str, receta: m.Senal):
         except Exception as e:
             resultados.append({"nombre": nombre, "error": f"No se pudo correr: {e}"})
             continue
-        pares = controles.pares_con_ejemplo(tabla, esperado)
+        pares = controles.pares_con_ejemplo(tabla if len(salida) == len(tabla) else salida, esperado)
         difs = diferencias(salida, esperado, pares)
         texto = [c for c in esperado.columns if esperado[c].map(lambda v: isinstance(v, str)).any()]
         resultados.append({
@@ -1787,6 +1894,8 @@ def _proveedor_disponible(u: auth.Usuario, pedido: str):
 def charla_asistente(p: PedidoAsistente, u: auth.Usuario = Depends(auth.usuario_actual)):
     """Primer paso de cada mensaje: responde rápido o avisa que hay que armar una propuesta."""
     proveedor = _proveedor_disponible(u, p.pedido)
+    if p.senal is not None:
+        p.senal = _solo_codigo_guardado(p.senal)
     tabla = _correr_tabla(p.tabla_id, p.senal) if p.tabla_id and p.senal else None
     try:
         c = asistente_ia.charlar(p.senal, tabla, [h.model_dump() for h in p.historial], p.pedido_con_contexto(),
@@ -1812,6 +1921,7 @@ def asistente(p: PedidoAsistente, u: auth.Usuario = Depends(auth.usuario_actual)
     if p.senal is None:
         raise HTTPException(422, "Abrí una señal para que el agente arme cambios sobre ella")
     proveedor = _proveedor_disponible(u, p.pedido)
+    p.senal = _solo_codigo_guardado(p.senal)
 
     try:
         # Hasta 3 ejemplos, siempre incluido el de "armar desde este ejemplo": más contexto encarece sin mejorar mucho.
@@ -1890,7 +2000,7 @@ def limites_asistente(u: auth.Usuario = Depends(auth.usuario_actual)):
 class PedidoBanco(BaseModel):
     senales: list[str]
     tope: float = 5.0
-    pasos: list[str] = list(banco.PASOS)
+    pasos: list[str] = list(banco.POR_DEFECTO)
 
 
 @api.get("/admin/banco/senales", dependencies=[Depends(auth.solo_admin)])

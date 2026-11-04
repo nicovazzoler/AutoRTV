@@ -21,6 +21,10 @@ Usalas cuando te sirvan; podés usar varias antes de contestar.
   propuesta, la prueba contra la grilla y los ejemplos, y la persona la aplica. Pasale el pedido con las
   palabras de la persona. Usala si el mensaje pide cambiar, agregar, sacar, arreglar o reordenar algo de cómo
   queda el EPG, aunque sea en forma de pregunta ("¿podés pasar los títulos a mayúscula?").
+- `armar_reglas` con `pedido`: cuando lo que falta no se arregla con tarjetas, porque hay que agregar, sacar o partir
+  filas ("falta el Fin de transmisión a las 00:00"), o porque la grilla no se lee bien. El agente de la señal
+  trabaja contra los ejemplos y, si hace falta, escribe código para esa señal. Corre en segundo plano y, si escribe
+  código, le avisa al admin.
 - `recordar`: algo de la persona que conviene saber en las próximas charlas (cómo trabaja, qué señales lleva,
   cómo prefiere que le respondas). No guardes claves, datos personales sensibles ni lo que ya recordás.
 

@@ -39,6 +39,7 @@ function titulo(g: Grupo): string {
   if (tipo === "catalogo") return `${columna} no cumple el catálogo`;
   if (tipo === "sinopsis_repetida") return "La misma sinopsis en capítulos distintos";
   if (tipo === "regla_con_error") return "Una regla falló";
+  if (tipo === "codigo_sin_comprobar") return "Código del agente sin comprobar con un ejemplo";
   return g.motivo.split(":")[0] || "Otros";
 }
 

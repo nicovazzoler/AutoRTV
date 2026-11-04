@@ -109,4 +109,15 @@ def armar_salida(df: pd.DataFrame, salida: m.Salida) -> pd.DataFrame:
 
 def correr(senal: m.Senal, tabla: pd.DataFrame) -> tuple[pd.DataFrame, list[InformeTarjeta]]:
     r = aplicar(tabla, senal.tarjetas, senal.titulos_conocidos)
-    return armar_salida(r.tabla, senal.salida), r.informes
+    salida, _, informe = paso_final(armar_salida(r.tabla, senal.salida), senal)
+    return salida, r.informes + ([informe] if informe else [])
+
+
+def paso_final(salida: pd.DataFrame, senal: m.Senal) -> tuple[pd.DataFrame, list[int | None] | None, InformeTarjeta | None]:
+    """El paso final en código de la señal, si tiene: (EPG, de qué fila viene cada una, informe si falló)."""
+    if senal.final is None:
+        return salida, None, None
+    from app.caja import pasos
+
+    salida, origen, error = pasos.final(salida, senal.final)
+    return salida, origen, InformeTarjeta(id="paso final", error=error) if error else None

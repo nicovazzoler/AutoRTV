@@ -58,6 +58,11 @@ class Ejemplo:
     def pares(self) -> list[tuple[int, int]] | None:
         return controles.pares_con_ejemplo(self.entrada, self.esperado)
 
+    def pares_de(self, salida: pd.DataFrame) -> list[tuple[int, int]] | None:
+        """Las reglas no cambian la cantidad de filas y se empareja por la grilla; si el paso final agregó o sacó
+        filas, por la fecha y la hora de la salida."""
+        return self.pares if len(salida) == len(self.entrada) else controles.pares_con_ejemplo(salida, self.esperado)
+
 
 @dataclass
 class Metricas:
@@ -205,8 +210,9 @@ def medir(receta: m.Senal, tabla: pd.DataFrame, ejemplos: list[Ejemplo]) -> tupl
     porcentajes, difs = {}, {}
     for e in ejemplos:
         sal_e, _ = correr(receta, e.entrada)
-        porcentajes[e.nombre] = round(porcentaje_igual(sal_e, e.esperado, e.pares), 2)
-        difs[e.nombre] = _repartidas(diferencias(sal_e, e.esperado, e.pares), MAX_DIFERENCIAS)
+        pares = e.pares_de(sal_e)
+        porcentajes[e.nombre] = round(porcentaje_igual(sal_e, e.esperado, pares), 2)
+        difs[e.nombre] = _repartidas(diferencias(sal_e, e.esperado, pares), MAX_DIFERENCIAS)
     detalle = {"salida": salida, "errores": errores, "validacion": validacion, "diferencias": difs}
     return Metricas(len(errores), grilla.resumen(validacion), porcentajes), detalle
 

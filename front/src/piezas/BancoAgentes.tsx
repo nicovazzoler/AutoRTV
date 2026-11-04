@@ -55,6 +55,19 @@ interface ResumenDiagnostico {
   principal: Record<string, number>;
 }
 
+interface AgenteSenal {
+  modelo: string;
+  logrado: boolean;
+  antes: number;
+  despues: number;
+  codigo: string[];
+  pasos: number;
+  resultado: string;
+  explicacion: string;
+  final: string;
+  costo: number;
+}
+
 interface ResultadoSenal {
   nombre: string;
   error?: string;
@@ -62,6 +75,14 @@ interface ResultadoSenal {
   diagnostico?: Diagnostico;
   lectura?: Trio<Lectura>;
   reglas?: Trio<Reglas> | { error: string };
+  agente?: AgenteSenal;
+}
+
+interface CuentaAgente {
+  senales: number;
+  al_100: number;
+  mejoro: number;
+  con_codigo: number;
 }
 
 interface Cuenta {
@@ -80,7 +101,7 @@ interface Corrida {
   parametros: { senales: string[]; tope: number; pasos: string[] };
   progreso: string | null;
   gastado: number;
-  resultado: { senales: ResultadoSenal[]; resumen: { lectura: Cuenta; reglas: Cuenta; diagnostico?: ResumenDiagnostico } } | null;
+  resultado: { senales: ResultadoSenal[]; resumen: { lectura: Cuenta; reglas: Cuenta; diagnostico?: ResumenDiagnostico; agente?: CuentaAgente } } | null;
 }
 
 const POR_DEFECTO = 8;
@@ -147,6 +168,22 @@ function celdaReglas(x: Reglas | null | undefined) {
       {porQue(x.problemas, x.explicacion)}
     </span>
   );
+}
+
+function celdaAgente(x: AgenteSenal) {
+  return (
+    <span>
+      <b className={x.despues >= 98 ? "c-nueva" : x.despues > x.antes ? undefined : "c-revisar"}>{Math.round(x.antes)} → {Math.round(x.despues)} %</b>
+      <span className="chico tenue"> · {x.pasos} pasos · {usd(x.costo)}{x.codigo.length ? ` · escribió ${x.codigo.join(" y ")} en código` : ""}</span>
+      <br />
+      <span className="chico tenue">{x.logrado ? x.resultado : `No guardó nada: ${x.final}`}</span>
+      {x.explicacion && <details><summary className="chico">▸ ver</summary><p className="chico" style={{ margin: "4px 0 0" }}>{x.explicacion}</p></details>}
+    </span>
+  );
+}
+
+function fraseAgente(c: CuentaAgente): string {
+  return `Agente de la señal: mejoró ${c.mejoro} de ${c.senales}, dejó ${c.al_100} al 100 % y escribió código en ${c.con_codigo}.`;
 }
 
 function fraseDiagnostico(d: ResumenDiagnostico): string {
@@ -254,7 +291,8 @@ export function BancoAgentes() {
             <input className="entrada" type="number" min={0.5} max={50} step={0.5} value={tope} onChange={(e) => setTope(e.target.value)} />
           </label>
           <div className="botones" style={{ gap: 14 }}>
-            {[["diagnostico", "Diagnóstico del lector (gratis)"], ["lectura", "Leer la grilla"], ["reglas", "Armar las reglas"]].map(([id, nombre]) => (
+            {[["diagnostico", "Diagnóstico del lector (gratis)"], ["lectura", "Leer la grilla"], ["reglas", "Armar las reglas"],
+              ["agente", "Agente de la señal (con código, Sonnet)"]].map(([id, nombre]) => (
               <label key={id} style={{ display: "flex", gap: 6, alignItems: "center" }}>
                 <input type="checkbox" checked={pasos.has(id)} onChange={() => alternar(pasos, id, setPasos)}
                   style={{ width: 18, height: 18, accentColor: "var(--acento)" }} />{nombre}
@@ -289,6 +327,7 @@ export function BancoAgentes() {
           )}
           {abierta.estado !== "corriendo" && abierta.progreso !== "Listo" && <p className="nota" style={{ margin: 0 }}>{abierta.progreso}</p>}
           {resumen?.diagnostico && resumen.diagnostico.senales > 0 && <p style={{ margin: 0 }}>{fraseDiagnostico(resumen.diagnostico)}</p>}
+          {resumen?.agente && resumen.agente.senales > 0 && <p style={{ margin: 0 }}>{fraseAgente(resumen.agente)}</p>}
           {resumen && (resumen.lectura.senales > 0 || resumen.reglas.senales > 0) && (
             <p style={{ margin: 0 }}>{frase("Lectura", resumen.lectura)} {frase("Reglas", resumen.reglas)}</p>
           )}
@@ -317,6 +356,8 @@ export function BancoAgentes() {
                     else if (r.reglas) filas.push(
                       <tr key={`${r.nombre}-r`}>{r.lectura || r.diagnostico ? <td /> : senal}<td className="tenue">Reglas</td>
                         <td>{celdaReglas(r.reglas.haiku)}</td><td>{celdaReglas(r.reglas.sonnet)}</td><td>{celdaReglas(r.reglas.escalera)}</td></tr>);
+                    if (r.agente) filas.push(
+                      <tr key={`${r.nombre}-a`}>{filas.length ? <td /> : senal}<td className="tenue">Agente</td><td colSpan={3}>{celdaAgente(r.agente)}</td></tr>);
                     return filas;
                   })}
                 </tbody>

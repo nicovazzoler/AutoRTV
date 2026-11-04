@@ -237,6 +237,8 @@ export interface AccionUi {
   hashes?: string[];
   columna?: string;
   valor?: string | null;
+  /** armar_reglas: qué le falta a la señal, si la persona lo dijo. */
+  pedido?: string;
 }
 
 export interface PedidoDePropuesta {

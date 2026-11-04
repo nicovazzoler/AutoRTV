@@ -217,7 +217,11 @@ export function Administrar() {
             <ul className="lista-avisos">
               {avisos.map((a) => (
                 <li key={a.id} className={a.visto ? "tenue" : undefined}>
-                  <span><b>{persona(a.usuario)}</b> cambió las reglas de <Enlace a={`/base/${a.senal_id}/config`}>{senales?.find((x) => x.id === a.senal_id)?.nombre ?? a.senal_id}</Enlace> · {haceCuanto(a.fecha)}</span>
+                  <span>
+                    {a.tipo === "codigo" ? <><b>El agente</b> escribió código para </> : <><b>{persona(a.usuario)}</b> cambió las reglas de </>}
+                    <Enlace a={`/base/${a.senal_id}/config`}>{senales?.find((x) => x.id === a.senal_id)?.nombre ?? a.senal_id}</Enlace>
+                    {a.tipo === "codigo" && <> (lo pidió {persona(a.usuario)})</>} · {haceCuanto(a.fecha)}
+                  </span>
                   <span className="chico">{a.detalle}</span>
                   {!a.visto && <button type="button" className="boton chico" onClick={() => marcarVisto(a)}>Visto</button>}
                 </li>

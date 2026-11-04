@@ -33,6 +33,10 @@ def leer(contenido: bytes, entrada) -> pd.DataFrame:
         tabla = html.leer(io.BytesIO(contenido), entrada)
         if entrada.epg:
             tabla = epg.armar(tabla, entrada.epg)
+    elif entrada.tipo == "codigo":
+        from app.caja import pasos
+
+        tabla = pasos.leer(contenido, entrada)
     else:
         tabla = texto.leer(contenido, entrada)
     # Antes de las reglas: cada parte queda como fila cruda propia y la base la reconoce sola.
@@ -132,6 +136,13 @@ def _hoja_con_la_grilla(contenido: bytes) -> m.EntradaExcel:
         except Exception:
             continue
     return m.EntradaExcel(tipo="excel", fila_encabezado=excel.detectar_fila_encabezado(io.BytesIO(contenido)))
+
+
+def con_codigo(entrada) -> bool:
+    """La lectura usa un lector en código, directo o para cada archivo de un zip."""
+    if entrada.tipo == "codigo":
+        return True
+    return entrada.tipo == "varios" and entrada.cada_uno is not None and con_codigo(entrada.cada_uno)
 
 
 def mismo_formato(a, b) -> bool:

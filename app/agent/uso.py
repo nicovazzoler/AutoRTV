@@ -21,7 +21,7 @@ def poner_limite_diario(valor: int) -> None:
 
 
 # Lo que el agente hace solo (banco de pruebas, armado de reglas) se registra pero no gasta el tope de la persona.
-SIN_TOPE = ("[banco]", "[armar reglas]", "[lectura]", "[parecidas]")
+SIN_TOPE = ("[banco]", "[armar reglas]", "[agente de la señal]", "[lectura]", "[parecidas]")
 
 
 def pedidos_de_hoy(usuario: str) -> int:
