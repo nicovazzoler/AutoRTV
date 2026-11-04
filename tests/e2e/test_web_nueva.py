@@ -343,8 +343,9 @@ def test_el_modal_de_confirmar_cancela_con_esc_y_devuelve_el_foco(servidor, tmp_
 
         borrar.click()
         assert "peligro" in modal.get_by_role("button", name="Borrar grilla").get_attribute("class")
-        _responder(pagina, "Borrar grilla")
-        pagina.wait_for_function("() => !document.querySelector('dialog.dialogo[open]')")
+        # El modal se cierra antes de que el servidor termine de borrar: se espera la respuesta del DELETE.
+        with pagina.expect_response(lambda r: r.request.method == "DELETE" and r.url.endswith("/api/senales/canal/abierta")):
+            _responder(pagina, "Borrar grilla")
         assert pagina.request.get(servidor + "/api/senales/canal/abierta").json()["semana"] is None
         navegador.close()
 
@@ -471,6 +472,17 @@ def test_banco_de_agentes_desde_administrar(servidor, tmp_path):
         banco.get_by_text("Reglas: Haiku alcanzó").wait_for()
         banco.get_by_text("Diagnóstico de 1 señal:").wait_for()  # va marcado por defecto y no usa el agente
         assert banco.locator("tbody tr", has_text="Diagnóstico").count() == 1
+        navegador.close()
+
+
+def test_la_caja_de_codigo_se_ve_desde_administrar(servidor):
+    with playwright.sync_playwright() as p:
+        navegador, pagina = _entrar(p, servidor)
+        pagina.goto(servidor + "/admin")
+        pagina.get_by_role("navigation", name="Administrar").get_by_role("button", name="Caja de código").click()
+        caja = pagina.locator("section[aria-label='Caja de código']")
+        caja.get_by_role("status").get_by_text("Todavía no se probó en este servidor").wait_for()  # sin autoprueba en el e2e
+        assert caja.get_by_role("button", name="Probar de nuevo").is_enabled()
         navegador.close()
 
 

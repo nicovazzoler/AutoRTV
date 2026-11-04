@@ -1,4 +1,5 @@
 import logging
+import os
 import secrets
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -9,6 +10,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Redirect
 
 from app import armados, auth, corridas, db
 from app.api.rutas import api, publico
+from app.caja import autoprueba
 
 RAIZ = Path(__file__).resolve().parents[1]
 WEB = RAIZ / "front" / "dist"
@@ -20,6 +22,9 @@ async def arranque(_app):
     auth.asegurar_admin_inicial()
     corridas.cortar_colgadas()
     armados.cortar_colgados()
+    # En el servidor de verdad, con las claves cargadas: hasta que pase, el código de las señales no corre.
+    if os.environ.get("CAJA_AUTOPRUEBA", "1") != "0":
+        autoprueba.en_segundo_plano()
     yield
 
 

@@ -18,6 +18,7 @@ from app import (acciones, almacen, armados, arreglos, auth, catalogo, confianza
 from app.agent import asistente as asistente_ia
 from app.agent import banco, cliente, controles, lectura, uso
 from app.agent import parecidas as parecidas_ia
+from app.caja import autoprueba
 from app.engine import model as m
 from app.engine import titulos
 from app.engine.comparar import diferencias, porcentaje_igual, sugerir_correcciones
@@ -1933,6 +1934,18 @@ def corrida_del_banco(corrida_id: int):
     if c is None:
         raise HTTPException(404, "No existe esa corrida")
     return c
+
+
+@api.get("/admin/caja", dependencies=[Depends(auth.solo_admin)])
+def estado_de_la_caja():
+    """La última autoprueba de la caja en este servidor: si el código de las señales puede correr y por qué."""
+    return autoprueba.estado()
+
+
+@api.post("/admin/caja/probar", dependencies=[Depends(auth.solo_admin)])
+def probar_la_caja():
+    autoprueba.en_segundo_plano()
+    return autoprueba.estado()
 
 
 class AccionesAdmin(BaseModel):

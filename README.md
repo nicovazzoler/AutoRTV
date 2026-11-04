@@ -52,6 +52,7 @@ CHROMIUM=/ruta/a/chrome .venv/bin/python -m pytest tests/e2e  # navegador real (
 - Contra Postgres, las tablas se vacían antes de cada test: usar una base solo para eso.
 - El test golden de Concert Channel corre solo si existe `privado/`.
 - El e2e compila `front/` si hace falta (necesita npm).
+- Los tests de la caja de código (`tests/unit/test_caja.py`) necesitan `npm ci` en `caja/`; sin eso se saltean. En la imagen de Docker la autoprueba corre en el build: si un intento hostil sale de la caja, el build falla.
 
 ## Deploy en Railway
 

@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { api, textoDeError } from "../api";
 import { BancoAgentes } from "../piezas/BancoAgentes";
+import { CajaCodigo } from "../piezas/CajaCodigo";
 import { ZonaArchivo } from "../piezas/ZonaArchivo";
 import { useSesion } from "../sesion";
 import { persona } from "../nombre";
@@ -61,7 +62,7 @@ function usd(n: number): string {
   return n < 0.01 && n > 0 ? "menos de 0,01 USD" : `${n.toLocaleString("es-AR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD`;
 }
 
-type Pestana = "avisos" | "usuarios" | "senales" | "catalogo" | "uso" | "banco";
+type Pestana = "avisos" | "usuarios" | "senales" | "catalogo" | "uso" | "banco" | "caja";
 
 const PESTANAS: { id: Pestana; nombre: string }[] = [
   { id: "avisos", nombre: "Avisos" },
@@ -70,9 +71,10 @@ const PESTANAS: { id: Pestana; nombre: string }[] = [
   { id: "catalogo", nombre: "Catálogo de columnas" },
   { id: "uso", nombre: "Uso del agente" },
   { id: "banco", nombre: "Banco de agentes" },
+  { id: "caja", nombre: "Caja de código" },
 ];
 
-/** Solo admin, desde el menú de la cuenta: usuarios, señales, catálogo, gasto del agente y banco de agentes. */
+/** Solo admin, desde el menú de la cuenta: usuarios, señales, catálogo, gasto del agente, banco y caja de código. */
 export function Administrar() {
   const { yo, senales, refrescarSenales, setContexto } = useSesion();
   const [pestana, setPestana] = useState<Pestana>("avisos");
@@ -324,6 +326,7 @@ export function Administrar() {
       )}
 
       {pestana === "banco" && <BancoAgentes />}
+      {pestana === "caja" && <CajaCodigo />}
     </main>
   );
 }

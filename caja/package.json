@@ -1,0 +1,9 @@
+{
+  "name": "autortv-caja",
+  "private": true,
+  "description": "Deno y Pyodide para correr aislado el código que escribe el agente para una señal",
+  "dependencies": {
+    "deno": "2.9.6",
+    "pyodide": "0.27.7"
+  }
+}

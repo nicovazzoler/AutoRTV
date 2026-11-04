@@ -12,3 +12,6 @@ muestras/
 # Web nueva: dependencias y compilado
 front/node_modules/
 front/dist/
+
+# Caja de código: dependencias de Deno y Pyodide
+caja/node_modules/

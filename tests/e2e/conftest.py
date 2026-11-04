@@ -25,7 +25,7 @@ def servidor(tmp_path):
                                   "tarjetas_json": json.dumps([{"id": "a1", "tipo": "mayus_minus",
                                                                 "columnas": ["Titulo"], "modo": "MAYUS"}])}]))
     entorno = {"DATA_DIR": str(tmp_path), "ADMIN_USUARIO": "admin", "ADMIN_CLAVE": "clave-segura", "PATH": "",
-               "AGENTE_FALSO": str(falso)}
+               "AGENTE_FALSO": str(falso), "CAJA_AUTOPRUEBA": "0"}
     proc = subprocess.Popen([sys.executable, "-m", "uvicorn", "app.main:app", "--port", str(puerto)],
                             cwd=RAIZ, env=entorno, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     url = f"http://127.0.0.1:{puerto}"
