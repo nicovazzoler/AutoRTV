@@ -4,8 +4,8 @@ import threading
 
 from sqlalchemy import desc, insert, select, update
 
-from app import almacen, db
-from app.agent import banco, uso
+from app import almacen, db, trabajos
+from app.agent import banco, cliente, uso
 
 MAX_SENALES = 20
 MAX_SENALES_SIN_AGENTE = 600  # el diagnóstico no gasta: puede pasar por todas
@@ -82,15 +82,15 @@ def lanzar(usuario: str, senales: list[str], tope: float, pasos: list[str], prov
     except Exception:
         _candado.release()
         raise
-    trabajo = lambda: _correr(corrida_id, usuario, senales, tope, pasos, proveedor)  # noqa: E731
-    if en_hilo:
-        threading.Thread(target=trabajo, daemon=True, name=f"banco-{corrida_id}").start()
-    else:
-        trabajo()
+    trabajos.lanzar(f"banco-{corrida_id}", _correr, (corrida_id, usuario, senales, tope, pasos, proveedor is not None),
+                    lambda codigo: _al_terminar(corrida_id, codigo), en_hilo=en_hilo)
     return corrida_id
 
 
-def _correr(corrida_id: int, usuario: str, senales: list[str], tope: float, pasos: list[str], proveedor) -> None:
+def _correr(corrida_id: int, usuario: str, senales: list[str], tope: float, pasos: list[str], con_agente: bool) -> None:
+    """La corrida en sí. Corre en el proceso de las tareas (app.trabajos): trae su propio agente."""
+    proveedor = cliente.proveedor_configurado() if con_agente else None
+
     def registrar(senal, modelo, entrada, salida, vueltas, logrado):
         uso.registrar(usuario, senal, "[banco]", vueltas, entrada, salida, logrado, modelo)
 
@@ -105,5 +105,13 @@ def _correr(corrida_id: int, usuario: str, senales: list[str], tope: float, paso
                  resultado={"senales": resultados, "resumen": banco.resumen(resultados)})
     except Exception as e:
         _guardar(corrida_id, estado="error", fin=_ahora(), gastado=caja.gastado, progreso=f"{type(e).__name__}: {e}")
+
+
+def _al_terminar(corrida_id: int, codigo: int | None) -> None:
+    """En el servidor, cuando termina el proceso de la corrida. Si murió sin anotar el final (memoria), lo anota acá."""
+    try:
+        if codigo != 0 and (c := leer(corrida_id)) and c["estado"] == "corriendo":
+            _guardar(corrida_id, estado="error", fin=_ahora(),
+                     progreso=f"La corrida se cortó (código {codigo}): se quedó sin memoria o falló.")
     finally:
         _candado.release()

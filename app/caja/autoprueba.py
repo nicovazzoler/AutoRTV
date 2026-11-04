@@ -131,7 +131,7 @@ def probar(segundos: int = caja.SEGUNDOS) -> dict:
         motivo = f"Bloqueó los {len(casos)} intentos y corre código normal."
     return {"ok": anda and not escapados, "anda": anda, "fecha": fecha, "casos": casos, "motivo": motivo,
             "segundos": round(time.monotonic() - inicio, 1), "usuario": normal.get("usuario"),
-            "limites": {"segundos": segundos, "memoria_mb": caja.MEMORIA_MB}}
+            "limites": {"segundos": segundos, "memoria_mb": caja.MEMORIA_MB, "del_sistema": caja.PRLIMIT is not None}}
 
 
 _estado: dict = {"ok": False, "anda": False, "probando": False, "casos": [],

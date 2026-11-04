@@ -8,7 +8,7 @@ import numpy as np
 from fastapi import Cookie, FastAPI, HTTPException, Request, encoders
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 
-from app import armados, auth, corridas, db
+from app import armados, auth, corridas, db, memoria, trabajos
 from app.api.rutas import api, publico
 from app.caja import autoprueba
 
@@ -16,8 +16,16 @@ RAIZ = Path(__file__).resolve().parents[1]
 WEB = RAIZ / "front" / "dist"
 
 
+def _que_corre() -> str:
+    """Las tareas largas en marcha, para el aviso de memoria alta."""
+    procesos = ", ".join(f"{nombre} (pid {pid}, {memoria.rss_mb(pid):.0f} MB)" for pid, nombre in trabajos.vivos().items())
+    return f"tareas: {procesos or 'ninguna'} · armados en marcha: {', '.join(sorted(armados._en_marcha)) or 'ninguno'}"
+
+
 @asynccontextmanager
 async def arranque(_app):
+    memoria.poner_tope()
+    memoria.vigilar(_que_corre)
     db.motor()  # crea las tablas y migra el volumen viejo antes de atender pedidos
     auth.asegurar_admin_inicial()
     corridas.cortar_colgadas()
