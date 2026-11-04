@@ -118,4 +118,4 @@ def test_la_autoprueba_no_cambia_el_entorno_del_servidor(monkeypatch):
 def test_el_tope_de_memoria_del_sistema_corta_aunque_el_vigilante_no_mire(monkeypatch):
     monkeypatch.setattr(caja, "_medir", lambda pid: (0.0, None))
     r = caja.correr("def principal(d):\n    return len([bytearray(100_000_000) for _ in range(40)])", None, memoria_mb=300)
-    assert caja.PRLIMIT and not r["ok"] and r["error"] == "Se cortó: usó más de 300 MB."
+    assert caja.topes_del_sistema() and not r["ok"] and r["error"] == "Se cortó: usó más de 300 MB."

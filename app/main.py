@@ -12,6 +12,13 @@ from app import armados, auth, corridas, db, memoria, trabajos
 from app.api.rutas import api, publico
 from app.caja import autoprueba
 
+# Los avisos propios (memoria, autoprueba de la caja) van al log de Railway junto con los de uvicorn.
+if not logging.getLogger("autortv").handlers:
+    _salida = logging.StreamHandler()
+    _salida.setFormatter(logging.Formatter("%(levelname)s: %(message)s"))
+    logging.getLogger("autortv").addHandler(_salida)
+    logging.getLogger("autortv").setLevel(logging.INFO)
+
 RAIZ = Path(__file__).resolve().parents[1]
 WEB = RAIZ / "front" / "dist"
 

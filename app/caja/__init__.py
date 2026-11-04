@@ -5,7 +5,6 @@ la caja, sin lanzar procesos, y con tiempo y memoria limitados. `autoprueba` lo 
 """
 import json
 import os
-import shutil
 import signal
 import subprocess
 import threading
@@ -25,7 +24,7 @@ NADIE = 65534
 # Por encima del vigilante: la memoria que el sistema operativo le deja reservar al proceso. WebAssembly reserva de más
 # al crecer, por eso el margen.
 MARGEN_MB = 768
-PRLIMIT = shutil.which("prlimit")
+SH = "/bin/sh"
 _turnos = threading.BoundedSemaphore(SIMULTANEOS)
 
 
@@ -41,13 +40,17 @@ def _comando(memoria_mb: int, segundos: int) -> list[str]:
     deno = [str(_deno()), "run", "--quiet", "--no-prompt", "--no-lock", "--no-remote", f"--allow-read={DIR}",
             "--deny-net", "--deny-env", "--deny-run", "--deny-ffi", "--deny-sys", "--deny-write", "--deny-import",
             f"--v8-flags=--max-old-space-size={memoria_mb // 2}", str(DIR / "runner.mjs")]
-    if PRLIMIT is None:
+    if not topes_del_sistema():
         return deno
-    # Los topes se los pone el proceso a sí mismo antes de ser Deno: desde afuera no se puede una vez que cambió de
-    # usuario. Así no dependen de que el vigilante llegue a tiempo. La CPU suma todos los hilos (V8 compila en
-    # paralelo al arrancar): el tope de tiempo de verdad es el del reloj, este es por si el vigilante no llega.
-    cpu = segundos * 4 + 30
-    return [PRLIMIT, f"--data={(memoria_mb + MARGEN_MB) * 2**20}", f"--cpu={cpu}:{cpu + 1}", "--core=0", "--", *deno]
+    # Los topes se los pone el proceso a sí mismo, con el sh del sistema, antes de ser Deno: desde afuera no se puede
+    # una vez que cambió de usuario, y así no dependen de que el vigilante llegue a tiempo. La CPU suma todos los
+    # hilos (V8 compila en paralelo al arrancar): el tope de tiempo de verdad es el del reloj.
+    datos_kb, cpu = (memoria_mb + MARGEN_MB) * 1024, segundos * 4 + 30
+    return [SH, "-c", f'ulimit -d {datos_kb} && ulimit -t {cpu} && ulimit -c 0 && exec "$0" "$@"', *deno]
+
+
+def topes_del_sistema() -> bool:
+    return os.access(SH, os.X_OK)
 
 
 def _lanzar(memoria_mb: int, segundos: int) -> subprocess.Popen:

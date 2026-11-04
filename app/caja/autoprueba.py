@@ -4,6 +4,7 @@ Corre en el build de la imagen y al arrancar el servidor, con las claves de verd
 """
 import datetime as dt
 import json
+import logging
 import os
 import secrets
 import tempfile
@@ -14,6 +15,7 @@ from pathlib import Path
 
 from app import caja
 
+registro = logging.getLogger("autortv")
 CANARIO = "AUTORTV_CANARIO"
 # Va en el entorno del servidor, como las claves de verdad. Se pone al cargar el módulo, antes de que haya hilos:
 # cambiar el entorno con el servidor andando puede tirar abajo el proceso si otro hilo lo está leyendo.
@@ -80,6 +82,10 @@ def _casos(archivo: Path, escrito: Path) -> dict[str, str]:
     }
 
 
+# Al arrancar el servidor, las pruebas de los topes van con topes chicos: prueban lo mismo sin poder comerse gigas.
+TOPES = {"Tiempo: bucle infinito": {"segundos": 5}, "Memoria: llenarla": {"memoria_mb": 256}}
+
+
 def _secretos(canario: str, del_archivo: str) -> list[str]:
     reales = [v for k, v in os.environ.items() if any(s in k.upper() for s in SENSIBLES) and len(v) >= 8]
     return [canario, del_archivo, *reales]
@@ -92,6 +98,7 @@ def _ultima_linea(texto: str) -> str:
 def probar(segundos: int = caja.SEGUNDOS) -> dict:
     """Corre el código normal y el hostil. ok = el normal anda y ningún hostil salió con algo de afuera."""
     inicio = time.monotonic()
+    registro.info("Autoprueba de la caja: arranca")
     fecha = dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
     if not caja.instalada():
         return {"ok": False, "anda": False, "fecha": fecha, "casos": [],
@@ -108,7 +115,8 @@ def probar(segundos: int = caja.SEGUNDOS) -> dict:
 
         def uno(par: tuple[str, str]) -> dict:
             nombre, codigo = par
-            r = caja.correr(codigo, {}, segundos=segundos)
+            registro.info("Autoprueba de la caja: probando «%s»", nombre)  # si el servidor se cae, el último dice en cuál
+            r = caja.correr(codigo, {}, **{"segundos": segundos, **TOPES.get(nombre, {})})
             texto = json.dumps(r, ensure_ascii=False)
             fuga = any(s in texto for s in secretos) or "root:x:0" in texto
             return {"nombre": nombre, "bloqueado": not r["ok"] and not fuga and not escrito.exists(),
@@ -129,9 +137,10 @@ def probar(segundos: int = caja.SEGUNDOS) -> dict:
         motivo = f"Se {'escapó' if len(escapados) == 1 else 'escaparon'} {len(escapados)}: el código de las señales queda apagado."
     else:
         motivo = f"Bloqueó los {len(casos)} intentos y corre código normal."
+    registro.info("Autoprueba de la caja: %s (%.0f s)", motivo, time.monotonic() - inicio)
     return {"ok": anda and not escapados, "anda": anda, "fecha": fecha, "casos": casos, "motivo": motivo,
             "segundos": round(time.monotonic() - inicio, 1), "usuario": normal.get("usuario"),
-            "limites": {"segundos": segundos, "memoria_mb": caja.MEMORIA_MB, "del_sistema": caja.PRLIMIT is not None}}
+            "limites": {"segundos": segundos, "memoria_mb": caja.MEMORIA_MB, "del_sistema": caja.topes_del_sistema()}}
 
 
 _estado: dict = {"ok": False, "anda": False, "probando": False, "casos": [],
