@@ -230,7 +230,12 @@ class Estado:
             d = d["archivos"][archivo]
         if d["tipo"] == "excel":
             hojas = d["hojas"]
-            h = next((x for x in hojas if x["nombre"] == hoja), None) or hojas[int(hoja) if str(hoja or 0).isdigit() else 0]
+            h = next((x for x in hojas if x["nombre"] == hoja), None)
+            if h is None:
+                numero = int(hoja) if str(hoja or 0).isdigit() else 0
+                if numero >= len(hojas):
+                    return {"error": f"No hay hoja {hoja}. Las hojas son: {[x['nombre'] for x in hojas]}"}
+                h = hojas[numero]
             hasta = desde + 60 if hasta is None else hasta
             combinadas = [f"{_columna_excel(c0)}{r0 + 1}:{_columna_excel(c1 - 1)}{r1}"
                           for r0, r1, c0, c1 in h["combinadas"] if r0 < hasta and r1 > desde]

@@ -6,6 +6,13 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 
+@pytest.fixture(autouse=True)
+def tareas_en_el_mismo_proceso(monkeypatch):
+    """Las tareas largas corren en un hilo y no en otro proceso: así ven el agente grabado de cada test."""
+    from app import trabajos
+    monkeypatch.setattr(trabajos, "EN_PROCESO", False)
+
+
 @pytest.fixture
 def cliente(tmp_path, monkeypatch):
     """App con DATA_DIR temporal y un admin ya logueado."""

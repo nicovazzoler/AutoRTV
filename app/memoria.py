@@ -67,9 +67,18 @@ def hijos(pid: int) -> list[int]:
     return encontrados
 
 
+def descendientes(pid: int) -> list[int]:
+    """Los procesos que lanzó `pid` y los que lanzaron esos: las tareas y sus cajas."""
+    todos, pendientes = [], hijos(pid)
+    while pendientes:
+        todos.append(actual := pendientes.pop())
+        pendientes += hijos(actual)
+    return todos
+
+
 def medir() -> tuple[float, float, int]:
-    """(MB del servidor, MB de la caja, procesos de la caja)."""
-    propios = hijos(os.getpid())
+    """(MB del servidor, MB de los procesos que lanzó, cuántos son)."""
+    propios = descendientes(os.getpid())
     return rss_mb(os.getpid()), sum(rss_mb(h) for h in propios), len(propios)
 
 
@@ -80,6 +89,6 @@ def vigilar(que_corre: Callable[[], str]) -> None:
             time.sleep(CADA)
             servidor, caja, procesos = medir()
             if servidor + caja > AVISO_MB:
-                logging.getLogger("autortv").warning("Memoria alta: servidor %.0f MB, caja %.0f MB en %d procesos · %s",
+                logging.getLogger("autortv").warning("Memoria alta: servidor %.0f MB, tareas y caja %.0f MB en %d procesos · %s",
                                                      servidor, caja, procesos, que_corre())
     threading.Thread(target=bucle, daemon=True, name="vigia-memoria").start()

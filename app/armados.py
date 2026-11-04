@@ -6,7 +6,7 @@ import threading
 import pandas as pd
 from sqlalchemy import delete, insert, select, update
 
-from app import almacen, catalogo, conversaciones, db, inputs, pautas
+from app import almacen, catalogo, conversaciones, db, inputs, pautas, trabajos
 from app.agent import armado, asistente, cliente, senal, uso
 
 MAX_EJEMPLOS = 3
@@ -57,11 +57,8 @@ def lanzar(senal_id: str, usuario: str, pedido: str = "") -> bool:
         con.execute(delete(db.armados).where(db.armados.c.senal_id == senal_id))
         con.execute(insert(db.armados).values(senal_id=senal_id, usuario=usuario, inicio=_ahora(), estado="armando",
                                               mensaje="El agente está armando las reglas desde los ejemplos"))
-    trabajo = lambda: _correr(senal_id, usuario, proveedor, pedido)  # noqa: E731
-    if EN_HILO:
-        threading.Thread(target=trabajo, daemon=True, name=f"armado-{senal_id}").start()
-    else:
-        trabajo()
+    trabajos.lanzar(f"armado-{senal_id}", _correr, (senal_id, usuario, pedido),
+                    lambda codigo: _al_terminar(senal_id, usuario, codigo), en_hilo=EN_HILO)
     return True
 
 
@@ -83,7 +80,9 @@ def _ejemplos(receta, crudos: list[tuple[senal.EjemploCrudo, bytes]]) -> list[as
         return []
 
 
-def _correr(senal_id: str, usuario: str, proveedor, pedido: str = "") -> None:
+def _correr(senal_id: str, usuario: str, pedido: str = "") -> None:
+    """El armado en sí. Corre en el proceso de las tareas (app.trabajos): trae su propio agente."""
+    proveedor = cliente.proveedor_configurado()
     try:
         receta, version = almacen.leer(senal_id), almacen.version(senal_id)
         crudos = _crudos(receta)
@@ -129,13 +128,19 @@ def _correr(senal_id: str, usuario: str, proveedor, pedido: str = "") -> None:
                  mensaje=(explicacion.strip() or f"El agente dejó el ejemplo en {despues:g} % (estaba en {antes:g} %).")[:1500])
     except Exception as e:
         _guardar(senal_id, estado="error", fin=_ahora(), mensaje=f"{type(e).__name__}: {e}"[:1500])
-    finally:
-        with _candado:
-            _en_marcha.discard(senal_id)
-            otra_vez = senal_id in _repetir
-            _repetir.discard(senal_id)
-        if otra_vez:
-            lanzar(senal_id, usuario)
+
+
+def _al_terminar(senal_id: str, usuario: str, codigo: int | None) -> None:
+    """En el servidor, cuando termina el proceso del armado. Si murió sin anotar el final (memoria), lo anota acá."""
+    if codigo != 0 and (estado := leer(senal_id)) and estado["estado"] == "armando":
+        _guardar(senal_id, estado="error", fin=_ahora(),
+                 mensaje=f"El trabajo del agente se cortó (código {codigo}): se quedó sin memoria o falló. Probá de nuevo.")
+    with _candado:
+        _en_marcha.discard(senal_id)
+        otra_vez = senal_id in _repetir
+        _repetir.discard(senal_id)
+    if otra_vez:
+        lanzar(senal_id, usuario)
 
 
 def _le_falta(receta, ejemplos: list[senal.EjemploCrudo]) -> bool:

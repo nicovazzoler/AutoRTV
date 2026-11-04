@@ -8,7 +8,7 @@ import numpy as np
 from fastapi import Cookie, FastAPI, HTTPException, Request, encoders
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 
-from app import armados, auth, corridas, db, memoria
+from app import armados, auth, corridas, db, memoria, trabajos
 from app.api.rutas import api, publico
 from app.caja import autoprueba
 
@@ -18,8 +18,8 @@ WEB = RAIZ / "front" / "dist"
 
 def _que_corre() -> str:
     """Las tareas largas en marcha, para el aviso de memoria alta."""
-    banco = "el banco está corriendo" if corridas._candado.locked() else "sin banco"
-    return f"agente de la señal en: {', '.join(sorted(armados._en_marcha)) or 'ninguna'} · {banco}"
+    procesos = ", ".join(f"{nombre} (pid {pid}, {memoria.rss_mb(pid):.0f} MB)" for pid, nombre in trabajos.vivos().items())
+    return f"tareas: {procesos or 'ninguna'} · armados en marcha: {', '.join(sorted(armados._en_marcha)) or 'ninguno'}"
 
 
 @asynccontextmanager
