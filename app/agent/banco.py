@@ -2,6 +2,8 @@
 Sonnet arrancando de lo de Haiku (escalera). Gasta API de verdad, con tope."""
 import io
 import time
+import traceback
+from pathlib import Path
 from collections.abc import Callable
 from dataclasses import dataclass
 
@@ -151,6 +153,12 @@ def resumen(resultados: list[dict]) -> dict:
     return cuenta
 
 
+def _donde(e: Exception) -> str:
+    """El archivo y la línea de la app donde saltó el error, para encontrarlo sin los logs."""
+    marcos = [f for f in traceback.extract_tb(e.__traceback__) if "/app/" in f.filename.replace("\\", "/")]
+    return f" (en {Path(marcos[-1].filename).name}:{marcos[-1].lineno})" if marcos else ""
+
+
 def correr_banco(pares: list[Par], proveedor, caja: Caja, pasos=PASOS,
                  avisar: Callable[[str, list[dict]], None] = lambda *_: None) -> tuple[list[dict], str | None]:
     """(resultados, motivo del corte o None). Cada señal que termina se avisa con los resultados hasta ahí."""
@@ -164,6 +172,6 @@ def correr_banco(pares: list[Par], proveedor, caja: Caja, pasos=PASOS,
         except cliente.ErrorAgente as e:
             resultados.append({"nombre": par.nombre, "senal_id": par.senal_id, "error": str(e)})
         except Exception as e:  # una grilla rota no tira abajo el resto del banco
-            resultados.append({"nombre": par.nombre, "senal_id": par.senal_id, "error": f"{type(e).__name__}: {e}"})
+            resultados.append({"nombre": par.nombre, "senal_id": par.senal_id, "error": f"{type(e).__name__}: {e}{_donde(e)}"})
         avisar(f"Señal {n} de {len(pares)} lista", resultados)
     return resultados, None

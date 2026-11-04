@@ -86,6 +86,52 @@ def test_el_diagnostico_corre_en_el_banco_sin_agente_y_sin_gastar(cliente):
     c = _esperar(cliente, r.json()["id"])
     assert c["estado"] == "terminada" and c["gastado"] == 0
     assert c["resultado"]["senales"][0]["diagnostico"]["necesita"] == "opcion"
-    # La señal ya lee una sola hoja (la primera): lo que le falta es cruzar la de datos.
+    # Guardada lee la primera hoja, pero al subir el libro la app pasa a leer todas las de igual encabezado: ARG y MEX
+    # juntas, cada programa dos veces. Lo que pasó con el libro de verdad.
     assert c["resultado"]["resumen"]["diagnostico"] == {"senales": 1, "necesita": {"opcion": 1},
-                                                         "principal": {"hoja_de_datos": 1}}
+                                                         "principal": {"elegir_hoja": 1}}
+
+
+def test_una_lectura_guardada_vieja_que_se_corrige_sola_al_subir_no_frena():
+    # Como X-TIME: la señal leía la primera hoja y el libro trae una por día.
+    dias = {f"Día {n}": [r for r in _grilla() if r[0] == "Fecha" or r[0].day == 1 + n] for n in (1, 2, 3)}
+    guardada = {"tipo": "excel", "fila_encabezado": 1}
+    d = diagnostico.diagnosticar(_libro(dias), _ejemplo(), guardada)
+    (vieja,) = d["hallazgos"]
+    assert (d["principal"], d["necesita"], vieja["tipo"]) == ("lectura_guardada_vieja", "nada", "lectura_guardada_vieja")
+    assert d["lecturas"]["al_subir"]["entrada"]["todas_las_hojas"]
+
+
+def test_una_lectura_guardada_que_no_anda_y_no_se_corrige_sola_hay_que_actualizarla():
+    guardada = {"tipo": "excel", "hojas": ["Semana vieja"]}  # una hoja de un archivo anterior que ya no viene
+    d = diagnostico.diagnosticar(_libro({"Grilla": _grilla()}), _ejemplo(), guardada)
+    assert (d["principal"], d["necesita"]) == ("lectura_guardada_mala", "actualizar")
+
+
+def test_una_semanal_sin_fechas_se_lee_con_el_lunes_que_elige_la_persona():
+    nombres = {2: "LUNES", 3: "MARTES", 4: "MIÉRCOLES"}
+    semanal = [["Día", "Hora", "Programa"]] + [[nombres[r[0].day], r[1], r[2]] for r in _grilla()[1:]]
+    d = diagnostico.diagnosticar(_libro({"Grilla": semanal}), _ejemplo())
+    assert (d["principal"], d["necesita"]) == ("elige_el_lunes", "nada")
+
+
+def test_varios_archivos_sin_fecha_con_la_fecha_en_el_nombre_piden_una_opcion():
+    from app.inputs import varios
+    por_dia = {dia: [["Hora", "Programa"]] + [[r[1], r[2]] for r in _grilla()[1:] if r[0].day == dia] for dia in (2, 3, 4)}
+    zip_ = varios.empaquetar([(f"A3 CINE {dia:02d}-11.xlsx", _libro({"Grilla": filas})) for dia, filas in por_dia.items()])
+    d = diagnostico.diagnosticar(zip_, _ejemplo())
+    (hallazgo,) = [h for h in d["hallazgos"] if h["tipo"] != "falta_en_el_archivo"]
+    assert (d["principal"], d["necesita"], hallazgo["archivos"]) == ("fecha_por_archivo", "opcion", 3)
+
+
+def test_una_columna_nueva_de_numeros_acepta_texto_de_la_tarjeta_siguiente():
+    # Como MÓRBIDO TV: la duración queda en números y una regla después escribe "50" en algunas filas.
+    from app.engine import model as m
+    from app.engine.pipeline import aplicar
+    tabla = pd.DataFrame(_grilla()[1:], columns=["Fecha", "Hora", "Programa"])
+    tarjetas = [m.Duracion(id="d", tipo="duracion", modo="hasta_siguiente", fecha="Fecha", hora="Hora", destino="DUR"),
+                m.Asignar(id="a", tipo="asignar", columna="DUR", valor="50",
+                          si=m.Condicion(columna="Programa", op="igual", valor="Cocina con Ana"))]
+    r = aplicar(tabla, tarjetas)
+    assert all(i.error is None for i in r.informes), [i.error for i in r.informes]
+    assert set(r.tabla.loc[r.tabla["Programa"] == "Cocina con Ana", "DUR"]) == {"50"}

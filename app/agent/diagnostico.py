@@ -4,16 +4,19 @@ Lee la grilla del ejemplo como la lee la señal y como la detecta el código, la
 el archivo de dónde salen los datos del ejemplo. Cada hallazgo trae su evidencia, para poder revisarlo a mano.
 """
 import io
+import re
+from pathlib import PurePosixPath
 
 import pandas as pd
 
-from app import inputs, pautas
+from app import fechar, inputs, pautas
 from app.agent import controles, lectura
 from app.engine import model as m
 
 # Lo que necesita cada hallazgo, del más fuerte al más liviano.
 NECESITA = {"no_lee": "codigo", "pdf_sin_texto": "ocr", "elegir_hoja": "opcion", "hoja_de_datos": "opcion",
-            "zona_horaria": "reglas", "falta_en_el_archivo": "base", "lee_bien": "nada"}
+            "fecha_por_archivo": "opcion", "lectura_guardada_mala": "actualizar", "zona_horaria": "reglas",
+            "falta_en_el_archivo": "base", "lectura_guardada_vieja": "nada", "elige_el_lunes": "nada", "lee_bien": "nada"}
 ORDEN = list(NECESITA)
 MAX_HOJAS = 31
 MIN_LARGO_VALOR = 5  # valores más cortos aparecen en cualquier lado ("cine", "1")
@@ -125,33 +128,91 @@ def _corrimiento(tabla: pd.DataFrame, esperado: pd.DataFrame) -> tuple[int, floa
     return horas, por_hora.get(0, 0.0), por_hora[horas]
 
 
+def _al_subir(guardada, detectada, contenido: bytes):
+    """La lectura con que la app lee esta grilla al recibirla: la guardada, corregida como la corrige al subir una nueva
+    (otro formato, varias hojas). Sin agente: lo que haga el agente lo mide el paso de lectura del Banco."""
+    if guardada is None or detectada is None:
+        return guardada or detectada
+    from app.api import rutas
+
+    receta = m.Senal(id="diagnostico", nombre="diagnostico", entrada=guardada, tarjetas=[], salida=m.Salida(columnas=[]))
+    return rutas._con_entrada(receta, detectada, contenido).entrada
+
+
+FECHA_EN_NOMBRE = re.compile(r"(?<!\d)(\d{1,2}[-_. ]\d{1,2}([-_. ]\d{2,4})?|\d{4}[-_.]\d{1,2}[-_.]\d{1,2})(?!\d)")
+
+
+def _fecha_en_nombre(nombre: str) -> bool:
+    raiz = PurePosixPath(nombre).stem
+    return bool(FECHA_EN_NOMBRE.search(raiz)) or any(d in pautas.normalizar(raiz) for d in DIAS)
+
+
+def _con_el_lunes(tabla: pd.DataFrame, esperado: pd.DataFrame | None) -> dict | None:
+    """Una semanal sin fechas, con el lunes del ejemplo: lo que da después de que la persona elige el lunes en la web."""
+    if esperado is None or fechar.columna_de_dia(tabla) is None:
+        return None
+    dias = [k[0] for k in controles.claves_de_horario(esperado) if k]
+    if not dias:
+        return None
+    return controles.lectura(fechar.fechar(tabla, fechar.lunes_de(min(dias))), esperado)
+
+
 def diagnosticar(contenido: bytes, esperado: pd.DataFrame | None, guardada: dict | None = None) -> dict:
-    """Qué le falta al lector para esta grilla: el hallazgo principal, lo que necesita y la evidencia."""
+    """Qué le falta al lector para esta grilla: el hallazgo principal, lo que necesita y la evidencia.
+
+    Se diagnostica la lectura que la app usa al subir esta grilla; la guardada y la que detecta el código van de evidencia.
+    """
     hallazgos: list[dict] = []
     lecturas = {}
-    candidatas = []
-    if guardada:
-        candidatas.append(("guardada", lectura.ENTRADA.validate_python(guardada)))
     try:
-        candidatas.append(("detectada", inputs.detectar(contenido)))
+        detectada = inputs.detectar(contenido)
     except Exception as e:
+        detectada = None
         lecturas["detectada"] = {"error": f"{type(e).__name__}: {e}"[:300]}
-    mejor = None
-    for nombre, entrada in candidatas:
+    guardada_e = lectura.ENTRADA.validate_python(guardada) if guardada else None
+    leidas_por = {}
+    for nombre, entrada in (("guardada", guardada_e), ("al_subir", _al_subir(guardada_e, detectada, contenido)),
+                            ("detectada", detectada)):
+        if entrada is None:
+            continue
         tabla, medida, error = _leer(contenido, entrada, esperado)
         lecturas[nombre] = {"entrada": entrada.model_dump(exclude_defaults=True), "medida": medida, "error": error or None}
-        if tabla is not None and (mejor is None or _puntaje(medida) > _puntaje(mejor[2])):
-            mejor = (entrada, tabla, medida)
+        if tabla is not None:
+            leidas_por[nombre] = (entrada, tabla, medida)
+    mejor = leidas_por.get("al_subir")
     hojas = _por_hoja(contenido, esperado) if _es_excel(contenido) else []
     sola = max((h for h in hojas if _pasa(h["medida"])), key=lambda h: _puntaje(h["medida"]), default=None)
 
+    if mejor is not None and not _pasa(mejor[2]) and (lunes := _con_el_lunes(mejor[1], esperado)) and _pasa(lunes):
+        hallazgos.append({"tipo": "elige_el_lunes", "detalle": f"La grilla trae los días sin fecha: al subirla la web "
+                                                                f"pregunta desde qué lunes, y con el del ejemplo da {lunes}."})
+        mejor = (mejor[0], mejor[1], lunes)
+    if guardada_e is not None and "guardada" in lecturas and mejor is not None and _pasa(mejor[2]) \
+            and not _pasa(lecturas["guardada"]["medida"]):
+        hallazgos.append({"tipo": "lectura_guardada_vieja",
+                          "detalle": f"La lectura guardada da {lecturas['guardada']['medida']}; al subir esta grilla la "
+                                     f"app la corrige sola y da {mejor[2]}."})
+
     if mejor is None or not _pasa(mejor[2]):
-        if sola:
+        detecta = leidas_por.get("detectada")
+        if detecta and _pasa(detecta[2]):
+            hallazgos.append({"tipo": "lectura_guardada_mala",
+                              "detalle": f"La lectura guardada no anda con esta grilla y al subirla no se corrige sola "
+                                         f"({mejor[2] if mejor else 'no se pudo leer'}); la que detecta hoy el código "
+                                         f"da {detecta[2]}: hay que actualizarla."})
+        elif sola:
             hallazgos.append({"tipo": "elegir_hoja", "hoja": sola["nombre"],
                               "detalle": f"La hoja «{sola['nombre']}» sola da {sola['medida']}; la lectura de hoy no pasa."})
         elif contenido.startswith(b"%PDF") and not any(_textos(contenido, None).values()):
             hallazgos.append({"tipo": "pdf_sin_texto", "detalle": "El PDF no tiene texto: es una imagen escaneada."})
+        elif (nombres := _nombres_si_son_varios(contenido)) and len(nombres) >= 2 \
+                and sum(map(_fecha_en_nombre, nombres)) >= 0.8 * len(nombres):
+            hallazgos.append({"tipo": "fecha_por_archivo", "archivos": len(nombres),
+                              "detalle": f"Son {len(nombres)} archivos sin fecha adentro y la fecha está en el nombre "
+                                         f"(«{nombres[0]}», «{nombres[-1]}»): falta que cada archivo tome la de su nombre."})
         else:
+            if nombres := _nombres_si_son_varios(contenido):
+                lecturas["archivos"] = nombres[:40]
             hallazgos.append({"tipo": "no_lee", "detalle": "Ninguna lectura de hoy da fecha y hora en casi todas las filas: "
                                                            + str(mejor[2] if mejor else lecturas)})
     else:
@@ -191,6 +252,17 @@ def diagnosticar(contenido: bytes, esperado: pd.DataFrame | None, guardada: dict
     principal = min(tipos, key=ORDEN.index)
     return {"principal": principal, "necesita": NECESITA[principal], "hallazgos": hallazgos, "lecturas": lecturas,
             "hojas": [{k: v for k, v in h.items() if k != "entrada"} for h in hojas]}
+
+
+def _nombres_si_son_varios(contenido: bytes) -> list[str]:
+    from app.inputs import varios
+
+    if not varios.es_zip_suelto(contenido):
+        return []
+    try:
+        return [n for n, _ in varios.archivos(contenido)]
+    except Exception:
+        return []
 
 
 def resumen(diagnosticos: list[dict]) -> dict:
