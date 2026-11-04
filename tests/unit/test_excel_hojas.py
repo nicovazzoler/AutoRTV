@@ -132,3 +132,67 @@ def test_texto_con_dias_sin_fecha_trae_la_columna_dia():
     from app.engine import model as m
     tabla = inputs.leer("LUNES\n06:00 Noticias\nMARTES\n06:00 Cine".encode(), m.EntradaTexto(tipo="texto"))
     assert tabla["Dia"].tolist() == ["LUNES", "MARTES"] and tabla["Fecha"].isna().all()
+
+
+def _morbido() -> bytes:
+    """Como MÓRBIDO TV: una portada y la misma grilla en dos hojas, una con la hora de México y otra con la de Argentina."""
+    wb = Workbook()
+    wb.active.title = "Programación A"
+    wb.active.append(["GRILLA SEMANAL"])
+    wb.active.append(["Lunes", "Martes", "Miércoles"])
+    for hoja, corrimiento in (("METADATA MEX", -3), ("METADATA ARG", 0)):
+        ws = wb.create_sheet(hoja)
+        ws.append(["Fecha", "Hora", "Título", "Sinopsis"])
+        for dia in (2, 3, 4):
+            inicio = dt.datetime(2026, 11, dia, 6) + dt.timedelta(hours=corrimiento)
+            for titulo in ("Noche de Terror", "Cine Bizarro", "Dragula", "Tokyo Fist") * 2:
+                ws.append([dt.datetime.combine(inicio.date(), dt.time()), inicio.time(), titulo, f"Sinopsis de {titulo}"])
+                inicio += dt.timedelta(hours=1, minutes=30)
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
+def _epg_de(contenido: bytes, hoja: str) -> bytes:
+    from tests.unit.test_api import excel
+    t = inputs.leer(contenido, inputs.m.EntradaExcel(tipo="excel", hoja=hoja))
+    return excel(t.rename(columns={"Título": "TIT PROG"}))
+
+
+def test_la_misma_grilla_en_dos_zonas_no_se_lee_dos_veces():
+    contenido = _morbido()
+    assert inputs.excel.alternativas(contenido) == ["METADATA MEX", "METADATA ARG"]
+    detectada = inputs.detectar(contenido)
+    assert not detectada.todas_las_hojas and len(inputs.leer(contenido, detectada)) == 24
+
+
+def test_una_hoja_por_dia_con_la_misma_programacion_todos_los_dias_se_lee_entera():
+    # _libro() repite las mismas películas cada día: son días distintos, no la misma grilla.
+    assert inputs.excel.alternativas(_libro()) is None
+    assert inputs.detectar(_libro()).todas_las_hojas
+
+
+def test_el_ejemplo_de_la_misma_grilla_en_dos_zonas_se_lee_con_la_hoja_de_su_hora():
+    contenido = _morbido()
+    todas = inputs.m.EntradaExcel(tipo="excel", todas_las_hojas=True)
+    tabla = inputs.leer_ejemplo(contenido, todas, _epg_de(contenido, "METADATA ARG"))
+    assert len(tabla) == 24 and tabla["Hora"].iloc[0] == dt.time(6)
+
+
+def test_al_subir_la_grilla_se_queda_con_la_zona_del_ejemplo_de_la_senal(cliente):
+    from app import almacen
+    contenido = _morbido()
+    receta = {"id": "morbido", "nombre": "Mórbido", "entrada": {"tipo": "excel", "todas_las_hojas": True},
+              "tarjetas": [], "salida": {"columnas": []}}
+    cliente.put("/api/senales/morbido", json=receta)
+    almacen.guardar_ejemplo("morbido", "ejemplo-1", contenido, _epg_de(contenido, "METADATA ARG"))
+    d = cliente.post("/api/senales/morbido/abierta", files={"archivo": ("g.xlsx", contenido)}).json()
+    assert d["resumen"]["filas"] == 24  # no 48: antes leía México y Argentina juntas
+    assert cliente.get("/api/senales/morbido").json()["entrada"]["hoja"] == "METADATA ARG"
+
+
+def test_una_hoja_elegida_por_nombre_se_respeta_aunque_el_libro_tenga_varias():
+    contenido = _morbido()
+    elegida = inputs.m.EntradaExcel(tipo="excel", hoja="METADATA ARG")
+    assert inputs.con_alternativa(contenido, elegida, None) is elegida
+    assert inputs.con_todas_las_hojas(elegida, inputs.m.EntradaExcel(tipo="excel", todas_las_hojas=True)) is elegida

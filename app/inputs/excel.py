@@ -147,8 +147,8 @@ def _con_filas_de_fecha(df: pd.DataFrame, forzar: bool = False, previa: dt.date 
     return salida, (fecha or ultima)
 
 
-def hojas_de_programacion(contenido: bytes) -> tuple[int, int] | None:
-    """(fila de encabezado, cuántas hojas) si el libro trae varias hojas con el mismo encabezado; None si no.
+def _mismo_encabezado(contenido: bytes) -> tuple[pd.ExcelFile, int, list[str]] | None:
+    """(libro, fila de encabezado, hojas) de las hojas con el encabezado de la mayoría, si son varias y tienen horas.
 
     El encabezado se busca en cada hoja: la primera puede ser una portada.
     """
@@ -167,7 +167,73 @@ def hojas_de_programacion(contenido: bytes) -> tuple[int, int] | None:
     muestra = _limpia(pd.read_excel(libro, sheet_name=libro.sheet_names[mejor], header=filas[mejor] - 1, dtype=object))
     if _columna_de_inicio(muestra) is None:
         return None
-    return filas[mejor], cuantas
+    return libro, filas[mejor], [n for n, igual in zip(libro.sheet_names, iguales[mejor]) if igual]
+
+
+HORA_O_FECHA = re.compile(r"^\s*\d{1,4}[:./-]\d{1,2}")
+# Con esta parte de los programas iguales el mismo día, dos hojas son la misma grilla (en otra zona horaria). Los
+# que caen cerca de la medianoche cambian de día con el corrimiento: por eso no se pide todo.
+MISMA_GRILLA = 0.6
+
+
+def _firmas(tabla: pd.DataFrame) -> list[tuple]:
+    """(día, lo que dice la fila sin el horario) de cada fila con fecha, para comparar hojas.
+
+    El día hace falta: una señal que repite la misma programación todos los días, con una hoja por día, tiene los
+    mismos programas en cada hoja pero en días distintos.
+    """
+    from app.agent import controles
+
+    firmas = []
+    for clave, fila in zip(controles.claves_de_horario(tabla), tabla.itertuples(index=False)):
+        textos = [re.sub(r"\W+", "", v.lower()) for v in fila if isinstance(v, str) and not HORA_O_FECHA.match(v)]
+        if clave and (texto := "|".join(t for t in textos if t)):
+            firmas.append((clave[0], texto))
+    return firmas
+
+
+def alternativas(contenido: bytes) -> list[str] | None:
+    """Las hojas que son la misma grilla con otro horario (México y Argentina, por ejemplo), o None.
+
+    Varias hojas con el mismo encabezado pueden ser días distintos (se leen todas) o la misma programación repetida
+    en otra zona horaria (se lee una sola). Lo que las separa no son las fechas sino los programas: iguales y en el
+    mismo orden.
+    """
+    try:
+        grupo = _mismo_encabezado(contenido)
+    except Exception:
+        return None
+    return _alternativas_de(grupo, contenido) if grupo else None
+
+
+def _alternativas_de(grupo: tuple[pd.ExcelFile, int, list[str]], contenido: bytes) -> list[str] | None:
+    libro, fila, nombres = grupo
+
+    def firmas(nombre: str) -> Counter:
+        try:
+            return Counter(_firmas(leer(contenido, m.EntradaExcel(tipo="excel", hoja=nombre, fila_encabezado=fila))))
+        except Exception:  # una hoja que no se lee no es la alternativa de nada
+            return Counter()
+
+    primera = firmas(nombres[0])
+    if not primera:
+        return None
+    iguales = [nombres[0]]
+    for nombre in nombres[1:]:
+        otra = firmas(nombre)
+        if otra and sum((primera & otra).values()) >= MISMA_GRILLA * min(sum(primera.values()), sum(otra.values())):
+            iguales.append(nombre)
+        elif len(iguales) == 1:
+            return None  # la segunda ya es otra programación: es un libro de una hoja por día, no hace falta leer el resto
+    return iguales if len(iguales) > 1 else None
+
+
+def hojas_de_programacion(contenido: bytes) -> tuple[int, int] | None:
+    """(fila de encabezado, cuántas hojas) si el libro trae la programación repartida en varias hojas; None si no."""
+    grupo = _mismo_encabezado(contenido)
+    if grupo is None or _alternativas_de(grupo, contenido):
+        return None
+    return grupo[1], len(grupo[2])
 
 
 def detectar_fila_encabezado(origen: BinaryIO, hoja: int | str = 0, buscar: int = 10) -> int:

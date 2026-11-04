@@ -1037,10 +1037,12 @@ def _receta(senal_id: str) -> m.Senal:
         raise HTTPException(404, "No existe la señal")
 
 
-def _con_entrada(receta: m.Senal, detectada, contenido: bytes) -> m.Senal:
+def _con_entrada(receta: m.Senal, detectada, contenido: bytes, esperado=None) -> m.Senal:
     """Si la grilla llegó en otro formato que la anterior, la señal pasa a leerla así.
 
     Salvo que la lectura guardada ya le encuentre fecha y hora: puede ser la del agente, que la detección no ve.
+    Si el libro trae la misma grilla en varias zonas horarias, se queda con la del último ejemplo de la señal
+    (o con `esperado`, si se lo pasan).
     """
     entrada = receta.entrada
     if not inputs.mismo_formato(entrada, detectada) and _sin_horario(contenido, receta):
@@ -1048,8 +1050,19 @@ def _con_entrada(receta: m.Senal, detectada, contenido: bytes) -> m.Senal:
     elif entrada.tipo == "texto" and entrada.fecha_inicio != detectada.fecha_inicio:
         entrada = entrada.model_copy(update={"fecha_inicio": detectada.fecha_inicio})
     elif entrada.tipo == "excel" and not entrada.cuadricula:
-        entrada = inputs.con_todas_las_hojas(entrada, detectada)
+        sola = inputs.con_alternativa(contenido, entrada,
+                                      esperado if esperado is not None else lambda: _ultimo_esperado(receta.id))
+        entrada = sola if sola is not entrada else inputs.con_todas_las_hojas(entrada, detectada)
     return receta if entrada is receta.entrada else receta.model_copy(update={"entrada": entrada})
+
+
+def _ultimo_esperado(senal_id: str) -> bytes | None:
+    """El EPG terminado del ejemplo más reciente de la señal, si tiene."""
+    try:
+        nombres = almacen.listar_ejemplos(senal_id)
+        return almacen.leer_ejemplo(senal_id, nombres[-1])[1] if nombres else None
+    except (almacen.NoExiste, ValueError):
+        return None
 
 
 def _con_epg(entrada, contenido: bytes):
@@ -1716,7 +1729,7 @@ def evaluar_ejemplos(senal_id: str, receta: m.Senal):
     for nombre in nombres:
         entrada, esperado_xlsx = almacen.leer_ejemplo(senal_id, nombre)
         try:
-            tabla = inputs.leer_ejemplo(entrada, receta.entrada)
+            tabla = inputs.leer_ejemplo(entrada, receta.entrada, esperado_xlsx)
             salida, _ = correr(receta, tabla)
             esperado = pd.read_excel(io.BytesIO(esperado_xlsx), dtype=object)
         except Exception as e:
@@ -1952,7 +1965,7 @@ def uso_asistente():
 
 def _leer_ejemplo(receta: m.Senal, nombre: str) -> asistente_ia.Ejemplo:
     entrada, esperado = almacen.leer_ejemplo(receta.id, nombre)
-    return asistente_ia.Ejemplo(nombre, inputs.leer_ejemplo(entrada, receta.entrada),
+    return asistente_ia.Ejemplo(nombre, inputs.leer_ejemplo(entrada, receta.entrada, esperado),
                                 pd.read_excel(io.BytesIO(esperado), dtype=object))
 
 

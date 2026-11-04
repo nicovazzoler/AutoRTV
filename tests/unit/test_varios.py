@@ -102,3 +102,17 @@ def test_agregar_una_senal_con_varios_archivos_o_con_el_link(cliente, monkeypatc
     assert cliente.post("/api/senales/crear", data={"nombre": "Por Link", "url": "https://canal.example/grilla"}).status_code == 200
     assert cliente.get("/api/senales/por-link").json()["entrada"]["url"] == "https://canal.example/grilla"
     assert cliente.post("/api/senales/crear", data={"nombre": "Nada"}).status_code == 422
+
+
+def test_cada_archivo_sin_fecha_adentro_toma_la_fecha_completa_de_su_nombre():
+    # Como A3 CINE: un Word por día, sin fecha adentro; el paréntesis sin año es cuándo llegó el archivo.
+    def dia(*filas):
+        return excel(pd.DataFrame(filas, columns=["Hora", "Programa"]))
+    contenido = varios.empaquetar([("20261102-A3Cine (29-10).xlsx", dia(("22:00", "Cine"), ("00:30", "Trasnoche"))),
+                                   ("20261103-A3Cine (29-10).xlsx", dia(("06:00", "Noticias"),))])
+    tabla = inputs.leer(contenido, inputs.detectar(contenido))
+    assert [(f.date(), p) for f, p in zip(tabla["Fecha"], tabla["Programa"])] == [
+        (dt.date(2026, 11, 2), "Cine"), (dt.date(2026, 11, 3), "Trasnoche"), (dt.date(2026, 11, 3), "Noticias")]
+    assert varios.fecha_del_nombre("Grilla 02-11-2026.docx") == dt.date(2026, 11, 2)
+    assert varios.fecha_del_nombre("A3 CINE 02-11.xlsx") is None
+    assert varios.fecha_del_nombre("20261341-raro.docx") is None

@@ -49,13 +49,13 @@ def test_una_grilla_que_ya_se_lee_bien_no_necesita_nada():
     assert (d["principal"], d["necesita"], d["hallazgos"]) == ("lee_bien", "nada", [])
 
 
-def test_dos_grillas_en_dos_zonas_y_una_hoja_de_datos_piden_opciones_del_lector():
+def test_dos_grillas_en_dos_zonas_se_lee_una_y_falta_cruzar_la_hoja_de_datos():
+    # La misma grilla en dos zonas ya no se lee doble: queda la hoja de datos, que el lector todavía no cruza.
     contenido = _libro({"Grilla ARG": _grilla(), "Grilla MEX": _grilla(-3), "Datos": DATOS})
     d = diagnostico.diagnosticar(contenido, _ejemplo(con_sinopsis=True))
-    assert d["necesita"] == "opcion"
-    tipos = {h["tipo"]: h for h in d["hallazgos"]}
-    assert tipos["elegir_hoja"]["hoja"] == "Grilla ARG"
-    assert (tipos["hoja_de_datos"]["hoja"], tipos["hoja_de_datos"]["columna"]) == ("Datos", "SINOPSIS")
+    (datos,) = d["hallazgos"]
+    assert (d["principal"], d["necesita"]) == ("hoja_de_datos", "opcion")
+    assert (datos["hoja"], datos["columna"]) == ("Datos", "SINOPSIS")
 
 
 def test_un_ejemplo_corrido_unas_horas_es_cosa_de_las_reglas():
@@ -86,10 +86,8 @@ def test_el_diagnostico_corre_en_el_banco_sin_agente_y_sin_gastar(cliente):
     c = _esperar(cliente, r.json()["id"])
     assert c["estado"] == "terminada" and c["gastado"] == 0
     assert c["resultado"]["senales"][0]["diagnostico"]["necesita"] == "opcion"
-    # Guardada lee la primera hoja, pero al subir el libro la app pasa a leer todas las de igual encabezado: ARG y MEX
-    # juntas, cada programa dos veces. Lo que pasó con el libro de verdad.
     assert c["resultado"]["resumen"]["diagnostico"] == {"senales": 1, "necesita": {"opcion": 1},
-                                                         "principal": {"elegir_hoja": 1}}
+                                                         "principal": {"hoja_de_datos": 1}}
 
 
 def test_una_lectura_guardada_vieja_que_se_corrige_sola_al_subir_no_frena():
@@ -135,3 +133,11 @@ def test_una_columna_nueva_de_numeros_acepta_texto_de_la_tarjeta_siguiente():
     r = aplicar(tabla, tarjetas)
     assert all(i.error is None for i in r.informes), [i.error for i in r.informes]
     assert set(r.tabla.loc[r.tabla["Programa"] == "Cocina con Ana", "DUR"]) == {"50"}
+
+
+def test_varios_archivos_con_la_fecha_completa_en_el_nombre_se_leen_solos():
+    from app.inputs import varios
+    por_dia = {dia: [["Hora", "Programa"]] + [[r[1], r[2]] for r in _grilla()[1:] if r[0].day == dia] for dia in (2, 3, 4)}
+    zip_ = varios.empaquetar([(f"202611{dia:02d}-A3Cine (29-10).xlsx", _libro({"Grilla": f})) for dia, f in por_dia.items()])
+    d = diagnostico.diagnosticar(zip_, _ejemplo())
+    assert (d["principal"], d["necesita"]) == ("lee_bien", "nada"), d["hallazgos"]
