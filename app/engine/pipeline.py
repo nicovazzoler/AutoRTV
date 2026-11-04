@@ -65,8 +65,13 @@ def aplicar(tabla: pd.DataFrame, tarjetas: list[m.Tarjeta], titulos: list[str] =
         except ErrorTarjeta as e:
             informe.error = str(e)
             continue
+        except Exception as e:  # una tarjeta con un caso que no contempla no frena a las demás
+            informe.error = f"Falló con estos datos ({type(e).__name__}: {e})"[:500]
+            continue
         if isinstance(nuevo, tuple):  # algunas tarjetas devuelven (tabla, avisos)
             nuevo, informe.avisos = nuevo
+        # Una columna nueva de números (duración) tiene que poder recibir texto de la tarjeta siguiente.
+        nuevo = nuevo.astype(object)
         informe.celdas_cambiadas = _contar_cambios(df, nuevo)
         informe.columnas = list(nuevo.columns)
         df = nuevo

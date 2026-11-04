@@ -86,13 +86,20 @@ interface Corrida {
 const POR_DEFECTO = 8;
 
 // Lo que le falta a cada señal según el diagnóstico, de lo más pesado a lo más liviano.
-const NECESITA: [string, string][] = [
-  ["codigo", "necesitan un lector en código"], ["ocr", "son PDF escaneados"], ["opcion", "se arreglan con una opción nueva del lector"],
-  ["reglas", "se arreglan con reglas que ya existen"], ["base", "leen bien y lo que falta sale de la base"], ["nada", "leen bien"],
+const NECESITA: [string, string, string][] = [
+  ["codigo", "necesita un lector en código", "necesitan un lector en código"],
+  ["ocr", "es un PDF escaneado", "son PDF escaneados"],
+  ["opcion", "se arregla con una opción nueva del lector", "se arreglan con una opción nueva del lector"],
+  ["actualizar", "tiene que actualizar su lectura", "tienen que actualizar su lectura"],
+  ["reglas", "se arregla con reglas que ya existen", "se arreglan con reglas que ya existen"],
+  ["base", "lee bien y lo que falta sale de la base", "leen bien y lo que falta sale de la base"],
+  ["nada", "lee bien", "leen bien"],
 ];
 const HALLAZGO: Record<string, string> = {
   no_lee: "No lee", pdf_sin_texto: "PDF sin texto", elegir_hoja: "Elegir hoja", hoja_de_datos: "Hoja de datos",
   zona_horaria: "Zona horaria", falta_en_el_archivo: "Falta en el archivo", lee_bien: "Lee bien",
+  fecha_por_archivo: "Fecha en el nombre del archivo", lectura_guardada_mala: "Lectura guardada mala",
+  lectura_guardada_vieja: "Lectura guardada vieja (se corrige sola)", elige_el_lunes: "Elegir el lunes",
 };
 const CADA_MS = 5000;
 
@@ -143,7 +150,7 @@ function celdaReglas(x: Reglas | null | undefined) {
 }
 
 function fraseDiagnostico(d: ResumenDiagnostico): string {
-  const partes = NECESITA.filter(([k]) => d.necesita[k]).map(([k, texto]) => `${d.necesita[k]} ${texto}`);
+  const partes = NECESITA.filter(([k]) => d.necesita[k]).map(([k, una, varias]) => `${d.necesita[k]} ${d.necesita[k] === 1 ? una : varias}`);
   return `Diagnóstico de ${d.senales} ${d.senales === 1 ? "señal" : "señales"}: ${partes.join(" · ")}.`;
 }
 
