@@ -469,6 +469,8 @@ def test_banco_de_agentes_desde_administrar(servidor, tmp_path):
         banco.locator("tbody tr", has_text="reglas").wait_for(timeout=20000)
         assert banco.locator("tbody tr", has_text="lectura").count() == 1
         banco.get_by_text("Reglas: Haiku alcanzó").wait_for()
+        banco.get_by_text("Diagnóstico de 1 señal:").wait_for()  # va marcado por defecto y no usa el agente
+        assert banco.locator("tbody tr", has_text="Diagnóstico").count() == 1
         navegador.close()
 
 

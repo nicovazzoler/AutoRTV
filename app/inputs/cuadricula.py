@@ -11,7 +11,7 @@ import unicodedata
 
 import pandas as pd
 
-from app.engine.tarjetas.estructura import a_hora
+from app.engine.tarjetas.estructura import a_hora, fecha_de_texto
 
 # Más días que esto en una fila = es la fila de los días.
 MIN_DIAS = 3
@@ -91,8 +91,7 @@ def _fecha(v) -> dt.date | None:
     if isinstance(v, (int, float)) and v > SERIE_MINIMA:
         return (EXCEL_CERO + dt.timedelta(days=float(v))).date()
     if isinstance(v, str) and any(ch.isdigit() for ch in v):
-        f = pd.to_datetime(v.strip(), dayfirst=True, errors="coerce")
-        return None if pd.isna(f) else f.date()
+        return fecha_de_texto(v)
     return None
 
 

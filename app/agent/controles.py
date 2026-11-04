@@ -69,22 +69,24 @@ def _minutos(clave: tuple) -> int:
     return (fecha.toordinal() * 24 + int(hora[:2])) * 60 + int(hora[3:])
 
 
-def emparejadas(claves: list[tuple | None], del_ejemplo: set) -> float:
-    """% de emisiones del ejemplo que están en la lectura, corridas un número fijo de horas y con ±2 min de margen."""
+def por_corrimiento(claves: list[tuple | None], del_ejemplo: set) -> dict[int, float]:
+    """% de emisiones del ejemplo que están en la lectura con cada corrimiento de horas, con ±2 min de margen."""
     leidas = {_minutos(k) for k in claves if k}
     if not leidas:
-        return 0.0
+        return {}
     # Solo cuentan los días que trae la grilla: el ejemplo puede ser de una semana corrida.
     primero, ultimo = min(leidas) - 1440, max(leidas) + 1440
     ejemplo = [x for k in del_ejemplo if primero <= (x := _minutos(k)) <= ultimo]
     if not ejemplo:
-        return 0.0
-    mejor = 0
-    for horas in CORRIMIENTOS_HORAS:
-        corrimiento = horas * 60
-        mejor = max(mejor, sum(any(m + corrimiento + d in leidas for d in range(-TOLERANCIA_MIN, TOLERANCIA_MIN + 1))
-                               for m in ejemplo))
-    return mejor / len(ejemplo)
+        return {}
+    return {horas: sum(any(m + horas * 60 + d in leidas for d in range(-TOLERANCIA_MIN, TOLERANCIA_MIN + 1))
+                       for m in ejemplo) / len(ejemplo)
+            for horas in CORRIMIENTOS_HORAS}
+
+
+def emparejadas(claves: list[tuple | None], del_ejemplo: set) -> float:
+    """% de emisiones del ejemplo que están en la lectura, con el corrimiento de zona que más empareje."""
+    return max(por_corrimiento(claves, del_ejemplo).values(), default=0.0)
 
 
 def pares_con_ejemplo(entrada: pd.DataFrame, esperado: pd.DataFrame) -> list[tuple[int, int]] | None:

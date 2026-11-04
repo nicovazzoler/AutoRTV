@@ -8,13 +8,14 @@ from dataclasses import dataclass
 import pandas as pd
 
 from app import inputs
-from app.agent import asistente, cliente, controles, lectura, uso
+from app.agent import asistente, cliente, controles, diagnostico, lectura, uso
 from app.engine import model as m
 from app.engine.comparar import normalizar
 from app.engine.pipeline import correr
 
 HAIKU, SONNET = cliente.MODELO, cliente.MODELO_FUERTE
-PASOS = ("lectura", "reglas")
+PASOS = ("diagnostico", "lectura", "reglas")
+SIN_AGENTE = {"diagnostico"}  # pasos que no llaman al agente ni gastan
 UMBRAL_REGLAS = 90.0
 COLUMNAS_PEORES = 3
 PEDIDO = "Ajustá las tarjetas para que la grilla de entrada de este ejemplo quede igual al EPG esperado."
@@ -26,6 +27,7 @@ class Par:
     grilla: bytes
     esperado: bytes | None  # el EPG terminado en Excel; None = solo se prueba la lectura
     senal_id: str = ""
+    entrada: dict | None = None  # cómo lee hoy la señal esta grilla
 
 
 class TopeDeGasto(Exception):
@@ -90,6 +92,9 @@ def probar_par(par: Par, proveedor, caja: Caja, pasos=PASOS, avisar: Callable[[s
     medida = controles.lectura(inputs.leer(par.grilla, detectada), esperado)
     resultado = {"nombre": par.nombre, "senal_id": par.senal_id,
                  "codigo": {"medida": medida, "problemas": controles.problemas_de_lectura(medida)}}
+    if "diagnostico" in pasos:
+        avisar(f"{par.nombre} · diagnóstico")
+        resultado["diagnostico"] = diagnostico.diagnosticar(par.grilla, esperado, par.entrada)
     lecturas = []
     if "lectura" in pasos:
         avisar(f"{par.nombre} · lectura con Haiku")
@@ -142,6 +147,7 @@ def resumen(resultados: list[dict]) -> dict:
         cuenta[paso] = {"senales": len(filas), "haiku": sum(logro(f["haiku"]) for f in filas),
                         "sonnet": sum(logro(f["sonnet"]) for f in filas),
                         "escalera": sum(bool(f["escalera"]) and logro(f["escalera"]) for f in filas)}
+    cuenta["diagnostico"] = diagnostico.resumen([r["diagnostico"] for r in resultados if r.get("diagnostico")])
     return cuenta
 
 

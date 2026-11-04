@@ -32,20 +32,22 @@ def leer(origen: str | Path | BinaryIO, entrada: m.EntradaExcel) -> pd.DataFrame
     tablas = [_limpia(t) for t in _mismas_columnas(tablas)]
     salteadas = []
     if entrada.filas_de_fecha is not False:
-        leidas, ultima = [], None
+        leidas, ultima, nombres_leidos = [], None, []
         for nombre, t in zip(nombres, tablas):
             # Una hoja que no se puede leer no tira abajo las demás: se saltea y queda anotada.
             try:
                 t, ultima = _con_filas_de_fecha(t, forzar=entrada.filas_de_fecha is True, previa=ultima)
                 leidas.append(t)
+                nombres_leidos.append(nombre)
             except Exception as e:
                 salteadas.append(f"{nombre} ({e})")
-        tablas = leidas
+        tablas, nombres = leidas, nombres_leidos
     if not tablas:
         raise ValueError("No se pudo leer ninguna hoja: " + "; ".join(salteadas))
     df = pd.concat(tablas, ignore_index=True) if len(tablas) > 1 else tablas[0]
     df = df.astype(object).where(df.notna(), None)
     df.attrs["hojas"] = len(tablas)
+    df.attrs["nombres_hojas"] = nombres  # número si se pidió una hoja por número
     df.attrs["salteadas"] = salteadas
     return df
 

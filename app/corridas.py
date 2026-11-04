@@ -8,6 +8,7 @@ from app import almacen, db
 from app.agent import banco, uso
 
 MAX_SENALES = 20
+MAX_SENALES_SIN_AGENTE = 600  # el diagnóstico no gasta: puede pasar por todas
 _candado = threading.Lock()
 
 
@@ -50,15 +51,20 @@ def cortar_colgadas() -> None:
                     .values(estado="cortada", fin=_ahora(), progreso="Se reinició el servidor en el medio"))
 
 
-def pares_de(senales: list[str]) -> list[banco.Par]:
-    """El ejemplo más reciente de cada señal: la grilla como vino y la macro hecha."""
+def tope_de_senales(pasos: list[str]) -> int:
+    return MAX_SENALES_SIN_AGENTE if set(pasos) <= banco.SIN_AGENTE else MAX_SENALES
+
+
+def pares_de(senales: list[str], tope: int = MAX_SENALES) -> list[banco.Par]:
+    """El ejemplo más reciente de cada señal: la grilla como vino, la macro hecha y cómo la lee hoy la señal."""
     pares = []
-    for senal_id in senales[:MAX_SENALES]:
+    for senal_id in senales[:tope]:
         nombres = almacen.listar_ejemplos(senal_id)
         if not nombres:
             continue
         grilla, esperado = almacen.leer_ejemplo(senal_id, nombres[-1])
-        pares.append(banco.Par(almacen.leer(senal_id).nombre, grilla, esperado, senal_id))
+        receta = almacen.leer(senal_id)
+        pares.append(banco.Par(receta.nombre, grilla, esperado, senal_id, receta.entrada.model_dump()))
     return pares
 
 
@@ -67,7 +73,7 @@ def lanzar(usuario: str, senales: list[str], tope: float, pasos: list[str], prov
     if not _candado.acquire(blocking=False):
         raise YaCorriendo("Ya hay una corrida del banco en marcha")
     try:
-        parametros = {"senales": senales[:MAX_SENALES], "tope": tope, "pasos": pasos}
+        parametros = {"senales": senales[:tope_de_senales(pasos)], "tope": tope, "pasos": pasos}
         with db.transaccion() as con:
             corrida_id = con.execute(insert(db.banco_corridas).values(
                 usuario=usuario, inicio=_ahora(), estado="corriendo", parametros=parametros,
@@ -90,7 +96,7 @@ def _correr(corrida_id: int, usuario: str, senales: list[str], tope: float, paso
     caja = banco.Caja(tope, registrar)
     try:
         resultados, corte = banco.correr_banco(
-            pares_de(senales), proveedor, caja, pasos,
+            pares_de(senales, tope_de_senales(pasos)), proveedor, caja, pasos,
             lambda texto, parciales: _guardar(corrida_id, progreso=texto, gastado=caja.gastado,
                                               resultado={"senales": parciales, "resumen": banco.resumen(parciales)}))
         _guardar(corrida_id, estado="cortada" if corte else "terminada", fin=_ahora(), gastado=caja.gastado,

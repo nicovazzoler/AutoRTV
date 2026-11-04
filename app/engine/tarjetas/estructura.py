@@ -82,16 +82,28 @@ def _fin_de_grilla(ini: dt.datetime | None, hasta: str | None) -> dt.datetime | 
     return fin if fin > ini else fin + dt.timedelta(days=1)
 
 
+ISO = re.compile(r"^\d{4}-\d{1,2}-\d{1,2}")
+
+
+def fecha_de_texto(texto: str) -> dt.date | None:
+    """Una fecha escrita: "2026-11-02" (y con hora) como año-mes-día; "02/11/2026" con el día primero."""
+    texto = texto.strip()
+    try:
+        # Con dayfirst, pandas lee "2026-11-02" como 11 de febrero: lo ISO va siempre con su formato.
+        if ISO.match(texto):
+            return pd.to_datetime(texto, format="ISO8601").date()
+        return pd.to_datetime(texto, dayfirst=True).date()
+    except (ValueError, TypeError, OverflowError):
+        return None
+
+
 def a_fecha(v) -> dt.date | None:
     if isinstance(v, dt.datetime):
-        return v.date()
+        return None if pd.isna(v) else v.date()  # NaT también es un datetime
     if isinstance(v, dt.date):
         return v
     if isinstance(v, str) and v.strip():
-        try:
-            return pd.to_datetime(v.strip(), dayfirst=True).date()
-        except (ValueError, TypeError):
-            return None
+        return fecha_de_texto(v)
     return None
 
 
