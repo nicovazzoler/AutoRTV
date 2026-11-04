@@ -102,3 +102,13 @@ def test_la_caja_se_ve_y_se_prueba_desde_administrar(cliente, monkeypatch):
     assert cliente.post("/api/login", json={"usuario": "ana", "clave": "clave-segura"}).status_code == 200
     assert cliente.get("/api/admin/caja").status_code == 403
     assert cliente.post("/api/admin/caja/probar").status_code == 403
+
+
+def test_la_autoprueba_no_cambia_el_entorno_del_servidor(monkeypatch):
+    # Con el servidor andando, otro hilo puede estar leyendo el entorno: cambiarlo ahí puede tirar abajo el proceso.
+    monkeypatch.setattr(caja, "instalada", lambda: True)
+    monkeypatch.setattr(caja, "correr", lambda codigo, datos, **k: {"ok": True, "resultado": autoprueba.NORMAL_ESPERADO}
+                        if codigo == autoprueba.NORMAL else {"ok": False, "error": "bloqueado"})
+    antes = dict(os.environ)
+    assert autoprueba.probar(segundos=1)["ok"]
+    assert dict(os.environ) == antes and os.environ[autoprueba.CANARIO]

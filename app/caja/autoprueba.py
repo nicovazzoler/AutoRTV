@@ -15,6 +15,9 @@ from pathlib import Path
 from app import caja
 
 CANARIO = "AUTORTV_CANARIO"
+# Va en el entorno del servidor, como las claves de verdad. Se pone al cargar el módulo, antes de que haya hilos:
+# cambiar el entorno con el servidor andando puede tirar abajo el proceso si otro hilo lo está leyendo.
+os.environ.setdefault(CANARIO, secrets.token_hex(12))
 SENSIBLES = ("KEY", "SECRET", "TOKEN", "PASSWORD", "CLAVE", "DATABASE_URL")
 
 NORMAL = '''
@@ -93,8 +96,7 @@ def probar(segundos: int = caja.SEGUNDOS) -> dict:
     if not caja.instalada():
         return {"ok": False, "anda": False, "fecha": fecha, "casos": [],
                 "motivo": "La caja no está instalada en este servidor: el código de las señales queda apagado."}
-    canario = secrets.token_hex(12)
-    os.environ[CANARIO] = canario  # como las claves de verdad: en el proceso del servidor
+    canario = os.environ[CANARIO]
     carpeta = Path(tempfile.mkdtemp(prefix="autortv-caja-"))
     archivo, escrito = carpeta / "secreto.txt", carpeta / "escrito.txt"
     del_archivo = secrets.token_hex(12)
