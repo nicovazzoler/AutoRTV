@@ -100,7 +100,6 @@ semanas = Table(
     Column("anterior_tabla_id", String(32)),
     Column("anterior_contenido", LargeBinary),
     Column("anterior_nombre", String(200)),
-    Column("foto", JSON),  # las filas en corto (semana.COLUMNAS_FOTO), para ver todas las señales juntas
     Column("lunes", Date),  # ver tablas_subidas.lunes
 )
 
@@ -183,14 +182,6 @@ mensajes = Table(
     Column("rol", String(20), nullable=False),  # persona | asistente
     Column("texto", Text, nullable=False),
     Column("senal_id", String(64)),  # la señal que estaba abierta, para retomar
-    Column("fecha", DateTime, nullable=False),
-)
-
-notas_agente = Table(
-    "notas_agente", metadata,  # lo que el agente decidió recordar de cada persona
-    Column("id", Integer, primary_key=True),
-    Column("usuario", String(100), nullable=False, index=True),
-    Column("texto", Text, nullable=False),
     Column("fecha", DateTime, nullable=False),
 )
 
@@ -288,7 +279,7 @@ def _agregar_columnas(con: Connection) -> None:
         "usuarios": {"nombre": "VARCHAR(100)", "descripcion": "TEXT"},
         "semanas": {"version": "INTEGER NOT NULL DEFAULT 1", "anterior_tabla_id": "VARCHAR(32)",
                     "anterior_contenido": "BYTEA" if con.dialect.name == "postgresql" else "BLOB",
-                    "anterior_nombre": "VARCHAR(200)", "foto": "JSON", "lunes": "DATE"},
+                    "anterior_nombre": "VARCHAR(200)", "lunes": "DATE"},
         "tablas_subidas": {"lunes": "DATE"},
         "cambios": {"origen": "VARCHAR(20)"},
     }

@@ -295,10 +295,9 @@ def test_propuestas_para_dos_senales_en_una_charla_se_ven_las_dos(servidor, tmp_
         navegador.close()
 
 
-def test_el_agente_lleva_a_otra_senal_y_marca_el_cambio_que_no_es_de_la_que_se_mira(servidor, tmp_path):
+def test_el_agente_marca_el_cambio_que_no_es_de_la_senal_que_se_mira(servidor, tmp_path):
     import json
     (tmp_path / "asistente.json").write_text(json.dumps([
-        {"respuesta": "Te llevo a Otra.", "herramientas": [{"nombre": "ir_a", "datos": {"pantalla": "semana", "senal": "otra"}}]},
         {"respuesta": "Te dejé para confirmar la semana de Canal Demo.",
          "herramientas": [{"nombre": "confirmar_semana", "datos": {"senal": "canal"}}]}]))
     with playwright.sync_playwright() as p:
@@ -306,14 +305,9 @@ def test_el_agente_lleva_a_otra_senal_y_marca_el_cambio_que_no_es_de_la_que_se_m
         _con_semana(pagina, servidor, tmp_path)
         _otra_senal(pagina, servidor, tmp_path)
 
-        pagina.goto(servidor + "/s/canal")
+        pagina.goto(servidor + "/s/otra")
         pagina.get_by_role("button", name="Abrir el agente").click()
         agente = pagina.locator("aside[aria-label=Agente]")
-        agente.locator("textarea").fill("llevame a Otra")
-        agente.locator("textarea").press("Enter")
-        agente.get_by_text("(Ir a semana de Otra)").wait_for()
-        pagina.wait_for_url(servidor + "/s/otra")  # ir a otra pantalla no pide confirmación
-
         agente.locator("textarea").fill("confirmá la de Canal Demo")
         agente.locator("textarea").press("Enter")
         agente.get_by_text("Ojo: es en Canal Demo, no en la señal que estás mirando.").wait_for()

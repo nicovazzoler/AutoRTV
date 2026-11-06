@@ -3,8 +3,7 @@ import { api, ErrorApi, textoDeError } from "../api";
 import { haceCuanto } from "../fechas";
 import { fraseCambio } from "../frases";
 import { useSesion } from "../sesion";
-import { navegar } from "../ruta";
-import type { AccionAdmin, AccionUi, Charla, ChatGuardado, CorreccionBase, Limites, PedidoDePropuesta, Propuesta, Receta } from "../tipos";
+import type { AccionUi, Charla, ChatGuardado, CorreccionBase, Limites, PedidoDePropuesta, Propuesta, Receta } from "../tipos";
 
 interface Mensaje {
   rol: "persona" | "asistente";
@@ -69,11 +68,6 @@ const DEL_AGENTE = { "X-Origen": "agente" };
 const anchoInicial = () => Number(leer(ANCHO)) || Math.round(window.innerWidth / 3);
 const limitarAncho = (a: number) => Math.min(Math.max(a, 320), Math.round(window.innerWidth * 0.7));
 
-const RUTAS: Record<string, (senal: string) => string> = {
-  inicio: () => "/", semana: (s) => `/s/${s}`, base: (s) => `/base/${s}`, configuracion: (s) => `/base/${s}/config`,
-  administrar: () => "/admin",
-};
-
 function texto(v: unknown): string {
   return v === null || v === undefined || v === "" ? "(vacío)" : String(v);
 }
@@ -83,7 +77,7 @@ function texto(v: unknown): string {
  * Los chats quedan guardados por persona y siguen al cambiar de pantalla o de señal.
  */
 export function Agente({ senalId }: { senalId: string | null }) {
-  const { yo, senales, tocar, contexto } = useSesion();
+  const { senales, tocar, contexto } = useSesion();
   const tablaId = senales?.find((s) => s.id === senalId)?.semana?.tabla_id ?? null;
   const [hilo, setHilo] = useState<Mensaje[]>([]);
   const [chatId, setChatId] = useState<number | null>(() => Number(leer(CHAT)) || null);
@@ -98,7 +92,6 @@ export function Agente({ senalId }: { senalId: string | null }) {
   const [limites, setLimites] = useState<Limites | null>(null);
   const [plegado, setPlegado] = useState(() => leer(PLEGADO) !== "0");
   const [ancho, setAncho] = useState(() => limitarAncho(anchoInicial()));
-  const [claves, setClaves] = useState<string[]>([]);
   const fondo = useRef<HTMLDivElement>(null);
   // Los mensajes se guardan en orden: el primero abre el chat y los demás necesitan su id.
   const cola = useRef<Promise<number | null>>(Promise.resolve(chatId));
@@ -189,12 +182,6 @@ export function Agente({ senalId }: { senalId: string | null }) {
     window.addEventListener("pointerup", soltar);
   };
 
-  const moverPagina = (a: AccionUi) => {
-    if (a.tipo === "ir_a") navegar(RUTAS[a.pantalla]?.(a.senal) ?? "/");
-    if (a.tipo === "nueva_senal") navegar(`/nueva?nombre=${encodeURIComponent(a.nombre)}`);
-    decir({ rol: "asistente", texto: `(${a.descripcion})` });
-  };
-
   const hacer = async (a: AccionUi) => {
     setAcciones((lista) => lista.filter((x) => x !== a));
     setError("");
@@ -254,9 +241,7 @@ export function Agente({ senalId }: { senalId: string | null }) {
       const receta = senalId ? (await api.conVersion<Receta>(`/senales/${senalId}`)).datos : null;
       const c = await api.post<Charla>("/asistente/charla", { senal: receta, pedido, tabla_id: tablaId, historial: previo, contexto });
       if (c.respuesta) decir({ rol: "asistente", texto: c.respuesta });
-      const acciones = c.acciones ?? [];
-      acciones.filter((a) => a.nivel === "pagina").forEach(moverPagina);
-      setAcciones(acciones.filter((a) => a.nivel !== "pagina"));
+      setAcciones(c.acciones ?? []);
       setTrabajando("");
       refrescarLimites();
       for (const destino of c.propuestas ?? []) await proponer(destino.pedido, previo, false, destino);
@@ -303,18 +288,6 @@ export function Agente({ senalId }: { senalId: string | null }) {
       decir({ rol: "asistente", texto: `(Corregidas ${r.editadas} pautas de ${p.nombreSenal} en la base.)` });
       marcarAplicada(p.id, i);
       tocar();
-    } catch (e) {
-      setError(textoDeError(e));
-    }
-  };
-
-  const aplicarAdmin = async (p: PropuestaAbierta, acciones: AccionAdmin[]) => {
-    setError("");
-    try {
-      const r = await api.post<{ descripcion: string; ok: boolean; clave?: string; error?: string }[]>("/admin/acciones", { acciones });
-      setClaves(r.filter((x) => x.clave).map((x) => `${x.descripcion}: la clave es ${x.clave}`));
-      decir({ rol: "asistente", texto: r.map((x) => `(${x.ok ? "Hecho" : "No se pudo"}: ${x.descripcion}${x.error ? ` — ${x.error}` : ""})`).join("\n") });
-      marcarAplicada(p.id, -2);
     } catch (e) {
       setError(textoDeError(e));
     }
@@ -379,7 +352,6 @@ export function Agente({ senalId }: { senalId: string | null }) {
         {propuestas.map((p) => {
           const efecto = p.efecto;
           const ejemplos = p.despues ? Object.entries(p.despues.ejemplos) : [];
-          const accionesAdmin = yo.admin ? p.acciones_admin ?? [] : [];
           return (
           <div key={p.id} role="group" className={`propuesta-agente${p.otraSenal ? " otra-senal" : ""}`} aria-label={`Propuesta para ${p.nombreSenal}`}>
             {p.otraSenal && (
@@ -436,18 +408,6 @@ export function Agente({ senalId }: { senalId: string | null }) {
               </section>
             ))}
 
-            {accionesAdmin.length > 0 && (
-              <section className="bloque-propuesta">
-                <span className="etiqueta-propuesta">PROPUESTA · ADMIN</span>
-                <ol style={{ margin: 0, paddingLeft: 20, fontSize: 15 }}>{accionesAdmin.map((a, i) => <li key={i}>{a.descripcion}</li>)}</ol>
-                {p.aplicadas.has(-2) ? <span className="chico c-nueva">Aplicadas.</span> : (
-                  <button type="button" className="boton principal chico" style={{ alignSelf: "flex-start" }} onClick={() => aplicarAdmin(p, accionesAdmin)}>
-                    {accionesAdmin.length === 1 ? "Aplicar" : `Aplicar las ${accionesAdmin.length}`}
-                  </button>
-                )}
-                {claves.map((c) => <p key={c} className="nota chico" style={{ margin: 0 }}>{c}. Anotala: no se vuelve a mostrar.</p>)}
-              </section>
-            )}
 
             {p.problemas.length > 0 && (
               <details className="chico tenue">

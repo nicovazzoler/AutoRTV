@@ -255,37 +255,3 @@ def agrupar(clasificacion: list[dict], hashes: list[str], grupo: str) -> list[di
         g["motivos"] += [x for x in c["motivos"] if x not in g["motivos"]]
         g["codigos"] += [x for x in c.get("codigos", []) if x not in g["codigos"]]
     return list(por_hash.values())
-
-
-# Columnas de la vista con todas las señales juntas: las mismas para todas, salgan de donde salgan.
-COLUMNAS_FOTO = ["Estado", "Fecha", "Hora", "Duración", "Programa", "Temporada", "Capítulo", "Título del capítulo", "Motivo"]
-
-
-def _primera(por_clave: dict[str, str], claves) -> str | None:
-    return next((por_clave[k] for k in claves if k in por_clave), None)
-
-
-def foto(salida: pd.DataFrame, grupos: list[dict], v: m.Validaciones, programa: str | None) -> list[list]:
-    """La semana en filas cortas con COLUMNAS_FOTO, para guardarla y verla junto a las demás señales."""
-    from app.engine.tarjetas.estructura import a_fecha, a_hora
-    from app.validate.grilla import detectar_columnas
-
-    columnas = list(salida.columns)
-    por_clave = {clave(c): c for c in columnas}
-    horario = detectar_columnas(columnas, v)
-    cols = [horario.get("fecha"), horario.get("hora"), horario.get("duracion"), programa,
-            _primera(por_clave, ("nro temp", "temporada", "season")),
-            _primera(por_clave, ("nro cap", "numero", "number")),
-            _primera(por_clave, ("tit cap orig", "tit cap princ", "tit cap", "tit cap ing", "tit cap port", "capitulo",
-                                 "episodio"))]
-    cols = [c if c in salida.columns else None for c in cols]
-
-    def texto(v) -> str:
-        return "" if v is None or (isinstance(v, float) and pd.isna(v)) else " ".join(str(v).split())
-
-    filas = []
-    for i, fila in enumerate(salida.to_dict("records")):
-        fecha, hora = (a_fecha(fila[cols[0]]) if cols[0] else None), (a_hora(fila[cols[1]]) if cols[1] else None)
-        filas.append([grupos[i]["grupo"], fecha.strftime("%d/%m/%Y") if fecha else "", hora.strftime("%H:%M") if hora else "",
-                      *(texto(fila[c]) if c else "" for c in cols[2:]), " · ".join(grupos[i]["motivos"])])
-    return filas

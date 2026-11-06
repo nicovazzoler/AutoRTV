@@ -94,29 +94,39 @@ def _semana(cliente, titulos):
     return {"tabla_id": tabla_id, "senal": receta}
 
 
+def _abrir(cliente, titulos):
+    return cliente.post("/api/senales/canal/abierta", files={"archivo": ("s.xlsx", excel(_grilla(titulos)))}).json()
+
+
+def _confirmar(cliente, titulos):
+    """Abre la semana con esos títulos y la confirma: lo nuevo pasa a la base."""
+    _abrir(cliente, titulos)
+    return cliente.post("/api/senales/canal/abierta/confirmar").json()
+
+
 def test_semana_por_api(cliente):
     receta = {"id": "canal", "nombre": "Canal", "entrada": {"tipo": "excel"}, "tarjetas": [SEPARAR],
               "salida": {"columnas": []}}
     assert cliente.put("/api/senales/canal", json=receta).status_code == 200
-    primera = _semana(cliente, ["Memory Lane - Outkast", "Koko Pop - Ep 1"])
-    assert cliente.post("/api/senales/canal/semana/confirmar", json=primera).json() == {"guardadas": 2}
+    _confirmar(cliente, ["Memory Lane - Outkast", "Koko Pop - Ep 1"])
+    assert cliente.get("/api/senales/canal/pautas").json()["total"] == 2
 
     # Capítulo nuevo de un programa conocido entra solo; el programa nuevo (dos veces) se revisa una vez.
-    pedido = _semana(cliente, ["Memory Lane - Outkast", "Memory Lane - Prince", "Ruta Sonora - Live", "Ruta Sonora - Live"])
-    r = cliente.post("/api/semana", json=pedido).json()
-    assert r["resumen"] == {"filas": 4, "base": 1, "nueva_lista": 1, "revisar": 2, "pautas_revisar": 1}
+    titulos = ["Memory Lane - Outkast", "Memory Lane - Prince", "Ruta Sonora - Live", "Ruta Sonora - Live"]
+    r = _abrir(cliente, titulos)
+    cuentas = ("filas", "base", "nueva_lista", "revisar", "pautas_revisar")
+    assert {k: r["resumen"][k] for k in cuentas} == {"filas": 4, "base": 1, "nueva_lista": 1, "revisar": 2, "pautas_revisar": 1}
     assert r["lectura"] == {"filas": 4, "columnas": ["Fecha", "Hora", "Titulo"], "hojas": 1}
     assert r["revisar"][0]["motivos"] == ["Programa nuevo: Ruta Sonora"] and r["revisar"][0]["veces"] == 2
     assert r["revisar"][0]["salida"]["Capitulo"] == "Live"
     assert r["nuevas"][0]["salida"]["Capitulo"] == "Prince"
-    preview = cliente.post("/api/preview", json=pedido).json()
+    preview = cliente.post("/api/preview", json=_semana(cliente, titulos)).json()
     assert [g["grupo"] for g in preview["grupos"]] == ["base", "nueva_lista", "revisar", "revisar"]
 
     # "Está bien" sobre la pauta a revisar: queda en la base y la semana ya no la pide.
-    aceptar = {**pedido, "hashes": [r["revisar"][0]["hash"]]}
-    assert cliente.post("/api/senales/canal/pautas/aceptar", json=aceptar).json() == {"aceptadas": 1}
-    r = cliente.post("/api/semana", json=pedido).json()
+    r = cliente.post("/api/senales/canal/abierta/aceptar", json={"hashes": [r["revisar"][0]["hash"]]}).json()
     assert r["resumen"]["revisar"] == 0 and r["resumen"]["nueva_lista"] == 1
+    assert cliente.get("/api/senales/canal/pautas").json()["total"] == 3
 
 
 def test_titulos_conocidos_salen_de_la_base(cliente):
@@ -124,7 +134,7 @@ def test_titulos_conocidos_salen_de_la_base(cliente):
     receta = {"id": "canal", "nombre": "Canal", "entrada": {"tipo": "excel"}, "tarjetas": [SEPARAR],
               "salida": {"columnas": []}}
     cliente.put("/api/senales/canal", json=receta)
-    cliente.post("/api/senales/canal/semana/confirmar", json=_semana(cliente, ["Memory Lane - Outkast"]))
+    _confirmar(cliente, ["Memory Lane - Outkast"])
     cliente.put("/api/senales/canal", json={**receta, "tarjetas": [por_titulos]})
     preview = cliente.post("/api/preview", json=_semana(cliente, ["Memory Lane Prince"])).json()
     fila = dict(zip(preview["columnas"], preview["filas"][0]))
@@ -135,8 +145,9 @@ def test_base_filtrada_por_columna_y_edicion_de_varias(cliente):
     receta = {"id": "canal", "nombre": "Canal", "entrada": {"tipo": "excel"}, "tarjetas": [SEPARAR],
               "salida": {"columnas": []}}
     cliente.put("/api/senales/canal", json=receta)
-    semana_ = _semana(cliente, ["Memory Lane - Outkast", "Memory Lane - Prince", "Koko Pop - Ep 1"])
-    cliente.post("/api/senales/canal/semana/confirmar", json=semana_)
+    titulos = ["Memory Lane - Outkast", "Memory Lane - Prince", "Koko Pop - Ep 1"]
+    _confirmar(cliente, titulos)
+    semana_ = _semana(cliente, titulos)
 
     assert cliente.get("/api/senales/canal/pautas/valores", params={"columna": "Programa"}).json() == [
         {"valor": "Memory Lane", "pautas": 2}, {"valor": "Koko Pop", "pautas": 1}]
@@ -216,6 +227,7 @@ def test_semana_pegada_adopta_el_formato_y_una_ilegible_no_pisa_la_anterior(clie
     assert r.status_code == 200, r.text
     assert r.json()["semana"]["nombre"] == "texto pegado" and r.json()["resumen"]["filas"] == 2
     assert cliente.get("/api/senales/canal").json()["entrada"] == {"tipo": "texto", "fecha_inicio": "2026-11-02"}
+    assert cliente.post("/api/senales/canal/abierta/texto", json={"texto": "  "}).status_code == 422
 
     roto = cliente.post("/api/senales/canal/abierta", files={"archivo": ("roto.xlsx", b"PK no es un excel")})
     assert roto.status_code == 422
@@ -250,7 +262,7 @@ def test_columnas_de_la_base_en_orden_y_con_programa(cliente):
     receta = {"id": "canal", "nombre": "Canal", "entrada": {"tipo": "excel"}, "tarjetas": [SEPARAR],
               "salida": {"columnas": []}}
     cliente.put("/api/senales/canal", json=receta)
-    cliente.post("/api/senales/canal/semana/confirmar", json=_semana(cliente, ["Memory Lane - Outkast"]))
+    _confirmar(cliente, ["Memory Lane - Outkast"])
     r = cliente.get("/api/senales/canal/pautas/columnas").json()
     assert set(r["columnas"]) == {"Titulo", "Programa", "Capitulo"} and r["programa"] == "Programa"
 

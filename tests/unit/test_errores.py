@@ -10,7 +10,7 @@ from app.main import app
 from tests.unit.test_api import GRILLA, RECETA
 
 BIEN = {"explicacion": "Listo", "tarjetas_json": json.dumps(RECETA["tarjetas"]), "columnas_salida": None,
-        "correcciones_base_json": "[]", "acciones_admin_json": "[]"}
+        "correcciones_base_json": "[]"}
 
 
 def _error(clase, estado: int, mensaje: str):

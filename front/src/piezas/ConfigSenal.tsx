@@ -1,7 +1,6 @@
-import { useRef, useState, type FormEvent } from "react";
+import { useState, type FormEvent } from "react";
 import { api, ErrorApi, textoDeError } from "../api";
 import type { Receta } from "../tipos";
-import { confirmar } from "./Dialogos";
 
 interface Props {
   receta: Receta;
@@ -129,50 +128,5 @@ export function ConfigSenal({ receta, version, alGuardar, alCancelar }: Props) {
         <button type="button" className="boton chico" onClick={alCancelar}>Cancelar</button>
       </div>
     </form>
-  );
-}
-
-/** Bajar la receta como JSON y subir una para reemplazarla (validada por el servidor antes de guardar). */
-export function RecetaArchivo({ receta, version, alGuardar }: { receta: Receta; version: string; alGuardar: () => void }) {
-  const entrada = useRef<HTMLInputElement>(null);
-  const [error, setError] = useState("");
-
-  const exportar = () => {
-    const url = URL.createObjectURL(new Blob([JSON.stringify(receta, null, 2)], { type: "application/json" }));
-    Object.assign(document.createElement("a"), { href: url, download: `${receta.id}.json` }).click();
-    URL.revokeObjectURL(url);
-  };
-
-  const importar = async (archivo: File | undefined) => {
-    if (!archivo) return;
-    setError("");
-    try {
-      const datos = JSON.parse(await archivo.text());
-      const r = await api.post<{ ok: boolean; receta?: Receta; errores?: string[] }>("/senales/validar", datos);
-      if (!r.ok || !r.receta) {
-        setError(`La receta no es válida: ${(r.errores ?? []).join("; ")}`);
-        return;
-      }
-      if (!await confirmar({ titulo: "Importar la receta",
-        texto: `Las reglas de ${receta.nombre} se reemplazan por las del archivo. Se puede deshacer desde el historial.`,
-        boton: "Reemplazar las reglas" })) return;
-      await api.put(`/senales/${receta.id}`, { ...r.receta, id: receta.id }, { "If-Match": version });
-      alGuardar();
-    } catch (e) {
-      setError(e instanceof SyntaxError ? "El archivo no es un JSON" : textoDeError(e));
-    }
-    if (entrada.current) entrada.current.value = "";
-  };
-
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-      <div className="botones" style={{ gap: 8 }}>
-        <button type="button" className="boton chico" onClick={exportar}>Exportar receta</button>
-        <label className="boton chico" style={{ cursor: "pointer" }}>Importar receta
-          <input ref={entrada} type="file" accept=".json,application/json" className="solo-lector" onChange={(e) => importar(e.target.files?.[0])} />
-        </label>
-      </div>
-      {error && <p className="error chico" role="alert">{error}</p>}
-    </div>
   );
 }

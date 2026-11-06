@@ -85,12 +85,12 @@ def test_base_de_pautas_por_api(cliente):
     programa = preview["columnas"].index("Programa")
     assert [f[programa] for f in preview["filas"]] == ["Memory Lane", "Koko Pop", "Memory Lane"]
 
-    # Editar una celda en la tabla cambia todas las filas de esa pauta.
-    r = cliente.post("/api/senales/concierto/pautas/editar-celda",
-                     json={**pedido, "fila": 2, "columna": "Programa", "valor": "Memory Lane Live"})
+    # Corregir una celda de la semana cambia todas las filas de esa pauta.
+    cliente.post("/api/senales/concierto/abierta", files={"archivo": ("g.xlsx", excel(CRUDO))})
+    r = cliente.post("/api/senales/concierto/abierta/celda", json={"fila": 2, "columna": "Programa", "valor": "Memory Lane Live"})
     assert r.status_code == 200, r.text
-    assert cliente.post("/api/senales/concierto/pautas/editar-celda",
-                        json={**pedido, "fila": 0, "columna": "Hora", "valor": "07:00"}).status_code == 422
+    assert cliente.post("/api/senales/concierto/abierta/celda",
+                        json={"fila": 0, "columna": "Hora", "valor": "07:00"}).status_code == 422
     preview = cliente.post("/api/preview", json=pedido).json()
     assert preview["estados"] == ["editada", "conocida", "editada"]
     assert preview["filas"][0][programa] == "Memory Lane Live"
@@ -103,15 +103,11 @@ def test_base_de_pautas_por_api(cliente):
                        json={"salida": {"Programa": "ML", "Capitulo": None}}).status_code == 200
     assert cliente.put("/api/senales/concierto/pautas/noexiste", json={"salida": {}}).status_code == 404
 
-    # Olvidar una pauta la vuelve nueva; revisar las nuevas la guarda con lo que arman las reglas.
+    # Olvidar una pauta la vuelve nueva; confirmar la semana la guarda con lo que arman las reglas.
     cliente.delete(f"/api/senales/concierto/pautas/{h}")
     preview = cliente.post("/api/preview", json={**pedido, "solo_nuevas": True}).json()
     assert preview["indices"] == [0, 2] and preview["resumen_pautas"]["nueva"] == 2
     exportado = cliente.post("/api/export", json={**pedido, "formato": "csv"})
     assert exportado.headers["X-Pautas-Nuevas"] == "2"
-    assert cliente.post("/api/senales/concierto/pautas/revisar", json=pedido).json() == {"revisadas": 1}
+    assert cliente.post("/api/senales/concierto/abierta/confirmar").status_code == 200
     assert cliente.post("/api/preview", json=pedido).json()["resumen_pautas"]["nueva"] == 0
-
-    # Recargar desde los ejemplos no pisa lo que ya está.
-    assert cliente.post("/api/senales/concierto/pautas/desde-ejemplos").json() == {
-        "agregadas": 0, "conflictos": 0, "errores": []}

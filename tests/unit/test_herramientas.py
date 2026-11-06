@@ -39,12 +39,10 @@ def test_un_cambio_en_otra_senal_queda_para_confirmar_y_marcado(cliente, monkeyp
     _senal(cliente, "XT")
     otra = _senal(cliente, "TBN")
     _, c = _charla(cliente, monkeypatch, [{"nombre": "corregir_pautas", "datos": {
-        "senal": otra, "filtro": {"Programa": "Cine"}, "columna": "Genero", "valor": "Película"}},
-        {"nombre": "ir_a", "datos": {"pantalla": "base", "senal": otra}}], senal="xt")
-    cambio, pagina = c["acciones"]
-    assert (cambio["nivel"], cambio["otra_senal"], cambio["pautas"]) == ("cambio", True, 1)
+        "senal": otra, "filtro": {"Programa": "Cine"}, "columna": "Genero", "valor": "Película"}}], senal="xt")
+    (cambio,) = c["acciones"]
+    assert (cambio["otra_senal"], cambio["pautas"]) == (True, 1)
     assert "En TBN, en 1 pauta con Programa = Cine, poner Genero = Película" == cambio["descripcion"]
-    assert (pagina["nivel"], pagina["descripcion"]) == ("pagina", "Ir a base de TBN")
     assert cliente.get(f"/api/senales/{otra}/pautas").json()["pautas"][0]["salida"]["Genero"] in (None, "")  # no cambió
 
 

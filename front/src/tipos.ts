@@ -197,19 +197,12 @@ export interface CorreccionBase {
   descripcion: string;
 }
 
-export interface AccionAdmin {
-  tipo: string;
-  descripcion: string;
-  [campo: string]: unknown;
-}
-
 export interface Propuesta {
   logrado: boolean;
   explicacion: string;
   receta: Receta | null;
   cambios: Cambio[];
   correcciones_base: CorreccionBase[];
-  acciones_admin: AccionAdmin[];
   antes: Metricas | null;
   despues: Metricas | null;
   problemas: string[];
@@ -223,15 +216,12 @@ export interface Propuesta {
   };
 }
 
+/** Un cambio que dejó el agente: espera «Hacerlo». */
 export interface AccionUi {
-  /** "pagina" la hace la web sola; "cambio" espera «Hacerlo». */
-  nivel: "pagina" | "cambio";
-  tipo: "ir_a" | "nueva_senal" | "armar_reglas" | "corregir_pautas" | "confirmar_semana";
-  pantalla: string;
+  tipo: "armar_reglas" | "corregir_pautas" | "confirmar_semana";
   senal: string;
   nombre_senal: string;
   otra_senal: boolean;
-  nombre: string;
   descripcion: string;
   filtro?: Record<string, string>;
   hashes?: string[];
@@ -253,7 +243,6 @@ export interface Charla {
   proponer_cambios: boolean;
   acciones: AccionUi[];
   propuestas: PedidoDePropuesta[];
-  recordar: string;
 }
 
 export interface ChatGuardado {

@@ -12,24 +12,17 @@ Un objeto con:
 - `columnas_salida`: la lista de columnas de salida si hay que cambiarla; si no, `null`.
 - `correcciones_base_json`: texto JSON con una lista de correcciones en la **base de pautas**, o `"[]"`.
   Cada una: `{"filtro": {"TIT ING": "Memory Lane"}, "columna": "Género", "valor": "Música"}`.
-- `acciones_admin_json`: texto JSON con una lista de acciones de admin, o `"[]"`. Tipos:
-  `{"tipo": "crear_usuario", "usuario": "ana", "admin": false}`,
-  `{"tipo": "resetear_clave", "usuario": "ana"}`,
-  `{"tipo": "cambiar_limite_diario", "valor": 80}`,
-  `{"tipo": "cambiar_regla_catalogo", "columna": "Año", "regla": "INT si o si 4 caracteres numerales"}`.
 
 Si el pedido no cambia las reglas, devolvé `tarjetas_json` como `""`.
 
-## Reglas, base o admin
+## Reglas o base
 
 - **Reglas** (tarjetas): cuando el problema es cómo se transforma la grilla y va a volver a pasar en las
   semanas siguientes ("el capítulo queda cortado", "el año viene pegado al título").
 - **Correcciones en la base**: cuando el pedido es sobre el contenido de programas puntuales que ya
   están en la base ("todos los Memory Lane van con género Música", "el título de este programa es X").
   El filtro usa columnas de salida y valores exactos; no inventes columnas.
-- **Acciones de admin**: solo si la persona lo pide de forma explícita y la sección "Quién pide" dice
-  que es admin. Nunca escribas claves: las genera el servidor.
-- Las correcciones y las acciones no se aplican solas: la persona las revisa y las aplica.
+- Las correcciones no se aplican solas: la persona las revisa y las aplica.
 
 ## Criterios generales
 

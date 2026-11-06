@@ -117,12 +117,6 @@ def test_ejemplos_puntuan_la_receta(cliente):
     assert cliente.get("/api/senales/sintetica/ejemplos").json() == []
 
 
-def test_tipos_tarjeta_trae_todos(cliente):
-    tipos = cliente.get("/api/tipos-tarjeta").json()
-    assert len(tipos["schema"]["discriminator"]["mapping"]) == 17
-    assert "numerar" in tipos["sin_condicion"] and "reemplazar" not in tipos["sin_condicion"]
-
-
 def test_web_se_sirve():
     c = TestClient(app)
     assert c.get("/api/no-existe").status_code == 404
@@ -152,23 +146,6 @@ def test_guardar_no_pisa_a_otro(cliente):
     r = cliente.put("/api/senales/sintetica", json=RECETA, headers={"If-Match": version})
     assert r.status_code == 409 and r.json()["detail"].startswith("admin guardó cambios el")
     assert cliente.put("/api/senales/sintetica", json=RECETA).status_code == 200  # "guardar igual"
-
-
-def test_aprender_titulos(cliente):
-    esperado = excel(pd.DataFrame({"Programa": ["MacGyver", "Praise", "MacGyver"]}))
-    otro = excel(pd.DataFrame({"Programa": ["Praise", "Joseph Prince"]}))
-    cliente.post("/api/senales/sintetica/ejemplos", data={"nombre": "s1"},
-                 files={"entrada": ("a.xlsx", GRILLA), "esperado": ("b.xlsx", esperado)})
-    r = cliente.post("/api/senales/sintetica/titulos/aprender",
-                     data={"usar_ejemplos": "true", "conocidos": json.dumps(["Praise"])},
-                     files=[("archivos", ("o.xlsx", otro))])
-    assert r.status_code == 200, r.text
-    assert r.json() == {"columna_usada": "Programa", "titulos": [
-        {"titulo": "MacGyver", "apariciones": 2, "nuevo": True},
-        {"titulo": "Praise", "apariciones": 2, "nuevo": False},
-        {"titulo": "Joseph Prince", "apariciones": 1, "nuevo": True},
-    ]}
-    assert cliente.post("/api/senales/vacia/titulos/aprender", data={"usar_ejemplos": "true"}).status_code == 422
 
 
 def _con_asistente(monkeypatch, respuestas):
@@ -225,13 +202,6 @@ def test_asistente_desde_ejemplo(cliente, monkeypatch):
     assert "Así tiene que quedar" in proveedor.pedidos[0][0]["content"]
 
 
-def test_validar_receta_importada(cliente):
-    assert cliente.post("/api/senales/validar", json=RECETA).json()["ok"]
-    mala = {**RECETA, "tarjetas": [{"id": "x", "tipo": "inventada"}]}
-    r = cliente.post("/api/senales/validar", json=mala).json()
-    assert not r["ok"] and "tarjetas.0" in r["errores"][0]
-
-
 def test_cookie_segura_en_railway(monkeypatch):
     from app.api.rutas import _es_produccion
 
@@ -272,14 +242,14 @@ def test_admin_resetea_clave(cliente):
     cliente.post("/api/usuarios", json={"usuario": "ana", "clave": "clave-de-ana"})
     ana = TestClient(app)
     ana.post("/api/login", json={"usuario": "ana", "clave": "clave-de-ana"})
-    (id_ana,) = [u["id"] for u in cliente.get("/api/usuarios").json() if u["usuario"] == "ana"]
-    (id_admin,) = [u["id"] for u in cliente.get("/api/usuarios").json() if u["usuario"] == "admin"]
+    def resetear(quien):
+        return {"acciones": [{"tipo": "resetear_clave", "usuario": quien}]}
 
-    assert ana.post(f"/api/usuarios/{id_admin}/clave", json={"nueva": "la-robo-yo"}).status_code == 403
-    assert cliente.post("/api/usuarios/99999/clave", json={"nueva": "clave-nueva-1"}).status_code == 404
-    assert cliente.post(f"/api/usuarios/{id_ana}/clave", json={"nueva": "nueva-de-ana"}).status_code == 200
-    assert ana.get("/api/yo").status_code == 401
-    assert TestClient(app).post("/api/login", json={"usuario": "ana", "clave": "nueva-de-ana"}).status_code == 200
+    assert ana.post("/api/admin/acciones", json=resetear("admin")).status_code == 403
+    assert not cliente.post("/api/admin/acciones", json=resetear("nadie")).json()[0]["ok"]
+    (hecho,) = cliente.post("/api/admin/acciones", json=resetear("ana")).json()
+    assert hecho["ok"] and ana.get("/api/yo").status_code == 401
+    assert TestClient(app).post("/api/login", json={"usuario": "ana", "clave": hecho["clave"]}).status_code == 200
 
 
 def test_catalogo_solo_admin_y_ordena_la_preview(cliente):
@@ -291,7 +261,6 @@ def test_catalogo_solo_admin_y_ordena_la_preview(cliente):
     assert ana.post("/api/catalogo", files={"archivo": ("c.xlsx", catalogo_excel())}).status_code == 403
     assert cliente.post("/api/catalogo", files={"archivo": ("c.xlsx", catalogo_excel())}).status_code == 200
     assert ana.get("/api/catalogo").json()[0]["nombre"] == "N"
-    assert ana.post("/api/senales/validar", json=RECETA).status_code == 403  # importar receta: solo admin
 
     # Sin columnas de salida elegidas, la vista previa sale en el orden del catálogo.
     tabla_id = cliente.post("/api/tablas", files={"archivo": ("g.xlsx", GRILLA)}).json()["tabla_id"]

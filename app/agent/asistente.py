@@ -10,7 +10,7 @@ from pathlib import Path
 import pandas as pd
 from pydantic import BaseModel, ConfigDict, TypeAdapter, ValidationError
 
-from app import acciones, export, pautas
+from app import export, pautas
 from app.agent import controles
 from app.agent.cliente import Proveedor
 from app.engine import model as m
@@ -44,8 +44,6 @@ LISTA_CORRECCIONES = TypeAdapter(list[CorreccionBase])
 class Entorno:
     """Lo que el servidor sabe de la persona y de la semana, y el agente no puede averiguar solo."""
     foco: list[int] = field(default_factory=list)  # filas para revisar de la semana
-    es_admin: bool = False
-    reglas_catalogo: list[str] = field(default_factory=list)  # "Columna: regla"
 
 
 @dataclass
@@ -78,7 +76,6 @@ class Propuesta:
     receta: dict | None = None
     cambios: list[dict] = field(default_factory=list)
     correcciones_base: list[dict] = field(default_factory=list)
-    acciones_admin: list[dict] = field(default_factory=list)
     antes: Metricas | None = None
     despues: Metricas | None = None
     problemas: list[str] = field(default_factory=list)  # lo que quedó sin resolver en la última vuelta
@@ -96,20 +93,18 @@ class Charla:
     tokens_entrada: int = 0
     tokens_salida: int = 0
     modelo: str = ""
-    acciones: list[dict] = field(default_factory=list)  # nivel "pagina" las hace la web; "cambio", con «Hacerlo»
-    recordar: str = ""  # algo de la persona que el agente quiere guardar para la próxima
+    acciones: list[dict] = field(default_factory=list)  # esperan «Hacerlo» de la persona
     propuestas: list[dict] = field(default_factory=list)  # {senal, pedido} para el agente de reglas
     pasos: int = 0
 
 
 @dataclass
 class Persona:
-    """Lo que el agente sabe de quien le escribe: su ficha, sus notas y las señales que hay."""
+    """Lo que el agente sabe de quien le escribe: su ficha y las señales que hay."""
     usuario: str
     admin: bool = False
     nombre: str = ""
     descripcion: str = ""
-    notas: list[str] = field(default_factory=list)
     senales: list[tuple[str, str]] = field(default_factory=list)  # (id, nombre)
 
 
@@ -127,10 +122,7 @@ MAX_SENALES_EN_CHARLA = 600
 
 def _persona(p: Persona) -> list[str]:
     ficha = f"Usuario {p.usuario}" + (f", se llama {p.nombre}" if p.nombre else "") + (f". {p.descripcion}" if p.descripcion else "")
-    partes = ["## Con quién hablás", ficha]
-    if p.notas:
-        partes += ["## Lo que recordás de esta persona", "\n".join(f"- {n}" for n in p.notas)]
-    partes += ["## Señales que hay (id: nombre)",
+    partes = ["## Con quién hablás", ficha, "## Señales que hay (id: nombre)",
                "\n".join(f"{i}: {n}" for i, n in p.senales[:MAX_SENALES_EN_CHARLA]) or "(ninguna todavía)"]
     return partes
 
@@ -188,7 +180,7 @@ def charlar(receta: m.Senal | None, tabla: pd.DataFrame | None, historial: list[
         charla.respuesta = "Me quedé sin pasos para terminar: decime por dónde sigo."
     for p in estado.propuestas:
         p["pedido"] = p["pedido"] or mensaje
-    charla.acciones, charla.propuestas, charla.recordar = estado.acciones, estado.propuestas, estado.recordar.strip()
+    charla.acciones, charla.propuestas = estado.acciones, estado.propuestas
     charla.proponer_cambios = any(p["senal"] == estado.activa for p in estado.propuestas)
     return charla
 
@@ -249,11 +241,11 @@ def pedir(receta: m.Senal, tabla: pd.DataFrame, pedido: str, proveedor: Proveedo
             return resultado
 
         nueva, problemas = _leer_propuesta(r.datos, receta)
-        (correcciones, admin), problemas_extras = _leer_extras(r.datos, entorno)
+        correcciones, problemas_extras = _leer_correcciones(r.datos)
         if nueva is not None:
             despues, detalle_nuevo = medir(nueva, tabla, ejemplos)
             problemas = _problemas(antes, detalle["errores"], despues, detalle_nuevo, objetivo)
-            resultado.correcciones_base, resultado.acciones_admin = correcciones, admin
+            resultado.correcciones_base = correcciones
             resultado.explicacion = r.datos.get("explicacion", "")
             resultado.receta = nueva.model_dump(exclude_none=True)
             resultado.cambios = cambios(receta, nueva)
@@ -344,24 +336,14 @@ def _leer_propuesta(datos: dict | None, receta: m.Senal) -> tuple[m.Senal | None
     return receta.model_copy(update=cambios_receta), []
 
 
-def _leer_extras(datos: dict | None, entorno: Entorno) -> tuple[tuple[list[dict], list[dict]], list[str]]:
-    """Correcciones en la base y acciones de admin que vinieron junto con la propuesta."""
+def _leer_correcciones(datos: dict | None) -> tuple[list[dict], list[str]]:
+    """Correcciones en la base que vinieron junto con la propuesta."""
     if not isinstance(datos, dict):
-        return ([], []), []
-    problemas = []
-    correcciones, admin = [], []
+        return [], []
     try:
-        correcciones = [c.model_dump() for c in LISTA_CORRECCIONES.validate_json(datos.get("correcciones_base_json") or "[]")]
+        return [c.model_dump() for c in LISTA_CORRECCIONES.validate_json(datos.get("correcciones_base_json") or "[]")], []
     except ValidationError as e:
-        problemas.append(f"correcciones_base_json no cumple el formato: {_errores(e)}")
-    try:
-        admin = [a.model_dump() for a in acciones.LISTA.validate_json(datos.get("acciones_admin_json") or "[]")]
-    except ValidationError as e:
-        problemas.append(f"acciones_admin_json no cumple el formato: {_errores(e)}")
-    if admin and not entorno.es_admin:
-        problemas.append("La persona no es admin: no propongas acciones_admin, explicale que las pide un admin.")
-        admin = []
-    return (correcciones, admin), problemas
+        return [], [f"correcciones_base_json no cumple el formato: {_errores(e)}"]
 
 
 def _errores(e: ValidationError) -> str:
@@ -455,10 +437,6 @@ def _contexto(receta, tabla, detalle, antes: Metricas, ejemplos, pedido, objetiv
     if orden_columnas:
         partes += ["## Orden general de columnas del EPG",
                    "Si agregás columnas o cambiás columnas_salida, respetá este orden: " + ", ".join(orden_columnas)]
-    partes += ["## Quién pide", "Es admin: puede aplicar acciones_admin." if entorno.es_admin
-               else "No es admin: no propongas acciones_admin."]
-    if entorno.es_admin and entorno.reglas_catalogo:
-        partes += ["## Catálogo de columnas (columna: regla)", "\n".join(entorno.reglas_catalogo)]
     partes += _conversacion(list(historial)) + ["## Pedido", pedido]
     return "\n\n".join(partes)
 
