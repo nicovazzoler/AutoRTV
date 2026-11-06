@@ -64,6 +64,16 @@ def test_la_columna_del_programa_se_reconoce_por_lo_que_tiene_no_por_el_nombre()
     assert semana.columna_programa(["Show", "Sub", "Full"], m.Validaciones(), pares[:2]) is None  # pocas: por nombre
 
 
+def test_un_rating_no_pasa_por_programa_aunque_repita_mas_que_los_titulos():
+    # El rating también aparece en la fila cruda y tiene menos valores distintos que cualquier título.
+    programas = ["Cue the Laughs", "Couples Retreat", "Family Night"]
+    pares = [({"Title": f"{p} {i:02d}", "Rating": r}, {"TIT ORIG": p, "TIT CAP": f"{p} {i:02d}", "RATING": r})
+             for i, (p, r) in enumerate((p, r) for p in programas for r in ("TV-14 D", "TV-PG"))]
+    assert semana.columna_programa(["TIT ORIG", "TIT CAP", "RATING"], m.Validaciones(), pares) == "TIT ORIG"
+    sin_catalogo = [(crudo, {"Show": s["TIT ORIG"], "Clasif": s["RATING"]}) for crudo, s in pares]
+    assert semana.columna_programa(["Show", "Clasif"], m.Validaciones(), sin_catalogo) == "Show"
+
+
 def test_un_capitulo_nuevo_toma_de_la_base_lo_que_es_del_programa():
     base = {f"h{i}": {"estado": "revisada", "salida": {"Programa": "Noches de Jazz", "Genero": "Música",
                                                         "Nro cap": i, "Tit cap": f"Cap {i}", "Pais": p}}
