@@ -19,6 +19,8 @@ MIN_SINOPSIS = 20
 
 # Con menos pautas que esto, mirar el contenido no dice nada: se va por el nombre.
 MIN_PARES = 5
+# Una columna cuyos valores son, en la mitad de las filas, más cortos que esto es un código (TV-14, ATP), no un título.
+MIN_LARGO_TITULO = 6
 
 
 def _texto_crudo(crudo: dict) -> str:
@@ -28,7 +30,8 @@ def _texto_crudo(crudo: dict) -> str:
 def programa_por_contenido(pares: list[tuple[dict, dict]], columnas: list[str]) -> str | None:
     """La columna del EPG que casi siempre aparece dentro de la fila cruda: el programa, se llame como se llame.
 
-    Si dos empatan (Tit orig y Tit princ, o el título entero), gana la que repite más: un programa tiene muchos capítulos.
+    Si varias empatan, gana la que el catálogo llama programa, después la que no es un código corto (un rating) y por
+    último la que repite más (Tit orig contra el título entero): un programa tiene muchos capítulos.
     """
     if len(pares) < MIN_PARES:
         return None
@@ -38,13 +41,16 @@ def programa_por_contenido(pares: list[tuple[dict, dict]], columnas: list[str]) 
         valores = [normalizar(salida.get(c)) for _, salida in pares]
         dentro = [v for v, t in zip(valores, textos) if sum(ch.isalpha() for ch in v) >= 3 and v in t]
         if dentro:
-            puntajes.append((len(dentro) / len(pares), len(set(dentro)), c))
+            mediana = sorted(len(v) for v in dentro)[len(dentro) // 2]
+            puntajes.append((len(dentro) / len(pares), len(set(dentro)), mediana, c))
     if not puntajes:
         return None
-    mejor = max(p for p, _, _ in puntajes)
+    mejor = max(p for p, _, _, _ in puntajes)
     if mejor < 0.5:
         return None
-    return min((distintos, c) for p, distintos, c in puntajes if p >= mejor - 0.05)[1]
+    orden = {k: i for i, k in enumerate(PROGRAMA_CATALOGO)}
+    return min((orden.get(clave(c), len(orden)), mediana < MIN_LARGO_TITULO, distintos, c)
+               for p, distintos, mediana, c in puntajes if p >= mejor - 0.05)[3]
 
 
 def pares_de_la_base(base: dict[str, dict]) -> list[tuple[dict, dict]]:
