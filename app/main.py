@@ -31,7 +31,9 @@ def _que_corre() -> str:
 
 @asynccontextmanager
 async def arranque(_app):
-    memoria.poner_tope()
+    reservada, mb = memoria.reservada_mb("self"), memoria.poner_tope()
+    logging.getLogger("autortv").info("Memoria: %.0f MB reservados al arrancar; el servidor puede crecer %d MB más",
+                                      reservada, mb)
     memoria.vigilar(_que_corre)
     db.motor()  # crea las tablas y migra el volumen viejo antes de atender pedidos
     auth.asegurar_admin_inicial()

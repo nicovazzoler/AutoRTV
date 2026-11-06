@@ -5,11 +5,10 @@ sigue para todos. El proceso arranca limpio (spawn), con su propia conexión a l
 """
 import logging
 import multiprocessing
-import resource
 import threading
 from collections.abc import Callable
 
-MEMORIA_MB = 2000
+MEMORIA_MB = 2000  # lo que puede crecer cada tarea por encima de lo que su proceso reservó al arrancar
 SIMULTANEOS = 2  # procesos de tareas a la vez; el resto espera su turno
 # Los tests lo apagan: la tarea corre en un hilo del mismo proceso, con el agente grabado del test.
 EN_PROCESO = True
@@ -53,7 +52,7 @@ def _en_proceso(nombre: str, funcion: Callable, args: tuple) -> int | None:
     from app.caja import autoprueba
 
     proceso = multiprocessing.get_context("spawn").Process(
-        target=_adentro, args=(funcion, args, autoprueba.estado()), name=nombre, daemon=True)
+        target=_adentro, args=(funcion, args, autoprueba.estado(), MEMORIA_MB), name=nombre, daemon=True)
     proceso.start()
     with _cerrojo:
         _vivos[proceso.pid] = nombre
@@ -63,12 +62,11 @@ def _en_proceso(nombre: str, funcion: Callable, args: tuple) -> int | None:
     return proceso.exitcode
 
 
-def _adentro(funcion: Callable, args: tuple, caja: dict) -> None:
+def _adentro(funcion: Callable, args: tuple, caja: dict, memoria_mb: int) -> None:
+    from app import memoria
     from app.caja import autoprueba
 
-    _, duro = resource.getrlimit(resource.RLIMIT_DATA)
-    tope = MEMORIA_MB * 2**20
-    resource.setrlimit(resource.RLIMIT_DATA, (tope if duro == resource.RLIM_INFINITY else min(tope, duro), duro))
+    memoria.topar(memoria_mb)
     # La caja ya se probó en este servidor al arrancar: el proceso nuevo no vuelve a probarla.
     autoprueba._estado.update(caja, probando=False)
     funcion(*args)

@@ -16,6 +16,9 @@ COPY caja/runner.mjs ./
 
 FROM python:3.13-slim
 WORKDIR /app
+# numpy abre un hilo de cálculo por cada núcleo de la máquina (en Railway, decenas) y cada uno reserva
+# memoria: acá no hacen falta.
+ENV OPENBLAS_NUM_THREADS=1
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 COPY --from=caja /caja ./caja

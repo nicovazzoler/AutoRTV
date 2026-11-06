@@ -37,20 +37,37 @@ def tope_mb(contenedor: int | None, pedido: str | None = None) -> int:
 
 
 def poner_tope() -> int:
-    """Baja el tope de memoria del proceso (RLIMIT_DATA) y devuelve cuántos MB quedaron."""
+    """Baja el tope de memoria del servidor y devuelve cuántos MB le quedan para crecer."""
     mb = tope_mb(tope_del_contenedor(), os.environ.get("MEMORIA_SERVIDOR_MB"))
-    _, duro = resource.getrlimit(resource.RLIMIT_DATA)
-    blando = mb * 2**20 if duro == resource.RLIM_INFINITY else min(mb * 2**20, duro)
-    resource.setrlimit(resource.RLIMIT_DATA, (blando, duro))
+    topar(mb)
     return mb
 
 
-def rss_mb(pid: int) -> float:
+def topar(mb: int) -> None:
+    """Tope del sistema (RLIMIT_DATA) a `mb` por encima de lo que el proceso ya reservó.
+
+    El tope cuenta lo reservado, no lo usado: con muchos núcleos, numpy reserva al importarse más que un tope fijo.
+    """
+    _, duro = resource.getrlimit(resource.RLIMIT_DATA)
+    blando = int((reservada_mb("self") + mb) * 2**20)
+    resource.setrlimit(resource.RLIMIT_DATA, (blando if duro == resource.RLIM_INFINITY else min(blando, duro), duro))
+
+
+def _de_status(pid: int | str, campo: str) -> float:
     try:
-        linea = next(x for x in Path(f"/proc/{pid}/status").read_text().splitlines() if x.startswith("VmRSS:"))
+        linea = next(x for x in Path(f"/proc/{pid}/status").read_text().splitlines() if x.startswith(campo + ":"))
         return int(linea.split()[1]) / 1024
     except (OSError, StopIteration, ValueError, IndexError):
         return 0.0
+
+
+def rss_mb(pid: int) -> float:
+    return _de_status(pid, "VmRSS")
+
+
+def reservada_mb(pid: int | str) -> float:
+    """La memoria de datos que el proceso tiene reservada (VmData), la use o no."""
+    return _de_status(pid, "VmData")
 
 
 def hijos(pid: int) -> list[int]:
