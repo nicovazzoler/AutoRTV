@@ -38,7 +38,8 @@ Si la hoja que te mostré completa no es la grilla, o el mapa no te alcanza para
 - `saltear_hojas`: nombres de hojas que no son programación (portada, notas, totales) o que vienen rotas. Una hoja que no se puede leer igual se saltea sola y te lo digo; una fecha que no existe ("31 NOVIEMBRE") se toma como el día que sigue, así que no hace falta saltear esa hoja por eso.
 - `filas_de_fecha`: `true` si la fecha no está en una columna sino en filas sueltas ("MIÉRCOLES · 30 SEPTIEMBRE · 2026") que valen para los programas de abajo. Las filas sin hora de inicio (intermedios, notas) se descartan. Sin poner nada se detecta solo.
 - `fila_encabezado`: la fila con los nombres de columna (1 = la primera del Excel). Las de arriba (título,
-  logo) se saltean.
+  logo) se saltean. `0` si el archivo no tiene nombres de columna y arranca directo con los programas: las
+  columnas se llaman A, B, C… y la primera fila queda como programa.
 
 ### `excel` en cuadrícula (un día por columna)
 `{"tipo": "excel", "cuadricula": true, "fila_dias": 2, "columnas_hora": ["A", "G", "I"], "doce_horas": true}`

@@ -196,3 +196,22 @@ def test_una_hoja_elegida_por_nombre_se_respeta_aunque_el_libro_tenga_varias():
     elegida = inputs.m.EntradaExcel(tipo="excel", hoja="METADATA ARG")
     assert inputs.con_alternativa(contenido, elegida, None) is elegida
     assert inputs.con_todas_las_hojas(elegida, inputs.m.EntradaExcel(tipo="excel", todas_las_hojas=True)) is elegida
+
+
+def _sin_encabezado(hora) -> bytes:
+    wb = Workbook()
+    for i in range(6):
+        wb.active.append([dt.datetime(2026, 11, 2), hora(6 + i), f"Programa {i}"])
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
+def test_sin_nombres_de_columna_no_se_pierde_la_primera_fila_y_la_hora_en_texto_cuenta():
+    for hora in (dt.time, lambda h: f"{h:02d}:00"):
+        contenido = _sin_encabezado(hora)
+        entrada = inputs.detectar(contenido)
+        assert entrada.fila_encabezado == 0
+        tabla = inputs.leer(contenido, entrada)
+        assert list(tabla.columns) == ["A", "B", "C"] and tabla["C"].tolist()[0] == "Programa 0" and len(tabla) == 6
+        assert pautas.tiene_horario(tabla)

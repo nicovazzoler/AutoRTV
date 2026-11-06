@@ -199,7 +199,7 @@ class EntradaComun(Base):
 class EntradaExcel(EntradaComun):
     tipo: Literal["excel"]
     hoja: int | str = 0
-    fila_encabezado: int = 1  # 1 = primera fila del Excel
+    fila_encabezado: int = Field(1, ge=0)  # 1 = primera fila del Excel; 0 = sin encabezado: columnas A, B, C…
     cuadricula: bool = False  # un día por columna y una franja por fila, con celdas combinadas (inputs.cuadricula)
     todas_las_hojas: bool = False  # una hoja por día (o por semana), todas con el mismo encabezado
     hojas: list[int | str] = []  # las hojas que se leen, por número (0 = la primera) o nombre; vacío = según lo de arriba

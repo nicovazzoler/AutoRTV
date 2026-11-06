@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import BinaryIO
 
 import pandas as pd
+from openpyxl.utils import get_column_letter
 
 from app.engine import model as m
 from app.inputs.pdf import DIAS, _plano, dia_de, dia_siguiente, fecha_de
@@ -21,7 +22,11 @@ def leer(origen: str | Path | BinaryIO, entrada: m.EntradaExcel) -> pd.DataFrame
     if isinstance(origen, (bytes, bytearray)):
         origen = io.BytesIO(origen)
     cuales = entrada.hojas or (None if entrada.todas_las_hojas else entrada.hoja)
-    hojas = pd.read_excel(origen, sheet_name=cuales, header=entrada.fila_encabezado - 1, dtype=object)
+    sin_encabezado = entrada.fila_encabezado == 0
+    hojas = pd.read_excel(origen, sheet_name=cuales, header=None if sin_encabezado else entrada.fila_encabezado - 1,
+                          dtype=object)
+    if sin_encabezado:
+        hojas = {n: _con_letras(t) for n, t in hojas.items()} if isinstance(hojas, dict) else _con_letras(hojas)
     if isinstance(hojas, dict):
         saltear = {str(h).strip().lower() for h in entrada.saltear_hojas}
         hojas = {n: t for n, t in hojas.items() if str(n).strip().lower() not in saltear}
@@ -65,6 +70,10 @@ def _de_programacion(tablas: list[pd.DataFrame]) -> list[pd.DataFrame]:
     encabezados = [_encabezado(t) for t in tablas]
     modelo = max(encabezados, key=lambda e: sum(_parecido(e, otro) for otro in encabezados))
     return [t for t, e in zip(tablas, encabezados) if _parecido(modelo, e)]
+
+
+def _con_letras(df: pd.DataFrame) -> pd.DataFrame:
+    return df.set_axis([get_column_letter(i + 1) for i in range(len(df.columns))], axis=1)
 
 
 def _limpia(df: pd.DataFrame) -> pd.DataFrame:
@@ -237,13 +246,19 @@ def hojas_de_programacion(contenido: bytes) -> tuple[int, int] | None:
 
 
 def detectar_fila_encabezado(origen: BinaryIO, hoja: int | str = 0, buscar: int = 10) -> int:
-    """Fila (1 = primera) donde están los nombres de columna.
+    """Fila (1 = primera) donde están los nombres de columna; 0 si no hay encabezado.
 
     Algunos exports traen un título arriba ("Schedule Data Export…"): se toma la primera fila
     que tiene texto en casi todas las columnas usadas.
     """
+    from app.pautas import es_de_horario
+
     crudo = pd.read_excel(origen, sheet_name=hoja, header=None, nrows=buscar, dtype=object)
     ancho = int(crudo.notna().sum(axis=1).max() or 0)
+    llenas = [f for _, f in crudo.iterrows() if f.notna().sum() >= max(2, ancho * 0.6)]
+    # Las dos primeras filas llenas ya traen fecha u hora: son programas, no nombres de columna.
+    if len(llenas) >= 2 and all(any(es_de_horario(v) for v in f if pd.notna(v)) for f in llenas[:2]):
+        return 0
     for i, fila in crudo.iterrows():
         textos = sum(isinstance(v, str) and v.strip() != "" for v in fila)
         if ancho and textos >= max(2, ancho * 0.8):
