@@ -1,4 +1,5 @@
 """Corridas del banco de agentes: se lanzan en un hilo aparte (tardan minutos) y van guardando el progreso en la base."""
+import copy
 import datetime as dt
 import threading
 
@@ -65,8 +66,17 @@ def pares_de(senales: list[str], tope: int = MAX_SENALES) -> list[banco.Par]:
         grilla, esperado = almacen.leer_ejemplo(senal_id, nombres[-1])
         receta = almacen.leer(senal_id)
         pares.append(banco.Par(receta.nombre, grilla, esperado, senal_id, receta.entrada.model_dump(),
-                               receta.model_dump(mode="json", exclude_none=True)))
+                               receta.model_dump(mode="json", exclude_none=True), almacen.version(senal_id) or ""))
     return pares
+
+
+def marcar_aplicado(corrida_id: int, senal_id: str, usuario: str) -> None:
+    """Anota en la corrida que lo que logró el agente para esa señal ya se aplicó, para no aplicarlo dos veces."""
+    resultado = copy.deepcopy(leer(corrida_id)["resultado"])
+    for s in resultado["senales"]:
+        if s.get("senal_id") == senal_id and s.get("agente"):
+            s["agente"]["aplicado"] = {"usuario": usuario, "fecha": _ahora().isoformat()}
+    _guardar(corrida_id, resultado=resultado)
 
 
 def lanzar(usuario: str, senales: list[str], tope: float, pasos: list[str], proveedor, en_hilo: bool = True) -> int:

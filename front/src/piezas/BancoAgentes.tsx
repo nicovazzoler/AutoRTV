@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { api, textoDeError } from "../api";
 import { haceCuanto } from "../fechas";
 import { persona } from "../nombre";
+import { confirmar } from "./Dialogos";
 
 interface SenalBanco {
   id: string;
@@ -66,10 +67,19 @@ interface AgenteSenal {
   explicacion: string;
   final: string;
   costo: number;
+  // La receta que logró el agente, para verla y aplicarla; las corridas viejas no la traen.
+  receta?: { final?: CodigoAgente | null; entrada?: { tipo: string; lector?: CodigoAgente } } | null;
+  aplicado?: { usuario: string; fecha: string };
+}
+
+interface CodigoAgente {
+  codigo: string;
+  explicacion?: string;
 }
 
 interface ResultadoSenal {
   nombre: string;
+  senal_id?: string;
   error?: string;
   codigo?: { medida: Medida; problemas: string[] };
   diagnostico?: Diagnostico;
@@ -170,7 +180,10 @@ function celdaReglas(x: Reglas | null | undefined) {
   );
 }
 
-function celdaAgente(x: AgenteSenal) {
+function celdaAgente(x: AgenteSenal, aplicar: () => void) {
+  const codigos: [string, string][] = [];
+  if (x.receta?.entrada?.tipo === "codigo" && x.receta.entrada.lector) codigos.push(["el lector", x.receta.entrada.lector.codigo]);
+  if (x.receta?.final) codigos.push(["el paso final", x.receta.final.codigo]);
   return (
     <span>
       <b className={x.despues >= 98 ? "c-nueva" : x.despues > x.antes ? undefined : "c-revisar"}>{Math.round(x.antes)} → {Math.round(x.despues)} %</b>
@@ -178,6 +191,12 @@ function celdaAgente(x: AgenteSenal) {
       <br />
       <span className="chico tenue">{x.logrado ? x.resultado : `No guardó nada: ${x.final}`}</span>
       {x.explicacion && <details><summary className="chico">▸ ver</summary><p className="chico" style={{ margin: "4px 0 0" }}>{x.explicacion}</p></details>}
+      {codigos.map(([cual, codigo]) => (
+        <details key={cual}><summary className="chico">▸ ver el código: {cual}</summary><pre className="codigo">{codigo}</pre></details>
+      ))}
+      {x.aplicado
+        ? <span className="chico c-nueva">Aplicado a la señal por {persona(x.aplicado.usuario)} · {haceCuanto(x.aplicado.fecha)}</span>
+        : x.receta && <div><button type="button" className="boton chico" onClick={aplicar}>Aplicar a la señal</button></div>}
     </span>
   );
 }
@@ -216,6 +235,7 @@ export function BancoAgentes() {
   const [corridas, setCorridas] = useState<Corrida[]>([]);
   const [abierta, setAbierta] = useState<Corrida | null>(null);
   const [error, setError] = useState("");
+  const [aviso, setAviso] = useState("");
 
   const cargarCorridas = async () => {
     const lista = await api.get<Corrida[]>("/admin/banco");
@@ -258,6 +278,25 @@ export function BancoAgentes() {
     }
   };
 
+  const aplicar = async (r: ResultadoSenal) => {
+    if (!abierta || !r.senal_id) return;
+    const si = await confirmar({
+      titulo: "Aplicar a la señal",
+      texto: `La receta que logró el agente pasa a ${r.nombre}. Antes se vuelve a medir con todos sus ejemplos, y se puede deshacer desde el historial de reglas.`,
+      boton: "Aplicar",
+    });
+    if (!si) return;
+    setError("");
+    setAviso("");
+    try {
+      const { mensaje } = await api.post<{ mensaje: string }>(`/admin/banco/${abierta.id}/aplicar`, { senal_id: r.senal_id });
+      setAviso(`${r.nombre}: ${mensaje}`);
+      await abrir(abierta.id);
+    } catch (e) {
+      setError(textoDeError(e));
+    }
+  };
+
   const corriendo = corridas.some((c) => c.estado === "corriendo");
   const resumen = abierta?.resultado?.resumen;
 
@@ -268,6 +307,7 @@ export function BancoAgentes() {
         <span className="chico tenue">Prueba Haiku y Sonnet contra el ejemplo más reciente de cada señal · gasta API de verdad</span>
       </div>
       {error && <p className="error" role="alert">{error}</p>}
+      {aviso && <p className="nota" role="status">{aviso}</p>}
 
       <div className="dos-columnas" style={{ alignItems: "flex-start" }}>
         <div>
@@ -357,7 +397,7 @@ export function BancoAgentes() {
                       <tr key={`${r.nombre}-r`}>{r.lectura || r.diagnostico ? <td /> : senal}<td className="tenue">Reglas</td>
                         <td>{celdaReglas(r.reglas.haiku)}</td><td>{celdaReglas(r.reglas.sonnet)}</td><td>{celdaReglas(r.reglas.escalera)}</td></tr>);
                     if (r.agente) filas.push(
-                      <tr key={`${r.nombre}-a`}>{filas.length ? <td /> : senal}<td className="tenue">Agente</td><td colSpan={3}>{celdaAgente(r.agente)}</td></tr>);
+                      <tr key={`${r.nombre}-a`}>{filas.length ? <td /> : senal}<td className="tenue">Agente</td><td colSpan={3}>{celdaAgente(r.agente, () => aplicar(r))}</td></tr>);
                     return filas;
                   })}
                 </tbody>

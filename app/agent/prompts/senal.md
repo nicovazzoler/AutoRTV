@@ -50,9 +50,13 @@ No escribas fechas ni títulos de esta semana salvo que sean fijos de la señal 
 los días a las 00:00). Para sacar algo de la grilla, buscá el patrón.
 
 ## Cuándo terminar
-- Cuando el ejemplo da 100 %, o cuando lo que queda lo cambió una persona a mano y no sale de la grilla. Guardá y explicá
-  qué queda y por qué, fila por fila si son pocas.
-- `explicacion` es para una persona que no programa: qué cambiaste, en pocas líneas y en castellano.
+- `guardar` no termina si todavía faltan filas o el ejemplo no llega al 98 %: lo guardado queda y podés seguir probando
+  desde ahí y volver a guardar (cada guardado tiene que mejorar el anterior). No te quedes con una mejora chica: atacá
+  primero lo que más pesa, como las filas que faltan.
+- Terminás contestando sin herramientas: cuando el ejemplo da 100 %, o cuando lo que queda lo cambió una persona a mano
+  y no sale de la grilla. Explicá qué queda y por qué, fila por fila si son pocas.
+- `explicacion` es para una persona que no programa: qué cambiaste respecto de la receta de hoy (todo, no solo lo del
+  último guardado), en pocas líneas y en castellano.
 - Si guardás código, `explicacion_codigo` dice qué hace, en palabras simples.
 - Si nada mejora el ejemplo, no guardes: contá qué probaste y qué falta.
 
