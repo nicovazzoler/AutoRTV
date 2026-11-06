@@ -155,6 +155,35 @@ def test_el_agente_ve_las_filas_que_faltan_las_agrega_con_codigo_y_guarda_compro
     assert "Le faltaban 2 filas y ahora ninguna" in t.resultado
 
 
+# Agrega "Fin de transmisión" solo después del primer día: arregla una de las dos filas que faltan.
+PARCIAL = FINAL.replace('if sigue is None or sigue["FECHA"] != f["FECHA"]:',
+                        'if sigue is not None and sigue["FECHA"] != f["FECHA"] and f["FECHA"] == "02/11/2026":')
+
+
+def test_si_todavia_faltan_filas_el_agente_sigue_despues_de_guardar(con_caja):
+    guion = Guion([[("probar", {"final_codigo": PARCIAL})],
+                   [("guardar", {"explicacion": "Uno.", "explicacion_codigo": "Solo el primer día."})],
+                   [("probar", {"final_codigo": FINAL})],
+                   [("guardar", {"explicacion": "Todos los días.", "explicacion_codigo": EXPLICACION})]])
+    t = senal.trabajar(_receta(), [_ejemplo()], guion)
+    assert "Todavía le faltan 1 filas" in guion.resultados[1][0]
+    assert t.pasos == 4 and t.receta.final.codigo == FINAL and t.explicacion == "Todos los días."
+    assert t.codigo == ["paso final"] and "Le faltaban 2 filas y ahora ninguna" in t.resultado
+
+
+def test_un_guardado_que_no_mejora_lo_ya_guardado_no_lo_pisa(con_caja):
+    rompe = "def ajustar(filas):\n    return [dict(f, PROGRAMA='?') for f in filas]"
+    guion = Guion([[("probar", {"final_codigo": PARCIAL})],
+                   [("guardar", {"explicacion": "Uno.", "explicacion_codigo": "Solo el primer día."})],
+                   [("probar", {"final_codigo": rompe})],
+                   [("guardar", {"explicacion": "Peor.", "explicacion_codigo": "Rompe."})],
+                   "Lo demás lo cambió una persona a mano."])
+    t = senal.trabajar(_receta(), [_ejemplo()], guion)
+    assert "No se guarda" in guion.resultados[3][0] and "con lo que ya guardaste" in guion.resultados[3][0]
+    assert t.receta.final.codigo == PARCIAL and t.explicacion == "Uno." and t.despues == 100.0
+    assert t.final == "Lo demás lo cambió una persona a mano."
+
+
 def test_no_se_guarda_algo_que_empeora_el_ejemplo(con_caja):
     rompe = "def ajustar(filas):\n    return [dict(f, PROGRAMA='?') for f in filas]"
     guion = Guion([[("probar", {"final_codigo": rompe})], [("guardar", {"explicacion": "x", "explicacion_codigo": "y"})],
@@ -222,6 +251,40 @@ def test_el_banco_mide_el_agente_de_la_senal_sin_guardar_nada(con_caja):
     assert r["agente"]["logrado"] and r["agente"]["codigo"] == ["paso final"] and "Le faltaban 2" in r["agente"]["resultado"]
     assert banco.resumen([banco.limpio(r)])["agente"] == {"senales": 1, "al_100": 1, "mejoro": 0, "con_codigo": 1}
     assert almacen.listar() == []  # el banco no guarda la receta
+
+
+def _banco_con_el_agente(cliente, monkeypatch) -> int:
+    """Crea la señal sin agente y corre el Banco con el agente de la señal, que agrega Fin de transmisión."""
+    from app import corridas
+    monkeypatch.setattr(proveedores, "proveedor_configurado", lambda: None)
+    r = cliente.post("/api/senales/crear", files={"grilla_cruda": ("g.xlsx", excel(GRILLA)),
+                                                  "ejemplo": ("e.xlsx", excel(ESPERADO))}, data={"nombre": "Agape"})
+    assert r.status_code == 200, r.text
+    guion = Guion([[("probar", {"final_codigo": FINAL})],
+                   [("guardar", {"explicacion": "Agregué Fin de transmisión.", "explicacion_codigo": EXPLICACION})]])
+    monkeypatch.setattr(proveedores, "proveedor_configurado", lambda: guion)
+    return corridas.lanzar("admin", ["agape"], 5.0, ["agente"], guion, en_hilo=False)
+
+
+def test_lo_que_logra_el_agente_en_el_banco_se_aplica_a_la_senal_una_sola_vez(cliente, con_caja, monkeypatch):
+    corrida = _banco_con_el_agente(cliente, monkeypatch)
+    agente = cliente.get(f"/api/admin/banco/{corrida}").json()["resultado"]["senales"][0]["agente"]
+    assert agente["receta"]["final"]["codigo"] == FINAL and almacen.leer("agape").final is None
+    r = cliente.post(f"/api/admin/banco/{corrida}/aplicar", json={"senal_id": "agape"})
+    assert r.status_code == 200 and "pasó de" in r.json()["mensaje"], r.text
+    assert almacen.leer("agape").final.comprobado
+    assert any(a["tipo"] == "codigo" and a["senal_id"] == "agape" for a in conversaciones.avisos())
+    agente = cliente.get(f"/api/admin/banco/{corrida}").json()["resultado"]["senales"][0]["agente"]
+    assert agente["aplicado"]["usuario"] == "admin"
+    assert cliente.post(f"/api/admin/banco/{corrida}/aplicar", json={"senal_id": "agape"}).status_code == 409
+
+
+def test_lo_del_banco_no_se_aplica_si_la_senal_cambio_despues_de_la_corrida(cliente, con_caja, monkeypatch):
+    corrida = _banco_con_el_agente(cliente, monkeypatch)
+    almacen.guardar(almacen.leer("agape").model_copy(update={"nombre": "Agape TV"}), "ana")
+    r = cliente.post(f"/api/admin/banco/{corrida}/aplicar", json={"senal_id": "agape"})
+    assert r.status_code == 409 and "cambió" in r.json()["detail"]
+    assert almacen.leer("agape").final is None
 
 
 def test_una_vista_previa_corre_el_codigo_guardado_y_no_el_que_trae_el_pedido(cliente, con_caja):

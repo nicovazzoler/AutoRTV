@@ -8,6 +8,7 @@ from sqlalchemy import delete, insert, select, update
 
 from app import almacen, catalogo, conversaciones, db, inputs, pautas, trabajos
 from app.agent import armado, asistente, cliente, senal, uso
+from app.engine import model as m
 
 MAX_EJEMPLOS = 3
 # Con esto o más, lo de Haiku alcanza; con menos sigue el agente de la señal.
@@ -115,19 +116,55 @@ def _correr(senal_id: str, usuario: str, pedido: str = "") -> None:
                      mensaje=("El agente no encontró cómo mejorar el ejemplo. " + faltan)[:1500])
             return
         try:
-            almacen.guardar(mejor, "agente", esperada=version)
+            _guardar_receta(receta, mejor, version, usuario, crudos)
         except almacen.Conflicto:
             _guardar(senal_id, estado="sin_mejora", fin=_ahora(), antes=antes, despues=despues,
                      mensaje="Alguien cambió las reglas mientras el agente trabajaba: no se pisaron. Probá de nuevo.")
             return
-        if mejor.entrada != receta.entrada:  # otra lectura da otras filas crudas: la base se vuelve a cargar con ellas
-            for e, esperado in crudos:
-                pautas.cargar_ejemplo(mejor, e.contenido, esperado, usuario)
-        _avisar_codigo(usuario, senal_id, receta, mejor)
         _guardar(senal_id, estado="aplicado", fin=_ahora(), antes=antes, despues=despues,
                  mensaje=(explicacion.strip() or f"El agente dejó el ejemplo en {despues:g} % (estaba en {antes:g} %).")[:1500])
     except Exception as e:
         _guardar(senal_id, estado="error", fin=_ahora(), mensaje=f"{type(e).__name__}: {e}"[:1500])
+
+
+def _guardar_receta(antes, despues, version: str, usuario: str, crudos) -> None:
+    """Guarda lo del agente sin pisar un cambio del medio, recarga la base si cambió la lectura y avisa si hay
+    código."""
+    almacen.guardar(despues, "agente", esperada=version)
+    if despues.entrada != antes.entrada:  # otra lectura da otras filas crudas: la base se vuelve a cargar con ellas
+        for e, esperado in crudos:
+            pautas.cargar_ejemplo(despues, e.contenido, esperado, usuario)
+    _avisar_codigo(usuario, antes.id, antes, despues)
+
+
+class CambioLaSenal(Exception):
+    pass
+
+
+def aplicar_del_banco(senal_id: str, receta: dict, version: str, usuario: str) -> str:
+    """Guarda la receta que logró el agente en una corrida del Banco, si la señal no cambió desde entonces y si, con
+    todos sus ejemplos, mejora el principal sin empeorar los otros (el Banco la probó solo con el más reciente)."""
+    actual = almacen.leer(senal_id)
+    if almacen.version(senal_id) != version:
+        raise CambioLaSenal("La señal cambió desde la corrida: volvé a correr el Banco para esa señal.")
+    crudos = _crudos(actual)
+    if not crudos:
+        raise ValueError("La señal ya no tiene ejemplos con qué comprobarlo.")
+    nueva = m.Senal(**receta)
+    ejemplos = [e for e, _ in crudos]
+    principal = ejemplos[0].nombre
+    antes, despues = senal.medir(actual, ejemplos), senal.medir(nueva, ejemplos)
+    if not senal.mejora(antes, despues, principal):
+        raise ValueError(f"Con los ejemplos de hoy no mejora: {principal} da {despues.de(principal):g} % y hoy da "
+                         f"{antes.de(principal):g} %.")
+    if peores := senal.empeoran(antes, despues):
+        raise ValueError(f"No se aplica: empeoran {', '.join(peores)}.")
+    try:
+        _guardar_receta(actual, nueva, version, usuario, crudos)
+    except almacen.Conflicto:
+        raise CambioLaSenal("Alguien cambió las reglas recién: no se pisaron. Volvé a correr el Banco para esa "
+                            "señal.")
+    return f"El ejemplo {principal} pasó de {antes.de(principal):g} % a {despues.de(principal):g} %."
 
 
 def _al_terminar(senal_id: str, usuario: str, codigo: int | None) -> None:

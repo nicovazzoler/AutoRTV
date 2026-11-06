@@ -32,6 +32,7 @@ class Par:
     senal_id: str = ""
     entrada: dict | None = None  # cómo lee hoy la señal esta grilla
     receta: dict | None = None  # la receta de hoy, de donde arranca el agente de la señal
+    version: str = ""  # la versión de esa receta: lo que logre el agente solo se aplica si la señal no cambió
 
 
 class TopeDeGasto(Exception):
@@ -139,7 +140,8 @@ def probar_par(par: Par, proveedor, caja: Caja, pasos=POR_DEFECTO, avisar: Calla
 
 
 def _agente(par: Par, esperado: pd.DataFrame, proveedor, caja: Caja) -> dict:
-    """El agente de la señal desde la receta de hoy, sin guardar nada: cuánto deja el ejemplo y si escribió código."""
+    """El agente de la señal desde la receta de hoy, sin tocar la señal: cuánto deja el ejemplo, si escribió código
+    y la receta que logró, para aplicarla después si conviene."""
     inicio = time.time()
     receta = m.Senal(**par.receta) if par.receta else m.Senal(
         id="banco", nombre=par.nombre, entrada=inputs.detectar(par.grilla), tarjetas=[], salida=m.Salida(columnas=[]))
@@ -148,7 +150,8 @@ def _agente(par: Par, esperado: pd.DataFrame, proveedor, caja: Caja) -> dict:
                         t.receta is not None)
     return {"modelo": t.modelo, "logrado": t.receta is not None, "antes": t.antes, "despues": t.despues,
             "codigo": t.codigo, "pasos": t.pasos, "resultado": t.resultado, "explicacion": t.explicacion,
-            "final": t.final, "segundos": round(time.time() - inicio, 1), "costo": costo}
+            "final": t.final, "segundos": round(time.time() - inicio, 1), "costo": costo,
+            "receta": t.receta.model_dump(mode="json", exclude_none=True) if t.receta else None, "version": par.version}
 
 
 def limpio(x):

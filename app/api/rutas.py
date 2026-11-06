@@ -2046,6 +2046,36 @@ def corrida_del_banco(corrida_id: int):
     return c
 
 
+class PedidoAplicarBanco(BaseModel):
+    senal_id: str
+
+
+@api.post("/admin/banco/{corrida_id}/aplicar")
+def aplicar_del_banco(corrida_id: int, p: PedidoAplicarBanco, u: auth.Usuario = Depends(auth.solo_admin)):
+    """Guarda en la señal la receta que logró el agente de la señal en esa corrida."""
+    c = corridas.leer(corrida_id)
+    if c is None:
+        raise HTTPException(404, "No existe esa corrida")
+    if c["estado"] == "corriendo":
+        raise HTTPException(409, "Esperá a que termine la corrida")
+    fila = next((s for s in (c["resultado"] or {}).get("senales", []) if s.get("senal_id") == p.senal_id), {})
+    agente = fila.get("agente") or {}
+    if not agente.get("receta"):
+        raise HTTPException(422, "En esa corrida el agente no guardó nada para esa señal")
+    if agente.get("aplicado"):
+        raise HTTPException(409, "Eso ya se aplicó")
+    try:
+        mensaje = armados.aplicar_del_banco(p.senal_id, agente["receta"], agente.get("version") or "", u.usuario)
+    except almacen.NoExiste:
+        raise HTTPException(404, "Esa señal ya no existe")
+    except armados.CambioLaSenal as e:
+        raise HTTPException(409, str(e))
+    except ValueError as e:
+        raise HTTPException(422, str(e))
+    corridas.marcar_aplicado(corrida_id, p.senal_id, u.usuario)
+    return {"mensaje": mensaje}
+
+
 @api.get("/admin/caja", dependencies=[Depends(auth.solo_admin)])
 def estado_de_la_caja():
     """La última autoprueba de la caja en este servidor: si el código de las señales puede correr y por qué."""

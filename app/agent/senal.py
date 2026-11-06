@@ -22,6 +22,8 @@ from app.engine.pipeline import aplicar, armar_salida, paso_final
 
 MAX_PASOS = 24
 TOPE_USD = 2.0
+# Con esto o más, y sin filas que falten, lo guardado alcanza y el agente termina; si no, sigue desde ahí.
+CONFORME = 98.0
 EFFORT = "medium"
 MAX_TOKENS = 16000
 FILAS_DE_MUESTRA = 8
@@ -108,6 +110,17 @@ def medir(receta: m.Senal, ejemplos: list[EjemploCrudo]) -> Medida:
     return medida
 
 
+def mejora(antes: Medida, despues: Medida, principal: str) -> bool:
+    """Más % en el ejemplo principal o, con el mismo %, menos filas que faltan."""
+    a, d = antes.de(principal), despues.de(principal)
+    return d > a or (d >= a and despues.cuantas_faltan(principal) < antes.cuantas_faltan(principal))
+
+
+def empeoran(antes: Medida, despues: Medida) -> list[str]:
+    """Los ejemplos que bajan más de medio punto."""
+    return [n for n, p in despues.porcentajes.items() if p < antes.de(n) - 0.5]
+
+
 def _faltan(salida: pd.DataFrame, esperado: pd.DataFrame, pares: list[tuple[int, int]]) -> list[int]:
     """Filas del ejemplo sin pareja en el EPG, de los días que el EPG cubre: el % no las ve, y son filas que faltan."""
     dias = {k[0] for k in controles.claves_de_horario(salida) if k}
@@ -167,8 +180,9 @@ HERRAMIENTAS = [
          "final_codigo": {"type": "string", "description": "Python con def ajustar(filas). Vacío = sin paso final."}},
          "additionalProperties": False}},
     {"name": "guardar",
-     "description": "Guarda lo último que probaste, si mejora el ejemplo principal sin empeorar los otros. Con esto "
-                    "terminás.",
+     "description": "Guarda lo último que probaste, si mejora lo guardado hasta ahora (o la receta de hoy) en el "
+                    "ejemplo principal sin empeorar los otros. Si llega al 98 % y no faltan filas, con esto terminás; "
+                    "si no, podés seguir probando y volver a guardar.",
      "input_schema": {"type": "object", "properties": {
          "explicacion": {"type": "string", "description": "Para una persona que no programa: qué cambiaste y qué queda."},
          "explicacion_codigo": {"type": "string",
@@ -191,6 +205,7 @@ class Estado:
         self.receta, self.ejemplos = receta, ejemplos
         self.principal = ejemplos[0].nombre
         self.inicial = medir(receta, ejemplos)
+        self.referencia = self.inicial  # lo último guardado: cada guardado nuevo tiene que mejorarlo
         self.probada: tuple[m.Senal, Medida] | None = None
         self.guardada: m.Senal | None = None
         self.explicacion = ""
@@ -326,12 +341,12 @@ class Estado:
         principal, antes, despues = self.principal, self.inicial.de(self.principal), medida.de(self.principal)
         if medida.error_lectura:
             return f"No se guarda: la lectura falla ({medida.error_lectura})."
-        menos_faltan = medida.cuantas_faltan(principal) < self.inicial.cuantas_faltan(principal)
-        if not (despues > antes or (despues >= antes and menos_faltan)):
-            return (f"No se guarda: el ejemplo {principal} da {despues:g} % y hoy da {antes:g} %, y le faltan "
-                    f"{medida.cuantas_faltan(principal)} filas (hoy {self.inicial.cuantas_faltan(principal)}). "
-                    "Tiene que mejorar.")
-        if peores := [n for n, p in medida.porcentajes.items() if p < self.inicial.de(n) - 0.5]:
+        if not mejora(self.referencia, medida, principal):
+            base = "hoy" if self.guardada is None else "con lo que ya guardaste"
+            return (f"No se guarda: el ejemplo {principal} da {despues:g} % y {base} da "
+                    f"{self.referencia.de(principal):g} %, y le faltan {medida.cuantas_faltan(principal)} filas "
+                    f"({base}, {self.referencia.cuantas_faltan(principal)}). Tiene que mejorar.")
+        if peores := empeoran(self.inicial, medida):
             return f"No se guarda: empeoran {', '.join(peores)}."
         lector_nuevo = receta.entrada.tipo == "codigo" and receta.entrada != self.receta.entrada
         final_nuevo = receta.final is not None and receta.final != self.receta.final
@@ -340,10 +355,11 @@ class Estado:
         if (lector_nuevo or final_nuevo) and not explicacion_codigo.strip():
             return "Falta explicacion_codigo: contá qué hace el código, en palabras simples, para quien no lo lee."
         resultado = f"El ejemplo {principal} pasó de {antes:g} % a {despues:g} %."
-        if menos_faltan:
+        if medida.cuantas_faltan(principal) < self.inicial.cuantas_faltan(principal):
             resultado += (f" Le faltaban {self.inicial.cuantas_faltan(principal)} filas y ahora "
                           f"{medida.cuantas_faltan(principal) or 'ninguna'}.")
         comprobado = {"explicacion": explicacion_codigo.strip(), "comprobado": True, "resultado": resultado}
+        self.codigo = []
         if lector_nuevo:
             lector = receta.entrada.lector.model_copy(update=comprobado)
             receta = receta.model_copy(update={"entrada": receta.entrada.model_copy(update={"lector": lector})})
@@ -352,7 +368,16 @@ class Estado:
             receta = receta.model_copy(update={"final": receta.final.model_copy(update=comprobado)})
             self.codigo.append("paso final")
         self.guardada, self.explicacion, self.resultado = receta, explicacion.strip(), resultado
-        return f"Guardado. {resultado}"
+        self.referencia = medida
+        if self.conforme():
+            return f"Guardado. {resultado}"
+        falta = (f"le faltan {medida.cuantas_faltan(principal)} filas" if medida.cuantas_faltan(principal)
+                 else f"da {despues:g} %")
+        return (f"Guardado. {resultado} Todavía {falta}: si ves cómo mejorarlo, seguí probando desde acá y "
+                "volvé a guardar; lo guardado no se pierde. Si no, terminá contestando sin herramientas.")
+
+    def conforme(self) -> bool:
+        return self.referencia.de(self.principal) >= CONFORME and self.referencia.cuantas_faltan(self.principal) == 0
 
 
 def _contexto(estado: Estado, pedido: str) -> str:
@@ -408,7 +433,7 @@ def trabajar(receta: m.Senal, ejemplos: list[EjemploCrudo], proveedor, pedido: s
             resultados.append({"type": "tool_result", "tool_use_id": b["id"], "content": estado.usar(b["name"], b.get("input") or {})})
             avisar(_que_hizo(b["name"], estado))
         mensajes += [{"role": "assistant", "content": r.bloques}, {"role": "user", "content": resultados}]
-        if estado.guardada is not None:
+        if estado.guardada is not None and estado.conforme():
             break
         if trabajo.costo > TOPE_USD:
             trabajo.final = f"Paré al llegar al tope de US$ {TOPE_USD:g} para esta señal."
@@ -418,7 +443,7 @@ def trabajar(receta: m.Senal, ejemplos: list[EjemploCrudo], proveedor, pedido: s
     if estado.guardada is not None:
         trabajo.receta, trabajo.explicacion, trabajo.codigo = estado.guardada, estado.explicacion, estado.codigo
         trabajo.resultado = estado.resultado
-        trabajo.despues = estado.probada[1].de(estado.principal)
+        trabajo.despues = estado.referencia.de(estado.principal)
     return trabajo
 
 
