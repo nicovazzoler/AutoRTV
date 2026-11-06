@@ -79,7 +79,7 @@ export function ConfigSenal({ receta, version, alGuardar, alCancelar }: Props) {
         <legend>Cómo se lee la grilla ({e.tipo})</legend>
         {e.tipo === "excel" && <>
           <label className="campo">Hoja (número o nombre)<input className="entrada" name="hoja" defaultValue={e.hoja ?? 0} style={{ width: 140 }} /></label>
-          <label className="campo">Fila del encabezado<input className="entrada" name="fila_encabezado" type="number" min={1} defaultValue={e.fila_encabezado ?? 1} style={{ width: 100 }} /></label>
+          <label className="campo">Fila del encabezado (0 = no tiene)<input className="entrada" name="fila_encabezado" type="number" min={0} defaultValue={e.fila_encabezado ?? 1} style={{ width: 100 }} /></label>
         </>}
         {e.tipo === "pdf" && <>
           <label className="campo">Páginas (vacío = todas)<input className="entrada" name="paginas" defaultValue={(e.paginas ?? []).join(", ")} placeholder="1, 2" style={{ width: 140 }} /></label>

@@ -711,7 +711,10 @@ async def _grilla_que_vino(una: UploadFile | None, varias: list[UploadFile], url
 
 
 def _aviso_sin_horario(agente: dict | None) -> str:
-    motivo = " ".join((agente or {}).get("problemas") or ["El agente no está configurado."])
+    if agente is None:
+        motivo = "El agente no la revisó."
+    else:
+        motivo = " ".join(agente.get("problemas") or []) or agente.get("explicacion") or "El agente no dijo por qué."
     return (f"No encontré la fecha y la hora en la grilla, y el agente tampoco: {motivo} Así no se puede emparejar "
             "con el ejemplo ni armar la semana. Pasame el archivo para sumar cómo se lee.")
 

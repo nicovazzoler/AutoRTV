@@ -34,7 +34,7 @@ SEPARADOR = "///"
 VERSION_HASH = "2"
 
 
-def _es_de_horario(v) -> bool:
+def es_de_horario(v) -> bool:
     if isinstance(v, str):
         return bool(TEXTO_DE_HORARIO.match(v) or AM_PM.match(v))
     return isinstance(v, (dt.date, dt.time, dt.timedelta, pd.Timestamp))
@@ -42,7 +42,7 @@ def _es_de_horario(v) -> bool:
 
 def _mayoria_de_horario(valores, parte: float) -> bool:
     valores = [v for v in valores if v is not None and not (isinstance(v, float) and pd.isna(v))]
-    return bool(valores) and sum(map(_es_de_horario, valores)) > len(valores) * parte
+    return bool(valores) and sum(map(es_de_horario, valores)) > len(valores) * parte
 
 
 def columnas_de_horario(tabla: pd.DataFrame) -> list[str]:
@@ -170,9 +170,14 @@ def columnas_por_tipo(df: pd.DataFrame) -> dict[str, str]:
 
 def tiene_horario(tabla: pd.DataFrame, v: m.Validaciones | None = None) -> bool:
     """Si la tabla trae columnas de fecha y de hora, por el nombre o por lo que tienen."""
+    from app.agent import controles
+
     nombradas = grilla.detectar_columnas(list(tabla.columns), v or m.Validaciones())
     cols = columnas_por_tipo(tabla) | {k: c for k, c in nombradas.items() if c}
-    return cols.get("fecha") in tabla.columns and cols.get("hora") in tabla.columns
+    if cols.get("fecha") in tabla.columns and cols.get("hora") in tabla.columns:
+        return True
+    # Horas escritas como texto ("06:00", "6:00 PM"): lo mismo que mira el control del agente, así no se contradicen.
+    return any(k is not None for k in controles.claves_de_horario(tabla))
 
 
 def desde_ejemplo(crudo: pd.DataFrame, esperado: pd.DataFrame, v: m.Validaciones | None = None

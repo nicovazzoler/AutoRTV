@@ -151,6 +151,22 @@ def test_sin_agente_el_aviso_lo_dice(cliente):
     assert "el agente tampoco" in r["aviso"] and "no está configurado" in r["aviso"]
 
 
+def test_el_aviso_dice_el_motivo_real_del_agente():
+    from app.api.rutas import _aviso_sin_horario
+    assert "El agente no la revisó." in _aviso_sin_horario(None)
+    assert "Leí bien la grilla." in _aviso_sin_horario({"problemas": [], "explicacion": "Leí bien la grilla."})
+    assert "El agente no dijo por qué." in _aviso_sin_horario({"problemas": []})
+    assert "no está configurado" not in _aviso_sin_horario({"problemas": ["Solo el 10 % tiene fecha y hora."]})
+
+
+def test_una_grilla_sin_nombres_de_columna_crea_la_senal_sin_aviso(cliente):
+    from tests.unit.test_excel_hojas import _sin_encabezado
+    grilla = _sin_encabezado(lambda h: f"{h:02d}:00")
+    r = cliente.post("/api/senales/crear", files={"grilla_cruda": ("g.xlsx", grilla)}, data={"nombre": "Canal"}).json()
+    assert r["aviso"] is None
+    assert cliente.get("/api/senales/canal").json()["entrada"]["fila_encabezado"] == 0
+
+
 def _libro_con_la_grilla_al_final() -> bytes:
     """8 hojas: 7 de notas y la grilla en la última, que la detección del código encuentra."""
     import io
