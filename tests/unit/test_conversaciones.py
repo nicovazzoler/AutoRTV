@@ -27,25 +27,16 @@ def test_cada_persona_tiene_sus_chats(cliente):
     assert cliente.get("/api/agente/conversaciones").json() == []
 
 
-def test_la_charla_sabe_con_quien_habla_recuerda_y_propone_acciones(cliente, monkeypatch):
-    proveedor = _con_asistente(monkeypatch, [{
-        "respuesta": "Dale, Nico.", "proponer_cambios": True, "recordar": "Lleva las señales de cine.",
-        "acciones": [{"tipo": "ir_a", "pantalla": "semana", "senal": "xt", "nombre": "", "descripcion": "Abrir XT"},
-                     {"tipo": "ir_a", "pantalla": "semana", "senal": "no-existe", "nombre": "", "descripcion": "x"},
-                     {"tipo": "nueva_senal", "pantalla": "", "senal": "", "nombre": "Canal XX", "descripcion": "Crear"}]}])
+def test_la_charla_sabe_con_quien_habla(cliente, monkeypatch):
+    proveedor = _con_asistente(monkeypatch, [{"respuesta": "Dale, Nico.", "proponer_cambios": True}])
     cliente.put("/api/senales/xt", json=RECETA)
     yo = next(u for u in cliente.get("/api/usuarios").json() if u["usuario"] == "admin")
     cliente.put(f"/api/usuarios/{yo['id']}/perfil", json={"nombre": "Nico", "descripcion": "Arma las señales nuevas."})
-    c = cliente.post("/api/asistente/charla", json={"pedido": "llevame a XT y creá Canal XX"}).json()
-    # la señal que no existe se descarta; ir y abrir Agregar señal las hace la web sola
-    assert [(a["descripcion"], a["nivel"]) for a in c["acciones"]] == [
-        ("Ir a semana de XT", "pagina"), ("Abrir Agregar señal con «Canal XX»", "pagina")]
+    c = cliente.post("/api/asistente/charla", json={"pedido": "¿qué hago con XT?"}).json()
+    assert c["respuesta"] == "Dale, Nico." and c["acciones"] == []
     assert c["proponer_cambios"] is False  # sin señal abierta no hay cambios que armar
     pedido = proveedor.pedidos[-1][0]["content"]
     assert "se llama Nico" in pedido and "xt: XT" in pedido
-    assert [n["texto"] for n in cliente.get("/api/agente/notas").json()] == ["Lleva las señales de cine."]
-    cliente.post("/api/asistente/charla", json={"pedido": "otra cosa"})
-    assert "Lleva las señales de cine." in proveedor.pedidos[-1][0]["content"]
 
 
 def test_un_usuario_comun_que_cambia_reglas_le_avisa_al_admin(cliente):

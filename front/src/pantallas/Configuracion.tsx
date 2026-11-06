@@ -3,7 +3,7 @@ import { esperarArmado, type Armado } from "../armado";
 import { api, ErrorApi, textoDeError } from "../api";
 import { frase, fraseCambio, fraseEntrada, fraseIdiomas } from "../frases";
 import { haceCuanto } from "../fechas";
-import { ConfigSenal, RecetaArchivo } from "../piezas/ConfigSenal";
+import { ConfigSenal } from "../piezas/ConfigSenal";
 import { EpgCrudo } from "../piezas/EpgCrudo";
 import { CodigoDelAgente, type Codigo } from "../piezas/CodigoDelAgente";
 import { ParesEjemplos } from "../piezas/ParesEjemplos";
@@ -348,13 +348,10 @@ export function Configuracion({ senalId }: { senalId: string }) {
                   <div><button type="button" className="boton chico" onClick={() => setEditando(true)}>Editar</button></div>
                   {seccion === "lectura" && receta.entrada.tipo === "html" && <EpgCrudo senalId={senalId} alGuardar={tocar} />}
                   {seccion === "columnas" && (
-                    <>
-                      <RecetaArchivo receta={receta} version={version} alGuardar={tocar} />
-                      <div className="botones" style={{ alignItems: "center" }}>
-                        <button type="button" className="boton chico" onClick={limpiarBase}>Limpiar la base</button>
-                        <span className="chico tenue">Saca columnas de horario que hayan quedado guardadas como contenido.</span>
-                      </div>
-                    </>
+                    <div className="botones" style={{ alignItems: "center" }}>
+                      <button type="button" className="boton chico" onClick={limpiarBase}>Limpiar la base</button>
+                      <span className="chico tenue">Saca columnas de horario que hayan quedado guardadas como contenido.</span>
+                    </div>
                   )}
                 </div>
               )}

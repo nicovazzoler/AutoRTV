@@ -108,18 +108,11 @@ def test_pdf_grilla_semanal_con_celdas_unidas():
                      (27, "06:00", "06:30", "Cocina"), (27, "06:30", "07:00", "Deportes"), (27, "07:00", None, "Cine")]
 
 
-def test_subir_grilla_dice_el_formato_y_texto_pegado(cliente):
+def test_subir_grilla_dice_el_formato(cliente):
     r = cliente.post("/api/tablas", files={"archivo": ("g.xml", XMLTV)}).json()
     assert r["entrada"] == {"tipo": "xml", "elemento": None, "partir": None}
     receta = {"id": "x", "nombre": "x", "entrada": r["entrada"], "tarjetas": [], "salida": {"columnas": []}}
     assert cliente.post("/api/preview", json={"tabla_id": r["tabla_id"], "senal": receta}).json()["total_filas"] == 2
-
-    pegado = cliente.post("/api/tablas/texto", json={"texto": "Lunes\n06:00 Noticiero\n07:00 Cine",
-                                                     "fecha_inicio": "2026-11-02"}).json()
-    receta["entrada"] = pegado["entrada"]
-    preview = cliente.post("/api/preview", json={"tabla_id": pegado["tabla_id"], "senal": receta}).json()
-    assert preview["total_filas"] == 2 and preview["filas"][0][:2] == ["02/11/2026", "06:00"]
-    assert cliente.post("/api/tablas/texto", json={"texto": "  "}).status_code == 422
 
 
 def test_partir_celdas_con_varios_programas():

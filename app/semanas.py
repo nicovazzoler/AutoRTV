@@ -40,7 +40,7 @@ def borrar(senal_id: str) -> None:
         con.execute(update(db.semanas).where(db.semanas.c.senal_id == senal_id).values(
             tabla_id=fila.anterior_tabla_id, contenido=fila.anterior_contenido, nombre=fila.anterior_nombre,
             version=max(1, (fila.version or 1) - 1), anterior_tabla_id=None, anterior_contenido=None,
-            anterior_nombre=None, confirmada=None, confirmada_por=None, resumen=None, foto=None))
+            anterior_nombre=None, confirmada=None, confirmada_por=None, resumen=None))
     tablas.asegurar(fila.anterior_tabla_id, bytes(fila.anterior_contenido))
 
 
@@ -189,16 +189,9 @@ def todas() -> dict[str, dict]:
         return {f.senal_id: _meta(f) for f in con.execute(select(*columnas))}
 
 
-def guardar_resumen(senal_id: str, resumen: dict, foto: list[list] | None = None) -> None:
-    valores = {"resumen": resumen} | ({"foto": foto} if foto is not None else {})
+def guardar_resumen(senal_id: str, resumen: dict) -> None:
     with db.transaccion() as con:
-        con.execute(update(db.semanas).where(db.semanas.c.senal_id == senal_id).values(**valores))
-
-
-def fotos() -> dict[str, list[list] | None]:
-    """La foto de cada semana abierta; None si la semana todavía no se armó desde que existen las fotos."""
-    with db.transaccion() as con:
-        return dict(con.execute(select(db.semanas.c.senal_id, db.semanas.c.foto)).all())
+        con.execute(update(db.semanas).where(db.semanas.c.senal_id == senal_id).values(resumen=resumen))
 
 
 def confirmar(senal_id: str, usuario: str) -> None:

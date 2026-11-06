@@ -92,9 +92,7 @@ def _correr(senal_id: str, usuario: str, pedido: str = "") -> None:
         # Primero lo barato: Haiku con las tarjetas. Si alguien pidió algo puntual, va directo al agente de la señal.
         if ejemplos and not pedido:
             cat = catalogo.leer()
-            entorno = asistente.Entorno(reglas_catalogo=[f"{c.nombre}: {c.regla or c.tipo}" for c in cat])
-            r = armado.armar(receta, ejemplos, ejemplos[0].nombre, proveedor, [c.nombre for c in cat], entorno,
-                             escalera=False)
+            r = armado.armar(receta, ejemplos, ejemplos[0].nombre, proveedor, [c.nombre for c in cat], escalera=False)
             for p in r.pedidos:
                 uso.registrar(usuario, senal_id, "[armar reglas]", p.vueltas, p.tokens_entrada, p.tokens_salida,
                               p.logrado, p.modelo)

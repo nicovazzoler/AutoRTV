@@ -21,25 +21,8 @@ FORMATO = {
         "tarjetas_json": {"type": "string"},
         "columnas_salida": {"anyOf": [{"type": "array", "items": {"type": "string"}}, {"type": "null"}]},
         "correcciones_base_json": {"type": "string"},
-        "acciones_admin_json": {"type": "string"},
     },
-    "required": ["explicacion", "tarjetas_json", "columnas_salida", "correcciones_base_json", "acciones_admin_json"],
-    "additionalProperties": False,
-}
-
-_ACCION = {
-    "type": "object",
-    "properties": {"tipo": {"type": "string", "enum": ["ir_a", "nueva_senal", "armar_reglas"]},
-                   "pantalla": {"type": "string"}, "senal": {"type": "string"}, "nombre": {"type": "string"},
-                   "descripcion": {"type": "string"}},
-    "required": ["tipo", "pantalla", "senal", "nombre", "descripcion"],
-    "additionalProperties": False,
-}
-FORMATO_CHARLA = {
-    "type": "object",
-    "properties": {"respuesta": {"type": "string"}, "proponer_cambios": {"type": "boolean"},
-                   "acciones": {"type": "array", "items": _ACCION}, "recordar": {"type": "string"}},
-    "required": ["respuesta", "proponer_cambios", "acciones", "recordar"],
+    "required": ["explicacion", "tarjetas_json", "columnas_salida", "correcciones_base_json"],
     "additionalProperties": False,
 }
 
@@ -63,8 +46,6 @@ class ErrorAgente(Exception):
 
 class Proveedor(Protocol):
     def pedir(self, sistema: str, mensajes: list[dict], effort: str, fuerte: bool = False) -> Respuesta: ...
-
-    def charlar(self, sistema: str, mensajes: list[dict]) -> Respuesta: ...
 
     def pedir_json(self, sistema: str, mensajes: list[dict], formato: dict, modelo: str, effort: str) -> Respuesta: ...
 
@@ -147,21 +128,6 @@ class Claude:
         # El bloque `fallback` (otro modelo siguió por un rechazo) es una marca para auditar: no se reenvía.
         return Respuesta(texto, tokens_entrada=uso[0], tokens_salida=uso[1], modelo=r.model,
                          bloques=[_bloque(b) for b in r.content if b.type != "fallback"], parar=r.stop_reason or "")
-
-    def charlar(self, sistema: str, mensajes: list[dict]) -> Respuesta:
-        import anthropic
-
-        try:
-            r = self._cliente.messages.create(
-                model=MODELO_RAPIDO,
-                max_tokens=4000,
-                system=sistema,
-                messages=mensajes,
-                output_config={"effort": "low", "format": {"type": "json_schema", "schema": FORMATO_CHARLA}},
-            )
-        except anthropic.APIError as e:
-            raise ErrorAgente(explicar(e, MODELO_RAPIDO)) from e
-        return _leer(r)
 
 
 def _con_cache(mensajes: list[dict]) -> list[dict]:
@@ -255,7 +221,7 @@ class Grabado:
 
     def con_herramientas(self, sistema: str, mensajes: list[dict], herramientas: list[dict], modelo: str | None = None,
                          effort: str = "low", max_tokens: int = 4000) -> Respuesta:
-        """Una charla grabada como las de antes ({respuesta, acciones, proponer_cambios, recordar}) se pasa a herramientas:
+        """Una charla grabada como las de antes ({respuesta, acciones, proponer_cambios}) se pasa a herramientas:
         primero pide las que correspondan y, con sus resultados, contesta el texto."""
         ultimo = mensajes[-1]["content"]
         if isinstance(ultimo, list) and any(b.get("type") == "tool_result" for b in ultimo):
@@ -270,8 +236,6 @@ class Grabado:
                     for a in datos.get("acciones") or []]
             if datos.get("proponer_cambios", not datos):
                 usos.append(("proponer_reglas", {"pedido": ""}))
-            if datos.get("recordar"):
-                usos.append(("recordar", {"texto": datos["recordar"]}))
         self._texto_pendiente = str(datos.get("respuesta", ""))
         if not usos:
             return Respuesta(self._texto_pendiente, bloques=[{"type": "text", "text": self._texto_pendiente}], parar="end_turn")

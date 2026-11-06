@@ -1,7 +1,6 @@
-"""Las herramientas del agente del chat, en tres niveles.
+"""Las herramientas del agente del chat, en dos niveles.
 
 - ver: el servidor las corre al momento y le devuelve el resultado (cualquier señal, lo que la persona puede ver);
-- página: la web las hace sola (ir a una pantalla, abrir Agregar señal); no cambian datos;
 - cambio: quedan como tarjeta con «Hacerlo» para la persona; el agente nunca cambia nada solo.
 """
 import copy
@@ -14,7 +13,6 @@ from app import almacen, historial, pautas, semanas
 MAX_RESULTADO = 6000
 _log = logging.getLogger("autortv")
 MAX_FILAS = 20
-PANTALLAS = ["inicio", "semana", "base", "configuracion", "administrar"]
 
 
 def _tool(nombre: str, descripcion: str, propiedades: dict, requeridas: list[str]) -> dict:
@@ -38,11 +36,6 @@ VER = [
     _tool("ver_historial", "Las últimas cargas de semanas con lo que se cambió (corregidas, aceptadas, reglas).",
           {"senal": {"type": "string", "description": "id de la señal; vacío = todas"}}, []),
 ]
-PAGINA = [
-    _tool("ir_a", "Llevar a la persona a una pantalla. Para semana, base y configuracion hace falta la señal.",
-          {"pantalla": {"type": "string", "enum": PANTALLAS}, "senal": {"type": "string"}}, ["pantalla"]),
-    _tool("nueva_senal", "Abrir Agregar señal con el nombre ya escrito.", {"nombre": {"type": "string"}}, ["nombre"]),
-]
 CAMBIO = [
     _tool("armar_reglas", "Que el agente de la señal la deje igual a sus ejemplos: prueba lecturas, reglas y, si no "
                           "alcanzan, código (por ejemplo para agregar o sacar filas). Corre en segundo plano.",
@@ -61,11 +54,9 @@ OTRAS = [
                              "para una señal. Él la prueba y la persona la aplica.",
           {"senal": {"type": "string", "description": "vacío = la señal activa"},
            "pedido": {"type": "string", "description": "qué cambiar, en las palabras de la persona"}}, ["pedido"]),
-    _tool("recordar", "Guardar algo de la persona para las próximas charlas (cómo trabaja, qué señales lleva).",
-          {"texto": {"type": "string"}}, ["texto"]),
 ]
-DEFINICIONES = VER + PAGINA + CAMBIO + OTRAS
-NIVEL = {t["name"]: n for n, lista in (("ver", VER), ("pagina", PAGINA), ("cambio", CAMBIO), ("otra", OTRAS))
+DEFINICIONES = VER + CAMBIO + OTRAS
+NIVEL = {t["name"]: n for n, lista in (("ver", VER), ("cambio", CAMBIO), ("otra", OTRAS))
          for t in lista}
 
 
@@ -104,14 +95,13 @@ def _corto(v, largo: int = 80):
 
 @dataclass
 class Estado:
-    """Lo que juntó una charla: lo que la web hace sola, lo que espera «Hacerlo» y lo que se propone."""
+    """Lo que juntó una charla: lo que espera «Hacerlo» y lo que se propone."""
     usuario: str
     admin: bool
     activa: str | None
     senales: dict[str, str]  # id → nombre
     acciones: list[dict] = field(default_factory=list)
     propuestas: list[dict] = field(default_factory=list)
-    recordar: str = ""
 
     def usar(self, nombre: str, datos: dict) -> str:
         """Corre o anota una herramienta y devuelve el texto que vuelve al agente."""
@@ -133,10 +123,9 @@ class Estado:
                 _log.exception("herramienta %s falló con %s", nombre, datos)
             return f"No se pudo: {getattr(e, 'detail', None) or e}"
 
-    def _accion(self, nivel: str, tipo: str, senal: str, descripcion: str, **extra) -> None:
-        self.acciones.append({"nivel": nivel, "tipo": tipo, "senal": senal, "nombre_senal": self.senales.get(senal, ""),
-                              "otra_senal": bool(senal) and senal != self.activa, "descripcion": descripcion,
-                              "pantalla": "", "nombre": "", **extra})
+    def _accion(self, tipo: str, senal: str, descripcion: str, **extra) -> None:
+        self.acciones.append({"tipo": tipo, "senal": senal, "nombre_senal": self.senales.get(senal, ""),
+                              "otra_senal": bool(senal) and senal != self.activa, "descripcion": descripcion, **extra})
 
     # --- ver ---
 
@@ -181,30 +170,13 @@ class Estado:
         cargas = historial.cargas(None if self.admin else self.usuario)
         return [c for c in cargas if not senal or c["senal_id"] == senal][:MAX_FILAS]
 
-    # --- página ---
-
-    def _ir_a(self, pantalla: str, senal: str = "") -> str:
-        if pantalla not in PANTALLAS:
-            return f"Las pantallas son {', '.join(PANTALLAS)}."
-        if pantalla in ("semana", "base", "configuracion") and not senal:
-            return "Para esa pantalla decime la señal."
-        if pantalla == "administrar" and not self.admin:
-            return "Administrar es solo para admin."
-        destino = f"{pantalla} de {self.senales[senal]}" if senal else pantalla
-        self._accion("pagina", "ir_a", senal, f"Ir a {destino}", pantalla=pantalla)
-        return "Listo: la web la abre sola."
-
-    def _nueva_senal(self, nombre: str) -> str:
-        self._accion("pagina", "nueva_senal", "", f"Abrir Agregar señal con «{nombre}»", nombre=nombre)
-        return "Listo: la web abre Agregar señal con ese nombre."
-
     # --- cambio ---
 
     def _armar_reglas(self, senal: str, pedido: str = "") -> str:
         if not almacen.listar_ejemplos(senal):
             return "Esa señal no tiene ejemplos: sin ejemplo no se pueden armar las reglas solas."
         que = f": {pedido.strip()}" if pedido.strip() else " desde sus ejemplos"
-        self._accion("cambio", "armar_reglas", senal, f"Que el agente trabaje en {self.senales[senal]}{que}",
+        self._accion("armar_reglas", senal, f"Que el agente trabaje en {self.senales[senal]}{que}",
                      pedido=pedido.strip())
         return "Quedó como propuesta: la persona lo confirma con «Hacerlo»."
 
@@ -227,7 +199,7 @@ class Estado:
             return "Ninguna pauta cumple ese filtro: probá buscar_pautas para ver cómo están escritas."
         cuantas = "1 pauta" if len(hashes) == 1 else f"{len(hashes)} pautas"
         condicion = ", ".join(f"{k} = {v}" for k, v in filtro.items())
-        self._accion("cambio", "corregir_pautas", senal,
+        self._accion("corregir_pautas", senal,
                      f"En {self.senales[senal]}, en {'' if len(hashes) == 1 else 'las '}{cuantas} con {condicion}, "
                      f"poner {columna} = {valor or '(vacío)'}",
                      filtro=filtro, hashes=hashes, columna=columna, valor=valor or None, pautas=len(hashes))
@@ -236,7 +208,7 @@ class Estado:
     def _confirmar_semana(self, senal: str) -> str:
         if semanas.leer(senal) is None:
             return "Esa señal no tiene semana abierta."
-        self._accion("cambio", "confirmar_semana", senal, f"Confirmar la semana de {self.senales[senal]}")
+        self._accion("confirmar_semana", senal, f"Confirmar la semana de {self.senales[senal]}")
         return "Quedó como propuesta: la persona lo confirma con «Hacerlo»."
 
     # --- otras ---
@@ -248,7 +220,3 @@ class Estado:
         self.propuestas.append({"senal": senal, "nombre_senal": self.senales.get(senal, ""), "pedido": pedido,
                                 "otra_senal": senal != self.activa})
         return "El agente de reglas arma la propuesta y la prueba; la persona la ve con «Aplicar»."
-
-    def _recordar(self, texto: str) -> str:
-        self.recordar = texto
-        return "Anotado."

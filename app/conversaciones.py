@@ -1,4 +1,4 @@
-"""Los chats de cada persona con el agente y lo que el agente decidió recordar de ella."""
+"""Los chats de cada persona con el agente y los avisos al admin."""
 import datetime as dt
 
 from sqlalchemy import delete, desc, insert, select, update
@@ -6,9 +6,6 @@ from sqlalchemy import delete, desc, insert, select, update
 from app import db
 
 MAX_TITULO = 80
-MAX_NOTAS = 30
-# Lo que se manda al agente de un chat largo: los últimos mensajes; el resto ya quedó resumido en las notas.
-MAX_MENSAJES_AL_AGENTE = 30
 
 
 def _ahora() -> dt.datetime:
@@ -59,31 +56,6 @@ def borrar(usuario: str, conversacion_id: int) -> None:
             return
         con.execute(delete(db.mensajes).where(db.mensajes.c.conversacion_id == conversacion_id))
         con.execute(delete(db.conversaciones).where(db.conversaciones.c.id == conversacion_id))
-
-
-def notas(usuario: str) -> list[dict]:
-    with db.transaccion() as con:
-        filas = con.execute(select(db.notas_agente).where(db.notas_agente.c.usuario == usuario)
-                            .order_by(db.notas_agente.c.id)).all()
-    return [{"id": f.id, "texto": f.texto, "fecha": f.fecha.isoformat()} for f in filas]
-
-
-def anotar(usuario: str, texto: str) -> None:
-    """Guarda algo para recordar de la persona; si ya hay muchas notas, se va la más vieja."""
-    texto = " ".join(texto.split())[:300]
-    if not texto:
-        return
-    with db.transaccion() as con:
-        ids = [f.id for f in con.execute(select(db.notas_agente.c.id).where(db.notas_agente.c.usuario == usuario)
-                                         .order_by(db.notas_agente.c.id)).all()]
-        if len(ids) >= MAX_NOTAS:
-            con.execute(delete(db.notas_agente).where(db.notas_agente.c.id.in_(ids[:len(ids) - MAX_NOTAS + 1])))
-        con.execute(insert(db.notas_agente).values(usuario=usuario, texto=texto, fecha=_ahora()))
-
-
-def olvidar_nota(usuario: str, nota_id: int) -> None:
-    with db.transaccion() as con:
-        con.execute(delete(db.notas_agente).where(db.notas_agente.c.id == nota_id, db.notas_agente.c.usuario == usuario))
 
 
 # --- Avisos al admin ---

@@ -39,8 +39,7 @@ type Reglas =
 /** Alta de una señal con la grilla como vino y la macro hecha. Se abre como panel al costado del Inicio. */
 export function Nueva({ enPanel = false, alCerrar }: { enPanel?: boolean; alCerrar?: () => void }) {
   const { refrescarSenales } = useSesion();
-  // El agente abre "Agregar señal" con el nombre ya escrito (/nueva?nombre=…).
-  const [nombre, setNombre] = useState(() => new URLSearchParams(location.search).get("nombre") ?? "");
+  const [nombre, setNombre] = useState("");
   const [forma, setForma] = useState<"archivo" | "pegar" | "link">("archivo");
   const [crudas, setCrudas] = useState<File[]>([]);
   const [link, setLink] = useState("");

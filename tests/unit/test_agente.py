@@ -8,34 +8,18 @@ from app.agent.cliente import Grabado
 from app.engine import model as m
 from app.main import app
 from tests.unit.test_api import _con_asistente
-from tests.unit.test_semana import SEPARAR, _semana
+from tests.unit.test_semana import SEPARAR, _confirmar, _semana
 
 TABLA = pd.DataFrame({"Titulo": ["joseph prince", "praise"]})
 RECETA = m.Senal(id="x", nombre="x", entrada={"tipo": "excel"}, salida={"columnas": []}, tarjetas=[])
 SIN_REGLAS = {"explicacion": "ok", "tarjetas_json": "", "columnas_salida": None,
-              "correcciones_base_json": "[]", "acciones_admin_json": "[]"}
-CREAR_ANA = json.dumps([{"tipo": "crear_usuario", "usuario": "ana"}])
+              "correcciones_base_json": "[]"}
 
 
 def test_sin_tarjetas_no_cambia_las_reglas_y_trae_correcciones():
     correccion = [{"filtro": {"Programa": "Praise"}, "columna": "Genero", "valor": "Música"}]
     p = pedir(RECETA, TABLA, "género", Grabado([{**SIN_REGLAS, "correcciones_base_json": json.dumps(correccion)}]))
     assert p.logrado and p.cambios == [] and p.correcciones_base == correccion
-
-
-def test_acciones_de_admin_solo_para_admin():
-    respuesta = {**SIN_REGLAS, "acciones_admin_json": CREAR_ANA}
-    comun = pedir(RECETA, TABLA, "creá a ana", Grabado([respuesta, SIN_REGLAS]))
-    assert comun.logrado and comun.acciones_admin == [] and comun.vueltas == 2
-    admin = pedir(RECETA, TABLA, "creá a ana", Grabado([respuesta]), entorno=Entorno(es_admin=True))
-    assert admin.acciones_admin == [{"tipo": "crear_usuario", "usuario": "ana", "admin": False}]
-
-
-def test_accion_invalida_vuelve_con_el_error():
-    mala = {**SIN_REGLAS, "acciones_admin_json": json.dumps([{"tipo": "borrar_todo"}])}
-    proveedor = Grabado([mala, SIN_REGLAS])
-    p = pedir(RECETA, TABLA, "x", proveedor, entorno=Entorno(es_admin=True))
-    assert p.logrado and "acciones_admin_json no cumple el formato" in proveedor.pedidos[1][-1]["content"]
 
 
 def test_el_agente_ve_primero_las_filas_para_revisar():
@@ -45,14 +29,13 @@ def test_el_agente_ve_primero_las_filas_para_revisar():
     contexto = proveedor.pedidos[0][0]["content"]
     assert "fila 31: " in contexto and "fila 36: " in contexto and "fila 20: " not in contexto
     assert "las que hay que revisar esta semana son: 31, 36" in contexto
-    assert "No es admin" in contexto
 
 
 def _receta(cliente):
     receta = {"id": "canal", "nombre": "Canal", "entrada": {"tipo": "excel"}, "tarjetas": [SEPARAR],
               "salida": {"columnas": []}}
     cliente.put("/api/senales/canal", json=receta)
-    cliente.post("/api/senales/canal/semana/confirmar", json=_semana(cliente, ["Memory Lane - Outkast"]))
+    _confirmar(cliente, ["Memory Lane - Outkast"])
 
 
 def test_propuesta_trae_efecto_y_pautas_afectadas(cliente, monkeypatch):
@@ -71,12 +54,9 @@ def test_propuesta_trae_efecto_y_pautas_afectadas(cliente, monkeypatch):
     assert r["correcciones_base"][0]["descripcion"] == "En las pautas con Programa = memory lane, poner Genero = Música"
 
 
-def test_acciones_admin_por_api(cliente, monkeypatch):
-    _con_asistente(monkeypatch, [{**SIN_REGLAS, "acciones_admin_json": CREAR_ANA}])
-    r = cliente.post("/api/asistente", json={"senal": RECETA.model_dump(), "pedido": "creá el usuario ana"}).json()
-    assert r["acciones_admin"][0]["descripcion"] == "Crear el usuario ana"
-
-    hecho = cliente.post("/api/admin/acciones", json={"acciones": r["acciones_admin"] + [
+def test_acciones_de_admin_desde_administrar(cliente):
+    hecho = cliente.post("/api/admin/acciones", json={"acciones": [
+        {"tipo": "crear_usuario", "usuario": "ana"},
         {"tipo": "cambiar_limite_diario", "valor": 7},
         {"tipo": "cambiar_regla_catalogo", "columna": "NoExiste", "regla": "X"}]}).json()
     assert [x["ok"] for x in hecho] == [True, True, False]

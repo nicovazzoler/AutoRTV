@@ -1,17 +1,15 @@
 import datetime as dt
 import difflib
 import io
-import json
 import os
 import re
 import unicodedata
 from dataclasses import asdict, dataclass
-from pathlib import Path
 from typing import Literal
 
 import pandas as pd
 from fastapi import APIRouter, Cookie, Depends, Header, File, Form, HTTPException, Query, Response, UploadFile
-from pydantic import BaseModel, TypeAdapter, ValidationError
+from pydantic import BaseModel, ValidationError
 
 from app import (acciones, almacen, armados, arreglos, auth, catalogo, confianza, conversaciones, corridas, export, fechar,
                  historial, inputs, parecidas, pautas, semana, semanas, tablas, web)
@@ -20,9 +18,8 @@ from app.agent import banco, cliente, controles, lectura, uso
 from app.agent import parecidas as parecidas_ia
 from app.caja import autoprueba
 from app.engine import model as m
-from app.engine import titulos
 from app.engine.comparar import diferencias, porcentaje_igual, sugerir_correcciones
-from app.engine.pipeline import DE_ESTRUCTURA, aplicar, armar_salida, correr, paso_final
+from app.engine.pipeline import aplicar, armar_salida, correr, paso_final
 from app.engine.tarjetas.estructura import a_fecha, a_hora
 from app.inputs import epg as epg_crudo
 from app.inputs import excel as inputs_excel
@@ -125,21 +122,6 @@ def crear_usuario(datos: NuevoUsuario):
     return {"ok": True}
 
 
-class ClaveNueva(BaseModel):
-    nueva: str
-
-
-@api.post("/usuarios/{usuario_id}/clave", dependencies=[Depends(auth.solo_admin)])
-def resetear_clave(usuario_id: int, datos: ClaveNueva):
-    try:
-        auth.resetear_clave(usuario_id, datos.nueva)
-    except LookupError:
-        raise HTTPException(404, "No existe ese usuario")
-    except ValueError as e:
-        raise HTTPException(422, str(e))
-    return {"ok": True}
-
-
 @api.delete("/usuarios/{usuario_id}")
 def borrar_usuario(usuario_id: int, yo: auth.Usuario = Depends(auth.solo_admin)):
     if usuario_id == yo.id:
@@ -220,24 +202,7 @@ def _avisar_del_agente(u: auth.Usuario, senal_id: str, detalle: str) -> None:
         conversaciones.avisar(u.usuario, senal_id, "agente", detalle)
 
 
-@api.get("/agente/notas")
-def mis_notas(u: auth.Usuario = Depends(auth.usuario_actual)):
-    return conversaciones.notas(u.usuario)
-
-
-@api.delete("/agente/notas/{nota_id}")
-def olvidar_nota(nota_id: int, u: auth.Usuario = Depends(auth.usuario_actual)):
-    conversaciones.olvidar_nota(u.usuario, nota_id)
-    return {"ok": True}
-
-
 # --- Tarjetas y señales ---
-
-@api.get("/tipos-tarjeta")
-def tipos_tarjeta():
-    """JSON Schema de las tarjetas: la web arma los formularios a partir de esto."""
-    return {"schema": TypeAdapter(m.Tarjeta).json_schema(), "sin_condicion": sorted(DE_ESTRUCTURA)}
-
 
 @api.get("/senales")
 def senales():
@@ -365,42 +330,6 @@ def restaurar_version(senal_id: str, version_id: int, response: Response,
     return receta.model_dump(exclude_none=True)
 
 
-@api.post("/senales/validar", dependencies=[Depends(auth.solo_admin)])
-def validar_receta(receta: dict):
-    """Valida una receta importada; devuelve los errores en castellano en vez de un 422 crudo."""
-    try:
-        return {"ok": True, "receta": m.Senal.model_validate(receta).model_dump(exclude_none=True)}
-    except ValidationError as e:
-        errores = [f"{'.'.join(map(str, x['loc']))}: {x['msg']}" for x in e.errors()[:10]]
-        return {"ok": False, "errores": errores}
-
-
-@api.post("/senales/{senal_id}/titulos/aprender")
-async def aprender_titulos(senal_id: str, columna: str = Form(""), usar_ejemplos: bool = Form(False),
-                           conocidos: str = Form("[]"), archivos: list[UploadFile] = File(default=[])):
-    """Cuenta los títulos de EPG terminados. No guarda: la web los agrega a la receta."""
-    tablas = []
-    try:
-        if usar_ejemplos:
-            for nombre in almacen.listar_ejemplos(senal_id):
-                _, esperado = almacen.leer_ejemplo(senal_id, nombre)
-                tablas.append(pd.read_excel(io.BytesIO(esperado), dtype=object))
-        for archivo in archivos:
-            tablas.append(pd.read_excel(io.BytesIO(await _leer_archivo(archivo)), dtype=object))
-    except ValueError as e:
-        raise HTTPException(422, str(e))
-    if not tablas:
-        raise HTTPException(422, "No hay de dónde aprender: subí archivos o agregá ejemplos a la señal")
-    conteo, usada = titulos.aprender(tablas, columna.strip() or None)
-    if usada is None:
-        raise HTTPException(422, "No encontré la columna de programa: escribila a mano")
-    ya = set(json.loads(conocidos))
-    return {
-        "columna_usada": usada,
-        "titulos": [{"titulo": t, "apariciones": n, "nuevo": t not in ya} for t, n in conteo.most_common()],
-    }
-
-
 # --- Tablas, vista previa y export ---
 
 async def _leer_archivo(archivo: UploadFile) -> bytes:
@@ -416,23 +345,6 @@ async def subir_tabla(archivo: UploadFile = File(...)):
     contenido = await _leer_archivo(archivo)
     return {"tabla_id": tablas.subir(contenido), "nombre": archivo.filename,
             "entrada": inputs.detectar(contenido).model_dump()}
-
-
-class TextoPegado(BaseModel):
-    texto: str
-    fecha_inicio: str | None = None
-
-
-@api.post("/tablas/texto")
-def subir_texto(datos: TextoPegado):
-    """Texto pegado de un mail o una web: se guarda como si fuera un .txt."""
-    if not datos.texto.strip():
-        raise HTTPException(422, "El texto está vacío")
-    contenido = datos.texto.encode("utf-8")
-    if len(contenido) > MAX_ARCHIVO:
-        raise HTTPException(413, "El texto pasa los 20 MB")
-    entrada = m.EntradaTexto(tipo="texto", fecha_inicio=datos.fecha_inicio)
-    return {"tabla_id": tablas.subir(contenido), "nombre": "texto pegado", "entrada": entrada.model_dump()}
 
 
 class Pedido(BaseModel):
@@ -545,14 +457,6 @@ def preview(p: Pedido):
     }
 
 
-@api.post("/semana")
-def ver_semana(p: Pedido):
-    """La semana subida armada para revisar: cómo se leyó, cuántas filas hay en cada grupo y las pautas a mirar."""
-    armado = _armar_semana(_correr(p), p.senal)
-    armado.pop("_foto")
-    return armado
-
-
 def _armar_semana(c: Corrida, receta: m.Senal) -> dict:
     avisos = _validar(c, receta)
     grupos = _clasificar(c, receta, avisos)
@@ -567,7 +471,6 @@ def _armar_semana(c: Corrida, receta: m.Senal) -> dict:
     nuevas = [detalle(g) for g in semana.agrupar(grupos, c.hashes, "nueva_lista")]
     cuenta = {k: sum(g["grupo"] == k for g in grupos) for k in ("base", "nueva_lista", "revisar")}
     return {
-        "_foto": semana.foto(c.salida, grupos, receta.validaciones, c.programa),
         "lectura": {"filas": len(c.crudo), "columnas": [str(x) for x in c.crudo.columns],
                     "hojas": c.crudo.attrs.get("hojas", 1)},
         "resumen": {"filas": len(c.salida), **cuenta, "pautas_revisar": len(revisar)},
@@ -1046,18 +949,6 @@ def olvidar_pauta(senal_id: str, h: str):
     return {"ok": True}
 
 
-class EdicionCelda(Pedido):
-    fila: int  # índice en la salida completa
-    columna: str
-    valor: str | None
-
-
-@api.post("/senales/{senal_id}/pautas/editar-celda")
-def editar_celda(senal_id: str, p: EdicionCelda, u: auth.Usuario = Depends(auth.usuario_actual)):
-    """Edita una celda de la vista previa: la pauta de esa fila queda en la base como editada."""
-    return {"ok": True, "hash": _editar_celda(senal_id, _correr(p), p.senal, p.fila, p.columna, p.valor, u.usuario)}
-
-
 def _editar_celda(senal_id: str, c: Corrida, receta: m.Senal, fila: int, columna: str, valor: str | None,
                   usuario: str) -> str:
     contenido = pautas.columnas_de_contenido(c.salida, receta.validaciones)
@@ -1107,27 +998,6 @@ def _guardar_nuevas(senal_id: str, p: Pedido, usuario: str, solo: set[str] | Non
         historial.anotar(senal_id, usuario, tipo, [{"pauta": h, "programa": x["salida"].get(c.programa)}
                                                    for h, x in nuevas.items()])
     return guardadas
-
-
-@api.post("/senales/{senal_id}/pautas/revisar")
-def revisar_pautas(senal_id: str, p: Pedido, u: auth.Usuario = Depends(auth.usuario_actual)):
-    return {"revisadas": _guardar_nuevas(senal_id, p, u.usuario)}
-
-
-@api.post("/senales/{senal_id}/semana/confirmar")
-def confirmar_semana(senal_id: str, p: Pedido, u: auth.Usuario = Depends(auth.usuario_actual)):
-    """Las nuevas listas y las ya revisadas entran a la base: la semana que viene salen de ahí."""
-    return {"guardadas": _guardar_nuevas(senal_id, p, u.usuario)}
-
-
-class Aceptar(Pedido):
-    hashes: list[str]
-
-
-@api.post("/senales/{senal_id}/pautas/aceptar")
-def aceptar_pautas(senal_id: str, p: Aceptar, u: auth.Usuario = Depends(auth.usuario_actual)):
-    """"Está bien así" sobre pautas para revisar: entran a la base como están."""
-    return {"aceptadas": _guardar_nuevas(senal_id, p, u.usuario, set(p.hashes))}
 
 
 # --- Semana abierta de cada señal ---
@@ -1247,7 +1117,7 @@ def _semana_abierta(senal_id: str, receta: m.Senal) -> dict:
     armado["cambios"] = _cambios(senal_id, receta, c)
     if armado["cambios"] is not None:
         armado["resumen"]["cambios"] = len(armado["cambios"])
-    semanas.guardar_resumen(senal_id, armado["resumen"], armado.pop("_foto"))
+    semanas.guardar_resumen(senal_id, armado["resumen"])
     return {"semana": {**meta, "resumen": armado["resumen"]}, **armado}
 
 
@@ -1340,52 +1210,6 @@ def guardar_epg_crudo(senal_id: str, datos: MapaEpg, u: auth.Usuario = Depends(a
     return {"pautas": base, "reglas_con_error": errores, "aviso": aviso}
 
 
-POR_PAGINA_TODAS = 300
-# Cuántas semanas sin foto se arman por pedido: cada una corre las reglas, y así ninguno tarda demasiado.
-FOTOS_POR_PEDIDO = 20
-
-
-@api.get("/todas")
-def todas_las_senales(estado: str = "", filtro: list[str] = Query(default=[]), desde: int = 0):
-    """Las semanas abiertas de todas las señales juntas, con una columna Señal. Filtra por columna = texto."""
-    nombres = {s["id"]: s["nombre"] for s in almacen.listar()}
-    filtros = {col: _normalizar_texto(valor) for col, valor in _filtros(filtro).items() if valor.strip()}
-    columnas = ["Señal", *semana.COLUMNAS_FOTO]
-    filas, cuentas, sin_foto = [], {"base": 0, "nueva_lista": 0, "revisar": 0}, []
-    for senal_id, foto in sorted(semanas.fotos().items(), key=lambda x: nombres.get(x[0], x[0]).lower()):
-        if foto is None:
-            sin_foto.append(senal_id)
-            continue
-        nombre = nombres.get(senal_id, senal_id)
-        for fila in foto:
-            completa = [nombre, *fila]
-            if not all(b in _normalizar_texto(completa[columnas.index(col)]) for col, b in filtros.items() if col in columnas):
-                continue
-            cuentas[fila[0]] = cuentas.get(fila[0], 0) + 1
-            if not estado or fila[0] == estado:
-                filas.append([senal_id, *completa])
-    return {"columnas": columnas, "filas": filas[desde:desde + POR_PAGINA_TODAS], "total": len(filas),
-            "cuentas": cuentas, "sin_foto": len(sin_foto)}
-
-
-def _normalizar_texto(texto) -> str:
-    return unicodedata.normalize("NFD", str(texto)).encode("ascii", "ignore").decode().lower()
-
-
-@api.post("/todas/actualizar")
-def actualizar_fotos():
-    """Arma la foto de las semanas abiertas que todavía no tienen, de a FOTOS_POR_PEDIDO."""
-    faltan = [s for s, foto in semanas.fotos().items() if foto is None]
-    errores = []
-    for senal_id in faltan[:FOTOS_POR_PEDIDO]:
-        try:
-            _semana_abierta(senal_id, _receta(senal_id))
-        except Exception as e:  # una grilla que ya no se lee no frena a las demás
-            errores.append(f"{senal_id}: {e}")
-            semanas.guardar_resumen(senal_id, semanas.leer(senal_id)["resumen"] or {}, [])
-    return {"quedan": max(len(faltan) - FOTOS_POR_PEDIDO, 0), "errores": errores}
-
-
 @api.get("/senales/{senal_id}/abierta")
 def ver_semana_abierta(senal_id: str):
     return _semana_abierta(senal_id, _receta(senal_id))
@@ -1440,6 +1264,11 @@ def fechar_abierta(senal_id: str, datos: Lunes):
         raise HTTPException(404, "Esta señal no tiene una semana abierta: subí la grilla")
     semanas.fijar_lunes(senal_id, datos.lunes)
     return _semana_abierta(senal_id, receta)
+
+
+class TextoPegado(BaseModel):
+    texto: str
+    fecha_inicio: str | None = None
 
 
 @api.post("/senales/{senal_id}/abierta/texto")
@@ -1497,7 +1326,7 @@ def _grilla_abierta(senal_id: str) -> dict:
     c = _correr(p)
     armado = _armar_semana(c, receta)
     resumen = armado["resumen"] | _fechas(c.salida, receta)
-    semanas.guardar_resumen(senal_id, resumen, armado["_foto"])
+    semanas.guardar_resumen(senal_id, resumen)
     avisos = _validar(c, receta)
     grupos = _clasificar(c, receta, avisos)
     n = min(len(c.salida), MAX_FILAS_GRILLA)
@@ -1762,25 +1591,6 @@ def limpiar_pautas(senal_id: str):
     return pautas.limpiar(senal_id)
 
 
-@api.post("/senales/{senal_id}/pautas/desde-ejemplos")
-def pautas_desde_ejemplos(senal_id: str, u: auth.Usuario = Depends(auth.usuario_actual)):
-    try:
-        receta = almacen.leer(senal_id)
-        nombres = almacen.listar_ejemplos(senal_id)
-    except (almacen.NoExiste, ValueError):
-        raise HTTPException(404, "No existe la señal")
-    total = {"agregadas": 0, "conflictos": 0, "errores": []}
-    for nombre in nombres:
-        try:
-            r = pautas.cargar_ejemplo(receta, *almacen.leer_ejemplo(senal_id, nombre), u.usuario)
-        except Exception as e:
-            total["errores"].append(f"{nombre}: {e}")
-            continue
-        total["agregadas"] += r["agregadas"]
-        total["conflictos"] += r["conflictos"]
-    return total
-
-
 # --- Catálogo de columnas ---
 
 @api.get("/catalogo")
@@ -1902,8 +1712,6 @@ def charla_asistente(p: PedidoAsistente, u: auth.Usuario = Depends(auth.usuario_
                                  proveedor, _persona(u))
     except cliente.ErrorAgente as e:
         raise HTTPException(502, str(e))
-    if c.recordar:
-        conversaciones.anotar(u.usuario, c.recordar)
     uso.registrar(u.usuario, p.senal.id if p.senal else "", "[charla] " + p.pedido, c.pasos, c.tokens_entrada,
                   c.tokens_salida, True, c.modelo)
     return asdict(c)
@@ -1912,7 +1720,6 @@ def charla_asistente(p: PedidoAsistente, u: auth.Usuario = Depends(auth.usuario_
 def _persona(u: auth.Usuario) -> asistente_ia.Persona:
     ficha = auth.perfiles().get(u.usuario, {})
     return asistente_ia.Persona(u.usuario, u.admin, ficha.get("nombre", ""), ficha.get("descripcion", ""),
-                                [n["texto"] for n in conversaciones.notas(u.usuario)],
                                 [(s["id"], s["nombre"]) for s in almacen.listar()])
 
 
@@ -1942,12 +1749,11 @@ def asistente(p: PedidoAsistente, u: auth.Usuario = Depends(auth.usuario_actual)
         tabla = _correr_tabla(p.tabla_id, p.senal)
         semana_antes = _semana_de(Pedido(tabla_id=p.tabla_id, senal=p.senal))
     else:
-        tabla = pd.DataFrame()  # pedidos sobre la base o de admin no necesitan grilla
+        tabla = pd.DataFrame()  # pedidos sobre la base no necesitan grilla
 
     cat = catalogo.leer()
     entorno = asistente_ia.Entorno(
-        foco=[i for i, g in enumerate(semana_antes[1]) if g["grupo"] == "revisar"] if semana_antes else [],
-        es_admin=u.admin, reglas_catalogo=[f"{c.nombre}: {c.regla or c.tipo}" for c in cat])
+        foco=[i for i, g in enumerate(semana_antes[1]) if g["grupo"] == "revisar"] if semana_antes else [])
     try:
         propuesta = asistente_ia.pedir(p.senal, tabla, p.pedido_con_contexto(), proveedor, ejemplos, objetivo=p.ejemplo,
                                        orden_columnas=[c.nombre for c in cat],
@@ -1962,8 +1768,6 @@ def asistente(p: PedidoAsistente, u: auth.Usuario = Depends(auth.usuario_actual)
         c["pautas"] = len(pautas.hashes_filtrados(p.senal.id, filtros=c["filtro"]))
         c["descripcion"] = (f"En las pautas con {', '.join(f'{k} = {v}' for k, v in c['filtro'].items())}, "
                             f"poner {c['columna']} = {c['valor'] if c['valor'] is not None else '(vacío)'}")
-    for a in respuesta["acciones_admin"]:
-        a["descripcion"] = acciones.describir(acciones.LISTA.validate_python([a])[0])
     if semana_antes and propuesta.receta:
         respuesta["efecto"] = _efecto(semana_antes, Pedido(tabla_id=p.tabla_id, senal=m.Senal(**propuesta.receta)))
     return respuesta

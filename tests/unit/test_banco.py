@@ -15,7 +15,6 @@ from tests.unit.test_cuadricula import _xlsx
 
 LECTURA = {"explicacion": "Cuadrícula.", "entrada_json": json.dumps({"tipo": "excel", "cuadricula": True})}
 REGLAS = {"explicacion": "Renombro el título.", "columnas_salida": None, "correcciones_base_json": "[]",
-          "acciones_admin_json": "[]",
           "tarjetas_json": json.dumps([{"id": "r1", "tipo": "renombrar", "mapa": {"Titulo": "Programa"}}])}
 
 

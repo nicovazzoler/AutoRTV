@@ -5,25 +5,11 @@ from pydantic import TypeAdapter
 
 from app.engine import model as m
 from app.engine.pipeline import aplicar, correr
-from app.engine.titulos import aprender
 from app.validate.grilla import validar
 
 tarjeta = TypeAdapter(m.Tarjeta).validate_python
 SEPARAR = {"id": "s", "tipo": "separar", "columna": "titulo", "modo": "titulos_conocidos",
            "respaldo": "min_mayus", "destinos": ["Programa", "Capitulo"]}
-
-
-def test_aprender_cuenta_y_limpia():
-    a = pd.DataFrame({"Programa": ["MacGyver", " MacGyver ", "Praise", None, 2024, "  "]})
-    b = pd.DataFrame({"TIT ING": ["Praise", "Joseph  Prince"]})
-    conteo, columna = aprender([a, b])
-    assert conteo == {"MacGyver": 2, "Praise": 2, "Joseph Prince": 1}
-    assert columna == "Programa"
-
-
-def test_aprender_con_columna_elegida():
-    conteo, columna = aprender([pd.DataFrame({"Show": ["A"], "Programa": ["B"]})], "Show")
-    assert dict(conteo) == {"A": 1} and columna == "Show"
 
 
 def test_separar_usa_los_titulos_de_la_senal():
