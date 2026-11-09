@@ -1,0 +1,60 @@
+# Regenera ARQUITECTURA.md para que el mapa no se desactualice. Un mapa viejo
+# es peor que ninguno, porque le creés.
+name: Mapa de arquitectura
+
+# Corre en los pull requests y también cuando algo va directo a main, porque
+# en este repo main no exige PR y si no se cubren los dos casos el mapa se
+# queda viejo justo cuando más cambia.
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+    # Sin esto, el commit que hace este mismo workflow lo volvería a disparar.
+    paths-ignore:
+      - 'ARQUITECTURA.md'
+
+# Por defecto el workflow sólo puede leer. Acá commitea, así que necesita
+# permiso de escritura.
+permissions:
+  contents: write
+
+jobs:
+  mapa:
+    name: Regenerar el mapa
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Descargar el código
+        uses: actions/checkout@v4
+        with:
+          # En un pull request, GitHub te deja parado en un commit de merge
+          # temporal que no pertenece a ninguna rama y el commit no tendría a
+          # dónde ir; head_ref es la rama real del PR. En un push a main,
+          # head_ref viene vacío y usamos la rama del push.
+          ref: ${{ github.head_ref || github.ref_name }}
+
+      # El script usa sólo la biblioteca estándar de Python: no instala nada.
+      - name: Preparar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Leer el repo y armar el mapa
+        run: python3 herramientas/mapa.py . --escribir
+
+      - name: Commitear sólo si cambió
+        run: |
+          # --porcelain detecta tanto un archivo modificado como uno nuevo
+          # sin trackear. Si está vacío, no hay nada que hacer.
+          if [ -z "$(git status --porcelain ARQUITECTURA.md)" ]; then
+            echo "El mapa no cambió. No hay nada que commitear."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add ARQUITECTURA.md
+          git commit -m "Actualiza el mapa de arquitectura"
+          git push
+          # Un push hecho con el token del workflow no vuelve a disparar
+          # workflows, así que esto no se puede morder la cola.
