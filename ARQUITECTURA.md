@@ -31,11 +31,7 @@ graph LR
 
 ## Qué datos toca cada pantalla
 
-Las tablas principales de cada pantalla. El detalle completo está abajo.
-
-```mermaid
-graph LR
-```
+Este proyecto no declara modelos con `__tablename__`, así que no se puede saber qué tablas toca cada pantalla leyendo el código. Si las consultas están en SQL suelto, el dato existe pero no de una forma que se pueda extraer sin adivinar.
 
 ## Librerías
 
