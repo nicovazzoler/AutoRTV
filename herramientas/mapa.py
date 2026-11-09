@@ -379,6 +379,8 @@ def mermaid_datos(por_pantalla, tope=3):
                 lineas.append(f'  {tid}[("{t}")]')
                 tablas_vistas.add(t)
             lineas.append(f"  {pid} --> {tid}")
+    if len(lineas) <= 2:  # solo quedaron la apertura y "graph LR"
+        return None
     lineas.append("```")
     return "\n".join(lineas)
 
@@ -435,13 +437,19 @@ def main():
         "",
         mermaid_piezas(deps, contar_pantallas(repo), len(solo_api(rutas_def)), len(set(clases.values())), procfile),
         "",
-        "## Qué datos toca cada pantalla",
-        "",
-        "Las tablas principales de cada pantalla. El detalle completo está abajo.",
-        "",
-        mermaid_datos(por_pantalla),
-        "",
     ]
+
+    datos = mermaid_datos(por_pantalla)
+    partes += ["## Qué datos toca cada pantalla", ""]
+    if datos:
+        partes += ["Las tablas principales de cada pantalla. El detalle "
+                   "completo está abajo.", "", datos, ""]
+    else:
+        partes += ["Este proyecto no declara modelos con `__tablename__`, así "
+                   "que no se puede saber qué tablas toca cada pantalla "
+                   "leyendo el código. Si las consultas están en SQL suelto, "
+                   "el dato existe pero no de una forma que se pueda extraer "
+                   "sin adivinar.", ""]
 
     filas_lib, _ = librerias(repo)
     if filas_lib:
