@@ -2,7 +2,7 @@
 
 Generado leyendo el repo. **No editar a mano**: lo regenera el CI en cada commit.
 
-Todo lo que figura acá está escrito en el código — dependencias declaradas, decoradores de ruta, `__tablename__` y las rutas que nombran los archivos del front. Nada está inferido por un modelo.
+Todo lo que figura acá está escrito en el código. Nada está inferido por un modelo de lenguaje: si algo no se puede probar leyendo el repo, no aparece.
 
 ## Las piezas
 
@@ -28,10 +28,6 @@ graph LR
   POSTGRES["PostgreSQL"]
   API --> POSTGRES
 ```
-
-## Qué datos toca cada pantalla
-
-Este proyecto no declara modelos con `__tablename__`, así que no se puede saber qué tablas toca cada pantalla leyendo el código. Si las consultas están en SQL suelto, el dato existe pero no de una forma que se pueda extraer sin adivinar.
 
 ## Librerías
 
@@ -327,4 +323,4 @@ De dónde sale: la versión, de `requirements*.txt`; el uso, de los `import` de 
 ## Lo que no se pudo probar
 
 - Endpoints que ninguna pantalla nombra: **0**. Pueden ser internos, llamarse con la ruta armada en tiempo de ejecución, o estar muertos.
-- Tablas declaradas en `models.py`: **0**; las que no aparecen arriba no las toca ningún endpoint que el front nombre.
+- Ningún modelo declara `__tablename__`, así que no se puede saber qué tablas toca cada endpoint. Si las consultas van en SQL suelto, el dato está pero no de una forma que se extraiga sin adivinar.
