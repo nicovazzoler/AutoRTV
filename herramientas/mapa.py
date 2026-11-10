@@ -440,16 +440,10 @@ def main():
     ]
 
     datos = mermaid_datos(por_pantalla)
-    partes += ["## Qué datos toca cada pantalla", ""]
     if datos:
-        partes += ["Las tablas principales de cada pantalla. El detalle "
+        partes += ["## Qué datos toca cada pantalla", "",
+                   "Las tablas principales de cada pantalla. El detalle "
                    "completo está abajo.", "", datos, ""]
-    else:
-        partes += ["Este proyecto no declara modelos con `__tablename__`, así "
-                   "que no se puede saber qué tablas toca cada pantalla "
-                   "leyendo el código. Si las consultas están en SQL suelto, "
-                   "el dato existe pero no de una forma que se pueda extraer "
-                   "sin adivinar.", ""]
 
     filas_lib, _ = librerias(repo)
     if filas_lib:
@@ -492,8 +486,12 @@ def main():
         "",
         f"- Endpoints que ninguna pantalla nombra: **{max(sin_front, 0)}**. "
         "Pueden ser internos, llamarse con la ruta armada en tiempo de ejecución, o estar muertos.",
-        f"- Tablas declaradas en `models.py`: **{len(set(clases.values()))}**; "
-        "las que no aparecen arriba no las toca ningún endpoint que el front nombre.",
+        (f"- Tablas declaradas: **{len(set(clases.values()))}**; las que no "
+         "aparecen arriba no las toca ningún endpoint que el front nombre."
+         if clases else
+         "- Ningún modelo declara `__tablename__`, así que no se puede saber "
+         "qué tablas toca cada endpoint. Si las consultas van en SQL suelto, "
+         "el dato está pero no de una forma que se extraiga sin adivinar."),
         "",
     ]
 
