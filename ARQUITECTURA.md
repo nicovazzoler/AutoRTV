@@ -2,7 +2,7 @@
 
 Generado leyendo el repo. **No editar a mano**: lo regenera el CI en cada commit.
 
-Todo lo que figura acá está escrito en el código — dependencias declaradas, decoradores de ruta, `__tablename__` y las rutas que nombran los archivos del front. Nada está inferido por un modelo.
+Todo lo que figura acá está escrito en el código. Nada está inferido por un modelo de lenguaje: si algo no se puede probar leyendo el repo, no aparece.
 
 ## Las piezas
 

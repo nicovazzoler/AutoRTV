@@ -77,8 +77,7 @@ def librerias(repo):
     importa algo que no esta declarado, tambien.
     """
     declaradas = {}
-    pyproject = repo / "pyproject.toml"
-    if pyproject.is_file():
+    for pyproject in sorted(_mirar(repo, "pyproject.toml")):
         texto = pyproject.read_text(encoding="utf-8", errors="replace")
         bloque = re.search(r"dependencies\s*=\s*\[(.*?)\]", texto, re.S)
         if bloque:
@@ -86,7 +85,7 @@ def librerias(repo):
                 m2 = re.match(r"([A-Za-z0-9_.-]+)", item)
                 if m2:
                     declaradas.setdefault(m2.group(1).lower(), "ver pyproject")
-    for req in sorted(repo.glob("requirements*.txt")):
+    for req in sorted(_mirar(repo, "requirements*.txt")):
         for linea in req.read_text(encoding="utf-8", errors="replace").splitlines():
             linea = linea.strip()
             if not linea or linea.startswith(("#", "-")):
@@ -134,8 +133,10 @@ def contar_pantallas(repo):
     for archivo in _mirar(repo, "*"):
         if archivo.is_file() and archivo.suffix in ext:
             partes = archivo.relative_to(repo).parts
-            if any(d in ("static", "front", "frontend", "src", "public", "web")
-                   for d in partes[:-1]):
+            if (len(partes) == 1
+                    or any(d in ("static", "front", "frontend", "src",
+                                 "public", "web", "paginas", "pages")
+                           for d in partes[:-1])):
                 n += 1
     return n
 
@@ -146,6 +147,38 @@ def corto(ruta):
         if ruta.startswith(pre):
             return ruta[len(pre):]
     return ruta
+
+
+def hosts_externos(repo):
+    """Dominios que nombran los archivos del front. Un sitio estatico no
+    tiene API propia, pero igual le habla a alguien."""
+    conocidos = {
+        "googleapis.com": "Google APIs",
+        "drive.google.com": "Google Drive",
+        "docs.google.com": "Google Docs",
+        "api.whatsapp.com": "WhatsApp",
+        "wa.me": "WhatsApp",
+        "api.mercadopago.com": "Mercado Pago",
+        "api.anthropic.com": "Claude · API de Anthropic",
+        "api.openai.com": "OpenAI",
+    }
+    ruido = ("w3.org", "schema.org", "fonts.googleapis.com", "fonts.gstatic.com",
+             "github.com", "localhost", "example.com", "unpkg.com", "jsdelivr.net")
+    vistos = {}
+    extensiones = {".html", ".js", ".mjs", ".jsx", ".ts", ".tsx", ".vue"}
+    for archivo in _mirar(repo, "*"):
+        if not archivo.is_file() or archivo.suffix not in extensiones:
+            continue
+        texto = archivo.read_text(encoding="utf-8", errors="replace")
+        for host in set(re.findall(r"https?://([A-Za-z0-9.-]+)", texto)):
+            host = host.lower().rstrip(".")
+            if host.endswith(ruido) or host in ruido:
+                continue
+            for clave, lindo in conocidos.items():
+                if host == clave or host.endswith("." + clave):
+                    vistos[lindo] = "externo"
+                    break
+    return vistos
 
 
 def dependencias(repo):
@@ -327,16 +360,20 @@ def emparejar(path_front, rutas_def, prefijos=()):
 def mermaid_piezas(deps, n_pantallas, n_rutas, n_tablas, procfile):
     lineas = ["```mermaid", "graph LR"]
     lineas.append(f'  FRONT["{n_pantallas} pantallas<br/>HTML + JS"]')
-    lineas.append(f'  API["API<br/>FastAPI · {n_rutas} endpoints"]')
-    lineas.append("  FRONT --> API")
+    hay_api = n_rutas > 0
+    if hay_api:
+        lineas.append(f'  API["API<br/>FastAPI · {n_rutas} endpoints"]')
+    if hay_api:
+        lineas.append("  FRONT --> API")
+    centro = "API" if hay_api else "FRONT"
     if n_tablas:
         lineas.append(f'  DB[("Base de datos<br/>{n_tablas} tablas")]')
-        lineas.append("  API --> DB")
+        lineas.append(f"  {centro} --> DB")
     elif any(t == "datos" for t in deps.values()):
         # Hay motor de base declarado pero ningun modelo con __tablename__:
         # las tablas pueden estar en SQL suelto. No ponemos un numero falso.
         lineas.append('  DB[("Base de datos<br/>sin modelos declarados")]')
-        lineas.append("  API --> DB")
+        lineas.append(f"  {centro} --> DB")
     usados = {"FRONT", "API", "DB", "DEPLOY"}
     for pieza, tipo in sorted(deps.items()):
         if pieza in ("API", "Base de datos"):
@@ -351,10 +388,10 @@ def mermaid_piezas(deps, n_pantallas, n_rutas, n_tablas, procfile):
             n += 1
         usados.add(clave)
         lineas.append(f'  {clave}["{pieza}"]')
-        lineas.append(f"  API --> {clave}")
+        lineas.append(f"  {centro} --> {clave}")
     if procfile:
         lineas.append(f'  DEPLOY["Deploy<br/>{procfile}"]')
-        lineas.append("  API -.-> DEPLOY")
+        lineas.append(f"  {centro} -.-> DEPLOY")
     lineas.append("```")
     return "\n".join(lineas)
 
@@ -398,6 +435,7 @@ def main():
     clases = tablas(repo)
     rutas_def = rutas(repo, clases)
     deps = dependencias(repo)
+    deps.update(hosts_externos(repo))
     front = frente(repo)
     proc = (repo / "Procfile")
     procfile = proc.read_text(encoding="utf-8").strip().split(":")[0] if proc.exists() else ""
@@ -429,9 +467,9 @@ def main():
         "",
         "Generado leyendo el repo. **No editar a mano**: lo regenera el CI en cada commit.",
         "",
-        "Todo lo que figura acá está escrito en el código — dependencias declaradas, "
-        "decoradores de ruta, `__tablename__` y las rutas que nombran los archivos del "
-        "front. Nada está inferido por un modelo.",
+        "Todo lo que figura acá está escrito en el código. Nada está inferido "
+        "por un modelo de lenguaje: si algo no se puede probar leyendo el "
+        "repo, no aparece.",
         "",
         "## Las piezas",
         "",
@@ -459,11 +497,13 @@ def main():
             partes.append(f"| `{nombre}` | {version} | {donde} |")
         partes.append("")
 
-    partes += [
-        "<details>",
-        "<summary><b>Desglose por pantalla</b> — endpoints y tablas, uno por uno</summary>",
-        "",
-    ]
+    con_rutas = {k: v for k, v in por_pantalla.items() if v["rutas"]}
+    if con_rutas:
+        partes += [
+            "<details>",
+            "<summary><b>Desglose por pantalla</b> — endpoints y tablas, uno por uno</summary>",
+            "",
+        ]
 
     for pantalla, info in sorted(por_pantalla.items()):
         tabs = sorted({t for _, _, _, ts in info["rutas"] for t in ts})
@@ -479,21 +519,26 @@ def main():
                 partes.append(f"| {metodo} | `{path}` | `{fn}` | {', '.join(ts) if ts else '—'} |")
             partes.append("")
 
-    partes += [
-        "</details>",
-        "",
-        "## Lo que no se pudo probar",
-        "",
-        f"- Endpoints que ninguna pantalla nombra: **{max(sin_front, 0)}**. "
-        "Pueden ser internos, llamarse con la ruta armada en tiempo de ejecución, o estar muertos.",
-        (f"- Tablas declaradas: **{len(set(clases.values()))}**; las que no "
-         "aparecen arriba no las toca ningún endpoint que el front nombre."
-         if clases else
-         "- Ningún modelo declara `__tablename__`, así que no se puede saber "
-         "qué tablas toca cada endpoint. Si las consultas van en SQL suelto, "
-         "el dato está pero no de una forma que se extraiga sin adivinar."),
-        "",
-    ]
+    if con_rutas:
+        partes += ["</details>", ""]
+
+    pendientes = []
+    if rutas_api:
+        pendientes.append(
+            f"- Endpoints que ninguna pantalla nombra: **{max(sin_front, 0)}**. "
+            "Pueden ser internos, llamarse con la ruta armada en tiempo de "
+            "ejecución, o estar muertos.")
+    if clases:
+        pendientes.append(
+            f"- Tablas declaradas: **{len(set(clases.values()))}**; las que no "
+            "aparecen arriba no las toca ningún endpoint que el front nombre.")
+    elif rutas_api:
+        pendientes.append(
+            "- Ningún modelo declara `__tablename__`, así que no se puede saber "
+            "qué tablas toca cada endpoint. Si las consultas van en SQL suelto, "
+            "el dato está pero no de una forma que se extraiga sin adivinar.")
+    if pendientes:
+        partes += ["## Lo que no se pudo probar", ""] + pendientes + [""]
 
     texto = "\n".join(partes)
     if args.escribir:
